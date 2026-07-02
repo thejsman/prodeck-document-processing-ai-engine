@@ -96,7 +96,7 @@ export function registerChatRoutes(
     if (stream) {
       // ── Streaming SSE response ──────────────────────────────────
       reply.raw.writeHead(200, {
-        'Content-Type': 'text/event-stream',
+        'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
         'X-Accel-Buffering': 'no',
@@ -373,7 +373,7 @@ export function registerChatRoutes(
       }
 
       const raw = reply.raw;
-      raw.setHeader('Content-Type', 'text/event-stream');
+      raw.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
       raw.setHeader('Cache-Control', 'no-cache');
       raw.setHeader('Connection', 'keep-alive');
       raw.setHeader('X-Accel-Buffering', 'no');

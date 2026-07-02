@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { X, Sparkles, Check, Loader, Globe, AlertTriangle, Building2 } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
@@ -291,7 +292,7 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
     if (phase === 'form' || phase === 'error') onClose();
   }
 
-  return (
+  return createPortal(
     <div
       style={{
         position: 'fixed',
@@ -600,6 +601,7 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

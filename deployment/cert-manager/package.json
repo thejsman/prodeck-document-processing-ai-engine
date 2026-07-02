@@ -1,0 +1,11 @@
+{
+  "name": "cert-manager",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Lightweight HTTP API for provisioning Let's Encrypt certs for custom domains",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {}
+}

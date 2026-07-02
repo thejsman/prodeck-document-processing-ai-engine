@@ -59,6 +59,7 @@ CONTENT RULES (non-negotiable):
 - Every major heading (##) in the proposal MUST become a section
 - Extract stats only from values you can directly count in the document
 - Primary tone must match the proposal's voice (authoritative, consultative, warm, etc.)
+- NEVER use em dashes (—) in any text — use a comma, colon, parentheses, or rewrite the sentence
 
 SECTION MAPPING:
 - Executive Summary / Introduction → sectionType: "overview"
@@ -309,7 +310,8 @@ export async function generateStructuredMicrosite(
   }
 
   const data = await res.json() as { content: Array<{ type: string; text: string }> };
-  const raw  = data.content.filter(b => b.type === 'text').map(b => b.text).join('');
+  const raw  = data.content.filter(b => b.type === 'text').map(b => b.text).join('')
+    .replace(/ — /g, ', ').replace(/—/g, '-'); // strip em dashes the LLM generates
 
   // Strip markdown fences if present
   const cleaned = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();

@@ -65,4 +65,7 @@ http {
             proxy_set_header   X-Forwarded-Proto $scheme;
         }
     }
+
+    # ── Custom domain server blocks (written by cert-manager) ────
+    include /etc/nginx/conf.d/*.conf;
 }

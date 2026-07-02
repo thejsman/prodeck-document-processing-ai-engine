@@ -7,13 +7,14 @@ import { savePublishMeta } from '@/lib/api';
 export type PublishStatus = 'idle' | 'publishing' | 'success' | 'error';
 
 export interface UsePublishMicrosite {
-  publish: (namespace: string, ast: LayoutAST, subdomain: string, proposalId: string, apiKey: string) => Promise<void>;
+  publish: (namespace: string, ast: LayoutAST, subdomain: string, proposalId: string, apiKey: string, password?: string) => Promise<void>;
   reset: () => void;
-  restoreFromMeta: (meta: { subdomain: string; url: string; publishedAt: string }) => void;
+  restoreFromMeta: (meta: { subdomain?: string; url: string; publishedAt: string; passwordProtected?: boolean }) => void;
   status: PublishStatus;
   url: string | null;
   subdomain: string | null;
   publishedAt: string | null;
+  passwordProtected: boolean;
   error: string | null;
 }
 
@@ -22,6 +23,7 @@ interface PublishResponse {
   subdomain: string;
   namespace: string;
   publishedAt: string;
+  passwordProtected?: boolean;
 }
 
 interface ErrorResponse {
@@ -33,17 +35,18 @@ export function usePublishMicrosite(): UsePublishMicrosite {
   const [url, setUrl] = useState<string | null>(null);
   const [subdomain, setSubdomain] = useState<string | null>(null);
   const [publishedAt, setPublishedAt] = useState<string | null>(null);
+  const [passwordProtected, setPasswordProtected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const publish = useCallback(
-    async (ns: string, ast: LayoutAST, sub: string, proposalId: string, apiKey: string) => {
+    async (ns: string, ast: LayoutAST, sub: string, proposalId: string, apiKey: string, password?: string) => {
       setStatus('publishing');
       setError(null);
       try {
         const res = await fetch('/api/publish', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ namespace: ns, ast, subdomain: sub }),
+          body: JSON.stringify({ namespace: ns, ast, subdomain: sub, password }),
         });
         if (!res.ok) {
           const data = (await res.json().catch(() => null)) as ErrorResponse | null;
@@ -53,6 +56,7 @@ export function usePublishMicrosite(): UsePublishMicrosite {
         setUrl(data.url);
         setSubdomain(data.subdomain);
         setPublishedAt(data.publishedAt);
+        setPasswordProtected(!!data.passwordProtected);
         setStatus('success');
         // Persist so any browser/user can see the previously published URL
         savePublishMeta(apiKey, ns, proposalId, {
@@ -73,15 +77,18 @@ export function usePublishMicrosite(): UsePublishMicrosite {
     setUrl(null);
     setSubdomain(null);
     setPublishedAt(null);
+    setPasswordProtected(false);
     setError(null);
   }, []);
 
-  const restoreFromMeta = useCallback((meta: { subdomain: string; url: string; publishedAt: string }) => {
+  const restoreFromMeta = useCallback((meta: { subdomain?: string; url: string; publishedAt: string; passwordProtected?: boolean }) => {
+    if (!meta.subdomain) return; // custom domain publish — not for this hook
     setUrl(meta.url);
     setSubdomain(meta.subdomain);
     setPublishedAt(meta.publishedAt);
+    setPasswordProtected(meta.passwordProtected ?? false);
     setStatus('success');
   }, []);
 
-  return { publish, reset, restoreFromMeta, status, url, subdomain, publishedAt, error };
+  return { publish, reset, restoreFromMeta, status, url, subdomain, publishedAt, passwordProtected, error };
 }

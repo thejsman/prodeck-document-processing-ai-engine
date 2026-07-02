@@ -698,22 +698,29 @@ export async function publishMicrosite(
   return handleResponse<{ downloadUrl: string; size: number }>(res);
 }
 
+export interface PublishMeta {
+  subdomain?: string;
+  customDomain?: string;
+  url: string;
+  publishedAt: string;
+}
+
 export async function fetchPublishMeta(
   namespace: string,
   proposalId: string,
-): Promise<{ subdomain: string; url: string; publishedAt: string } | null> {
+): Promise<PublishMeta | null> {
   const res = await fetch(
     `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/publish-meta`,
   );
   if (!res.ok) return null;
-  return res.json() as Promise<{ subdomain: string; url: string; publishedAt: string } | null>;
+  return res.json() as Promise<PublishMeta | null>;
 }
 
 export async function savePublishMeta(
   apiKey: string,
   namespace: string,
   proposalId: string,
-  meta: { subdomain: string; url: string; publishedAt: string },
+  meta: PublishMeta,
 ): Promise<void> {
   await fetch(
     `/api/presentations/${encodeURIComponent(namespace)}/${encodeURIComponent(proposalId)}/publish-meta`,
@@ -774,6 +781,7 @@ export interface AgentRunResult {
 export type StreamEvent =
   | { type: 'start'; message: string }
   | { type: 'progress'; message: string }
+  | { type: 'html_chunk'; chunk: string }
   | { type: 'plan'; totalSections: number; sectionTypes: string[] }
   | { type: 'section'; id: string; heading: string; sectionType: string; content: Record<string, unknown>; index?: number; image?: { source: string; query: string; url: string | null; fallback: string }; editable?: boolean; version?: number }
   | { type: 'image'; sectionId: string; url: string }
@@ -2100,12 +2108,68 @@ export async function analyzeProposalV2(
 
 // ── V2 Generate Stream ───────────────────────────────────────────────────────
 
+export interface V2StreamContextImage {
+  url: string;
+  analysis: {
+    index: number;
+    source: unknown;
+    metadata: {
+      description: string;
+      objects: string[];
+      dominantColors: string[];
+      readableText: string;
+      formatHint: string;
+      tags: string[];
+      sentiment: string;
+      dimensions: { width: number; height: number } | null;
+    };
+  };
+  placementHint?: string;
+}
+
+// PreparedImage is the output of the /images/prepare skill
+export type PreparedImage = V2StreamContextImage;
+
+export interface PrepareImagesOptions {
+  images: Array<{ base64: string; mediaType: string }>;
+  proposalMarkdown?: string;
+  userInstructions?: string;
+}
+
+export async function prepareImages(
+  apiKey: string,
+  namespace: string,
+  opts: PrepareImagesOptions,
+): Promise<PreparedImage[]> {
+  const res = await fetch(
+    `/api/presentations/${encodeURIComponent(namespace)}/images/prepare`,
+    {
+      method: 'POST',
+      headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        images: opts.images,
+        ...(opts.proposalMarkdown ? { proposalMarkdown: opts.proposalMarkdown } : {}),
+        ...(opts.userInstructions ? { userInstructions: opts.userInstructions } : {}),
+      }),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => 'unknown error');
+    throw new Error(`Image prepare failed (${res.status}): ${text}`);
+  }
+  const data = await res.json() as { images: PreparedImage[] };
+  return data.images;
+}
+
 export interface V2StreamOptions {
   proposalMarkdown: string;
   userPrompt?: string;
   designPrompt?: string;
   referenceImage?: { base64: string; mediaType: string };
   coldStart?: boolean;
+  pdfPresentation?: boolean;
+  pdfOrientation?: "landscape" | "portrait";
+  contextImages?: V2StreamContextImage[];
   onEvent: (event: StreamEvent) => void;
   signal?: AbortSignal;
 }
@@ -2125,6 +2189,9 @@ export async function generateMicrositeV2Stream(
       ...(opts.designPrompt ? { designPrompt: opts.designPrompt } : {}),
       ...(opts.referenceImage ? { referenceImage: opts.referenceImage } : {}),
       ...(opts.coldStart ? { coldStart: true } : {}),
+      ...(opts.pdfPresentation ? { pdfPresentation: true } : {}),
+      ...(opts.pdfOrientation ? { pdfOrientation: opts.pdfOrientation } : {}),
+      ...(opts.contextImages?.length ? { contextImages: opts.contextImages } : {}),
     }),
     signal: opts.signal,
   });
@@ -2137,6 +2204,7 @@ export async function generateMicrositeV2Stream(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let completed = false;
 
   try {
     while (true) {
@@ -2149,9 +2217,13 @@ export async function generateMicrositeV2Stream(
         if (!line.startsWith('data: ')) continue;
         try {
           const event = JSON.parse(line.slice(6)) as StreamEvent;
+          if (event.type === 'complete' || event.type === 'error') completed = true;
           opts.onEvent(event);
         } catch { /* malformed line — skip */ }
       }
+    }
+    if (!completed) {
+      throw new Error('Generation stream ended without completing — please try again');
     }
   } finally {
     reader.releaseLock();
@@ -2173,6 +2245,7 @@ export interface SuperClientHistoryEntry {
   role: 'user' | 'assistant';
   content: string;
   createdAt: string;
+  editContext?: 'microsite' | 'proposal';
 }
 
 export interface SuperClientDetail {
@@ -2227,6 +2300,40 @@ export async function getSuperClient(apiKey: string, name: string): Promise<Supe
   const res = await fetch(`/api/super-clients/${name}`, { headers: authHeadersNoBody(apiKey) });
   if (!res.ok) throw new Error(`getSuperClient failed: ${res.status}`);
   return res.json() as Promise<SuperClientDetail>;
+}
+
+export interface SuperClientGenerationEntry {
+  id: string;
+  clientSlug: string;
+  type: 'proposal' | 'microsite';
+  phase: 'generating' | 'complete' | 'error';
+  title: string;
+  steps: string[];
+  createdAt?: string;
+  charCount?: number;
+  error?: string;
+  result?: { fileName?: string; micrositeId?: string };
+}
+
+export async function getSuperClientGenerations(apiKey: string, name: string): Promise<SuperClientGenerationEntry[]> {
+  const res = await fetch(`/api/super-clients/${name}/generations`, { headers: authHeadersNoBody(apiKey) });
+  if (!res.ok) return [];
+  return res.json() as Promise<SuperClientGenerationEntry[]>;
+}
+
+export async function upsertSuperClientGeneration(apiKey: string, name: string, gen: SuperClientGenerationEntry): Promise<void> {
+  await fetch(`/api/super-clients/${name}/generations/${gen.id}`, {
+    method: 'PUT',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(gen),
+  });
+}
+
+export async function deleteSuperClientGeneration(apiKey: string, name: string, id: string): Promise<void> {
+  await fetch(`/api/super-clients/${name}/generations/${id}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
 }
 
 export async function deleteSuperClient(apiKey: string, name: string): Promise<void> {
@@ -2299,6 +2406,8 @@ export interface SuperClientMicrosite {
   title: string;
   proposalTitle: string;
   savedAt: string;
+  pdfPresentation?: boolean;
+  pdfOrientation?: 'landscape' | 'portrait';
 }
 
 export async function listSuperClientMicrosites(apiKey: string, name: string): Promise<SuperClientMicrosite[]> {
@@ -2313,6 +2422,17 @@ export async function getSuperClientMicrosite(apiKey: string, name: string, id: 
   if (!res.ok) throw new Error(`getSuperClientMicrosite failed: ${res.status}`);
   const json = await res.json() as { ast: import('@/types/presentation').LayoutAST };
   return json.ast;
+}
+
+export async function exportSuperClientMicrositeAsPdf(apiKey: string, name: string, id: string, orientation: "landscape" | "portrait" = "landscape"): Promise<Blob> {
+  const res = await fetch(`/api/super-clients/${encodeURIComponent(name)}/microsites/${encodeURIComponent(id)}/export-pdf?orientation=${orientation}`, {
+    headers: authHeadersNoBody(apiKey),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(err.error ?? `PDF export failed: ${res.status}`);
+  }
+  return res.blob();
 }
 
 export async function saveSuperClientMicrosite(
@@ -2344,11 +2464,14 @@ export async function editSuperClientMicrosite(
   name: string,
   id: string,
   instruction: string,
+  currentHtml?: string,
 ): Promise<{ html: string; summary: string }> {
   const res = await fetch(`/api/super-clients/${encodeURIComponent(name)}/microsites/${encodeURIComponent(id)}/edit`, {
     method: 'POST',
     headers: { ...authHeaders(apiKey), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ instruction }),
+    // Send current in-memory HTML so the server doesn't rely on a potentially
+    // stale disk file (happens when a previous LLM edit failed to persist).
+    body: JSON.stringify({ instruction, currentHtml }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({})) as { error?: string };
@@ -2409,6 +2532,18 @@ export interface SuperClientChatEvent {
   proposalUpdated?: SuperClientProposal;
 }
 
+export async function appendSuperClientHistory(
+  apiKey: string,
+  name: string,
+  messages: Array<{ role: 'user' | 'assistant'; content: string; createdAt?: string; editContext?: 'microsite' | 'proposal' }>,
+): Promise<void> {
+  await fetch(`/api/super-clients/${name}/history/append`, {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ messages }),
+  });
+}
+
 export async function streamSuperClientChat(
   apiKey: string,
   name: string,
@@ -2451,4 +2586,214 @@ export async function streamSuperClientChat(
   } finally {
     reader.releaseLock();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Org-level Inspiration & Global Context — Author Voice (Phase 1)
+// ---------------------------------------------------------------------------
+
+export interface AuthorVoiceWeightedItem {
+  value: string;
+  weight: number;
+}
+
+export interface AuthorVoice {
+  version: number;
+  updatedAt: string;
+  docCount: number;
+  tone: string[];
+  formality: 'casual' | 'neutral' | 'formal' | 'highly-formal';
+  sectionPatterns: string[];
+  openingStyle: string;
+  closingStyle: string;
+  recurringPhrases: AuthorVoiceWeightedItem[];
+  vocabulary: AuthorVoiceWeightedItem[];
+  persuasionPatterns: AuthorVoiceWeightedItem[];
+  formatting: string[];
+  sourceProfileIds: string[];
+}
+
+export interface VoiceDocEntry {
+  id: string;
+  sourceDocument: string;
+  size: number;
+  uploadedAt: string;
+  status: 'processing' | 'extracted' | 'failed';
+  error?: string;
+}
+
+export interface OrgContextSettings {
+  applyAuthorVoice: boolean;
+  applyDesignKit: boolean;
+  recencyMultiplier: number;
+}
+
+export async function fetchAuthorVoice(apiKey: string): Promise<AuthorVoice | null> {
+  const res = await fetch('/api/org-context/voice', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ voice: AuthorVoice | null }>(res);
+  return data.voice;
+}
+
+export async function fetchVoiceDocuments(apiKey: string): Promise<VoiceDocEntry[]> {
+  const res = await fetch('/api/org-context/voice/documents', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ documents: VoiceDocEntry[] }>(res);
+  return data.documents;
+}
+
+export async function uploadVoiceDocument(
+  apiKey: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/org-context/voice/documents/upload');
+    if (apiKey) xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Upload failed (${xhr.status}): ${xhr.responseText}`));
+    };
+    xhr.onerror = () => reject(new Error('Upload network error'));
+    const fd = new FormData();
+    fd.append('file', file);
+    xhr.send(fd);
+  });
+}
+
+export async function deleteVoiceDocument(apiKey: string, id: string): Promise<AuthorVoice> {
+  const res = await fetch(`/api/org-context/voice/documents/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  const data = await handleResponse<{ voice: AuthorVoice }>(res);
+  return data.voice;
+}
+
+export async function recomputeAuthorVoice(apiKey: string): Promise<AuthorVoice> {
+  const res = await fetch('/api/org-context/voice/regenerate', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+  });
+  const data = await handleResponse<{ voice: AuthorVoice }>(res);
+  return data.voice;
+}
+
+export async function fetchOrgContextSettings(apiKey: string): Promise<OrgContextSettings> {
+  const res = await fetch('/api/org-context/settings', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ settings: OrgContextSettings }>(res);
+  return data.settings;
+}
+
+export async function saveOrgContextSettings(
+  apiKey: string,
+  patch: Partial<OrgContextSettings>,
+): Promise<OrgContextSettings> {
+  const res = await fetch('/api/org-context/settings', {
+    method: 'PUT',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify(patch),
+  });
+  const data = await handleResponse<{ settings: OrgContextSettings }>(res);
+  return data.settings;
+}
+
+// ── Design Kit (Phase 2) ──────────────────────────────────────────────────────
+
+export type AssetType = 'logo' | 'hero' | 'background' | 'palette' | 'typography' | 'inspiration' | 'other';
+
+export interface AssetMetadata {
+  id: string;
+  fileName: string;
+  mediaType: string;
+  size: number;
+  uploadedAt: string;
+  assetType: AssetType;
+  isPrimary: boolean;
+  palette: string[];
+  fontHints: string[];
+  tags: string[];
+  description: string;
+  status: 'processing' | 'tagged' | 'failed';
+  error?: string;
+}
+
+export interface DesignKit {
+  primaryColor: string | null;
+  palette: string[];
+  fontHints: string[];
+  logoAssetId: string | null;
+  heroAssetId: string | null;
+  designBrief: string;
+  dominantColors: string[];
+  updatedAt: string;
+}
+
+export async function fetchDesignAssets(apiKey: string): Promise<AssetMetadata[]> {
+  const res = await fetch('/api/org-context/assets', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ assets: AssetMetadata[] }>(res);
+  return data.assets;
+}
+
+export async function uploadDesignAsset(
+  apiKey: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/org-context/assets/upload');
+    if (apiKey) xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error(`Upload failed (${xhr.status}): ${xhr.responseText}`));
+    };
+    xhr.onerror = () => reject(new Error('Upload network error'));
+    const fd = new FormData();
+    fd.append('file', file);
+    xhr.send(fd);
+  });
+}
+
+export async function deleteDesignAsset(apiKey: string, id: string): Promise<DesignKit> {
+  const res = await fetch(`/api/org-context/assets/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: authHeadersNoBody(apiKey),
+  });
+  const data = await handleResponse<{ designKit: DesignKit }>(res);
+  return data.designKit;
+}
+
+export async function setAssetPrimary(apiKey: string, id: string, isPrimary: boolean): Promise<AssetMetadata[]> {
+  const res = await fetch(`/api/org-context/assets/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: authHeaders(apiKey),
+    body: JSON.stringify({ isPrimary }),
+  });
+  const data = await handleResponse<{ assets: AssetMetadata[] }>(res);
+  return data.assets;
+}
+
+export async function fetchDesignKit(apiKey: string): Promise<DesignKit | null> {
+  const res = await fetch('/api/org-context/design-kit', { headers: authHeadersNoBody(apiKey) });
+  const data = await handleResponse<{ designKit: DesignKit | null }>(res);
+  return data.designKit;
+}
+
+export async function recomputeDesignKit(apiKey: string): Promise<DesignKit> {
+  const res = await fetch('/api/org-context/design-kit/regenerate', {
+    method: 'POST',
+    headers: authHeaders(apiKey),
+  });
+  const data = await handleResponse<{ designKit: DesignKit }>(res);
+  return data.designKit;
 }

@@ -139,6 +139,12 @@ function resolveImageUrl(rawUrl: string): string {
   return rawUrl.startsWith('/presentation-images/') ? `/api${rawUrl}` : rawUrl;
 }
 
+// Post-processing: replace em dashes the LLM generates despite being told not to.
+// " — " (spaced) → ", "  |  bare "—" → "-"
+function stripEmDashes(s: string): string {
+  return s.replace(/ — /g, ', ').replace(/—/g, '-');
+}
+
 const LAYOUT_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'] as const;
 
 interface HeroProposalMeta {
@@ -356,6 +362,7 @@ export async function generateSectionHtml(
     `- Card/grid sections: each card MUST have a title AND a description of ≥2 sentences`,
     `- Timeline sections: show phase name, duration, AND owner (Agency/Client/Joint) if present in content JSON`,
     `- Deliverables sections: show bullet-point deliverables per workstream, NOT just workstream names`,
+    `- NEVER use em dashes (—) in any text — use a comma, colon, parentheses, or rewrite the sentence`,
     ``,
     `LAYOUT SAFETY RULES (prevent clipping, overflow, and card overlap — non-negotiable):`,
     `- NEVER use overflow:hidden on any element that contains body text or list content`,
@@ -390,15 +397,19 @@ export async function generateSectionHtml(
   ].filter(line => line !== '').join('\n');
 
   const raw = await generateFn(prompt);
-  const cleaned = raw.replace(/^```(?:html)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+  const cleaned = raw
+    .replace(/^```(?:html)?\s*/m, '').replace(/\s*```\s*$/m, '')
+    .replace(/```(?:html|css|js|javascript|typescript|text|xml)?\s*\r?\n([\s\S]*?)\r?\n```/g, '')
+    .replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/gi, (match) => /&lt;|&gt;|&amp;lt;/.test(match) ? '' : match)
+    .trim();
 
   // Deterministically inject the 4-column metadata strip at the bottom of the hero.
   // Post-processing guarantees the strip even if the LLM ignores or rephrases the instruction.
   if (sectionType === 'hero' && heroMeta) {
-    return injectHeroMetadataStrip(cleaned, heroMeta);
+    return stripEmDashes(injectHeroMetadataStrip(cleaned, heroMeta));
   }
 
-  return cleaned;
+  return stripEmDashes(cleaned);
 }
 
 export interface CSSTheme {

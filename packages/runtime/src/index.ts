@@ -9,3 +9,4 @@ export * from './knowledge/index.js';
 export * from './memory/index.js';
 export * from './config/index.js';
 export * from './vector-store/index.js';
+export * from './inspiration/index.js';

@@ -44,6 +44,8 @@ services:
       # Feature flags — V2 pipelines are the only active pipelines
       - CHAT_V2=true
       - INGEST_V2=true
+      # External image search
+      - PEXELS_API_KEY=${PEXELS_API_KEY:-}
     volumes:
       - engine_data:/engine
       - ${API_KEYS_HOST_PATH:-../config/api_keys.example.json}:/app/config/api_keys.json:ro
@@ -64,6 +66,8 @@ services:
         # NEXT_PUBLIC_* vars are baked into the client bundle at build time.
         # Reuse DOMAIN (already set for nginx/SSL) so no extra var is needed.
         NEXT_PUBLIC_MICROSITE_ROOT_DOMAIN: ${DOMAIN:-}
+        NEXT_PUBLIC_MICROSITE_CNAME_TARGET: ${MICROSITE_CNAME_TARGET:-}
+        NEXT_PUBLIC_MICROSITE_SERVER_IP: ${MICROSITE_SERVER_IP:-}
     environment:
       - API_URL=http://api:3000
       # Microsite publishing — DOMAIN is the same root domain used by nginx/SSL.
@@ -72,6 +76,13 @@ services:
       - AWS_REGION=${AWS_REGION:-us-east-1}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - MICROSITE_ACCESS_SECRET=${MICROSITE_ACCESS_SECRET:-}
+      # Custom domain publishing
+      - MICROSITE_CUSTOM_DOMAINS_ENABLED=${MICROSITE_CUSTOM_DOMAINS_ENABLED:-false}
+      - MICROSITE_CNAME_TARGET=${MICROSITE_CNAME_TARGET:-}
+      - MICROSITE_SERVER_IP=${MICROSITE_SERVER_IP:-}
+      - CERTBOT_EMAIL=${CERTBOT_EMAIL:-}
+      - CERT_MANAGER_URL=http://cert-manager:3002
     depends_on:
       api:
         condition: service_healthy
@@ -93,9 +104,28 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - letsencrypt_certs:/etc/letsencrypt
       - certbot_webroot:/var/www/certbot
+      - nginx_custom_conf:/etc/nginx/conf.d
     depends_on:
       ui:
         condition: service_healthy
+    restart: unless-stopped
+
+  # ── cert-manager: provisions Let's Encrypt certs for custom domains ──
+  cert-manager:
+    build:
+      context: cert-manager
+      dockerfile: Dockerfile
+    environment:
+      - CERTBOT_EMAIL=${CERTBOT_EMAIL:-}
+      - NGINX_CONTAINER=${COMPOSE_PROJECT_NAME:-ai-engine}-nginx-1
+      - PORT=3002
+    volumes:
+      - letsencrypt_certs:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+      - nginx_custom_conf:/etc/nginx/conf.d
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - nginx
     restart: unless-stopped
 
   # ── Certbot (on-demand, not auto-started) ────────────────────────
@@ -113,6 +143,29 @@ services:
       - certbot_webroot:/var/www/certbot
     profiles: ["certbot"]
 
+  # ── Cert renewal (run via cron) ──────────────────────────────────
+  # Renews all certs: DNS-01 wildcard (Route 53) + HTTP-01 custom domains.
+  # Uses dns-route53 image so both authenticators are available; certbot reads
+  # each cert's stored renewal config and uses the correct challenge method.
+  # On EC2 with an IAM instance role, leave AWS_ACCESS_KEY_ID/SECRET blank.
+  # Trigger from the EC2 host cron (e.g. daily at 03:00):
+  #   docker compose -p ai-engine -f deployment/docker-compose.prod.yml \
+  #     --env-file deployment/.env.production \
+  #     --profile certbot-renew run --rm certbot-renew && \
+  #   docker compose -p ai-engine -f deployment/docker-compose.prod.yml \
+  #     exec nginx nginx -s reload
+  certbot-renew:
+    image: certbot/dns-route53:latest
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_DEFAULT_REGION=${AWS_REGION:-us-east-1}
+    volumes:
+      - letsencrypt_certs:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+    entrypoint: /bin/sh -c "certbot renew --quiet"
+    profiles: ["certbot-renew"]
+
 volumes:
   engine_data:
     driver: local
@@ -120,4 +173,6 @@ volumes:
     external: true
     name: ai-engine_letsencrypt_certs
   certbot_webroot:
+    driver: local
+  nginx_custom_conf:
     driver: local

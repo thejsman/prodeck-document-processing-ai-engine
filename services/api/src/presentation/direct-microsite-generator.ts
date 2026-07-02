@@ -10,6 +10,12 @@
  *   generateMicrositeStream    — streaming, calls onChunk per delta
  */
 
+// Post-processing: replace em dashes the LLM generates despite being told not to.
+// " — " (spaced) → ", "  |  bare "—" → "-"
+function stripEmDashes(s: string): string {
+  return s.replace(/ — /g, ', ').replace(/—/g, '-');
+}
+
 // ---------------------------------------------------------------------------
 // Pre-pass: pure regex extraction — no LLM, no I/O
 // ---------------------------------------------------------------------------
@@ -82,6 +88,7 @@ CONTENT RULES:
 - Why Choose Us: list every credential and case study mentioned
 - If a section heading exists in the proposal but has minimal content, render the section anyway using what IS available
 - NEVER use placeholder text like "[Information not available]"
+- NEVER use em dashes (—) in any text — use a comma, colon, parentheses, or rewrite the sentence
 
 OUTPUT FORMAT:
 - Start the response IMMEDIATELY with <!DOCTYPE html> — no explanation, no preamble, no markdown fences
@@ -182,7 +189,7 @@ export async function generateMicrositeDirectly(
 
   if (!html.trim()) throw new Error('Anthropic returned empty response');
 
-  return { html, elapsed: Date.now() - t0 };
+  return { html: stripEmDashes(html), elapsed: Date.now() - t0 };
 }
 
 // ---------------------------------------------------------------------------

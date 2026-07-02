@@ -17,10 +17,16 @@
   "dependencies": {
     "@ai-engine/agent-microsite-generator": "workspace:*",
     "@ai-engine/agent-proposal-section": "workspace:*",
+    "@ai-engine/core": "workspace:*",
+    "@ai-engine/planner": "workspace:*",
+    "@ai-engine/runtime": "workspace:*",
+    "@ai-engine/tool-analyze-image": "workspace:*",
     "@ai-engine/tool-extract-section": "workspace:*",
     "@ai-engine/types": "workspace:*",
-    "@ai-engine/core": "workspace:*",
-    "@ai-engine/runtime": "workspace:*",
-    "@ai-engine/planner": "workspace:*"
+    "mammoth": "^1.12.0",
+    "pdf-parse": "^1.1.4"
+  },
+  "devDependencies": {
+    "@types/pdf-parse": "^1.1.5"
   }
 }

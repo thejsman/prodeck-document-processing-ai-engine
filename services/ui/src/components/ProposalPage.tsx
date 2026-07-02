@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { X, ChevronDown, Check, MoreHorizontal, Trash2, FileText, Menu } from 'lucide-react';
+import { X, ChevronDown, Check, MoreHorizontal, Trash2, FileText, Menu, ArrowLeft } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { Icon } from '@/components/ui/Icon';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
@@ -292,10 +292,15 @@ export function ProposalPage() {
 
   // Workflow state
   const [meta, setMeta] = useState<ProposalMeta | null>(null);
-  const proposalName =
-    ((currentDocument?.metadata as Record<string, unknown>)?.client as string | undefined) ??
-    searchParams.get('artifact') ??
-    'Proposals';
+  const proposalName = (() => {
+    const raw =
+      ((currentDocument?.metadata as Record<string, unknown>)?.client as string | undefined) ??
+      searchParams.get('artifact') ??
+      'Proposals';
+    // Strip leading timestamp prefix e.g. "2026-06-11T08-17-45-", replace hyphens with spaces, capitalize first letter
+    const stripped = raw.replace(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-/, '').replace(/-/g, ' ');
+    return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+  })();
   const currentStatus = meta?.status ?? 'draft';
   const totalSections = useMemo(() => {
     if (!currentDocument) return 0;
@@ -940,13 +945,16 @@ export function ProposalPage() {
       <div className="chat-v2">
         <div className="chat-v2-center">
           {fromChat && (
-            <header className={`chat-v2-header${headerScrolled ? ' chat-v2-header--scrolled' : ''}`}>
+            <header className={`chat-v2-header proposal-page-header${headerScrolled ? ' chat-v2-header--scrolled' : ''}`}>
               {/* ── Workspace header ── */}
               <div className="chat-v2-header-left">
                 <button className="topbar-hamburger" onClick={openMobileNav} aria-label="Open navigation">
                   <Icon icon={Menu} size="md" />
                 </button>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button className="proposal-mobile-back-btn" onClick={() => router.back()} aria-label="Back to proposals">
+                  <ArrowLeft size={16} />
+                </button>
+                <div className="proposal-header-meta" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span className="chat-v2-ns" style={{ lineHeight: 1 }}>
                     {proposalName}
                   </span>
@@ -956,23 +964,23 @@ export function ProposalPage() {
                       const label = raw ? formatCreatedAt(raw) : null;
                       return label ? (
                         <>
-                          <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
-                          <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>{label}</span>
+                          <span className="proposal-header-sep" style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
+                          <span className="proposal-header-date" style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>{label}</span>
                         </>
                       ) : null;
                     })()}
                   {currentDocument && (
                     <>
-                      <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
-                      <span className="workspace-stat">
+                      <span className="proposal-header-sep proposal-header-extra" style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
+                      <span className="workspace-stat proposal-header-extra">
                         {totalSections} section{totalSections !== 1 ? 's' : ''}
                       </span>
                     </>
                   )}
                   {searchParams.get('namespace') && (
                     <>
-                      <span style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
-                      <span style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1 }}>
+                      <span className="proposal-header-sep proposal-header-extra" style={{ color: 'var(--muted)', fontSize: 13, lineHeight: 1 }}>·</span>
+                      <span className="proposal-header-extra" style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1 }}>
                         {searchParams.get('namespace')}
                       </span>
                     </>
@@ -1111,6 +1119,16 @@ export function ProposalPage() {
           ) : (
             /* ── Browser body: proposal card grid ── */
             <div style={{ flex: 1, overflowY: 'auto', position: 'relative' }}>
+              {/* Mobile-only fixed header */}
+              <div className="page-list-mobile-header">
+                <button className="topbar-hamburger" onClick={openMobileNav} aria-label="Open navigation">
+                  <Icon icon={Menu} size="md" />
+                </button>
+                <span className="page-list-mobile-title">Proposals</span>
+                <div style={{ flex: 1 }} />
+                <ThemeToggle />
+              </div>
+
               <div
                 className="page-theme-toggle-corner"
                 style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}
@@ -1118,8 +1136,8 @@ export function ProposalPage() {
                 <ThemeToggle />
               </div>
               {/* Inline browser header + content — constrained to 860 like Microsites */}
-              <div style={{ maxWidth: 860, margin: '0 auto', padding: '59px 24px 0' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 14 }}>
+              <div className="page-list-content" style={{ maxWidth: 860, margin: '0 auto', padding: '59px 24px 0' }}>
+                <div className="page-list-inline-header" style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 14 }}>
                   <button className="topbar-hamburger" onClick={openMobileNav} aria-label="Open navigation">
                     <Icon icon={Menu} size="md" />
                   </button>
@@ -1166,7 +1184,7 @@ export function ProposalPage() {
                   + Generate Proposal
                 </button> */}
                 </div>
-                <div style={{ height: 1, background: 'var(--border)', marginBottom: 24 }} />
+                <div className="page-list-divider" style={{ height: 1, background: 'var(--border)', marginBottom: 24 }} />
 
                 {browseLoading && !pending ? (
                   <div
@@ -1299,6 +1317,7 @@ export function ProposalPage() {
                         </button>
                         <div className="proposal-card-header">
                           <div style={{ minWidth: 0, flex: 1 }}>
+                            <span className="proposal-card-eyebrow">Proposal</span>
                             <span className="proposal-card-name">{p.client}</span>
                             {dateLabel && (
                               <span
@@ -1352,9 +1371,7 @@ export function ProposalPage() {
                         </div>
                         <div className="proposal-card-footer">
                           {ns ? (
-                            <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>
-                              Namespace: <span style={{ color: 'var(--text)', fontWeight: 500 }}>{ns}</span>
-                            </span>
+                            <span style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1 }}>{ns}</span>
                           ) : (
                             <span />
                           )}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { Check, Loader2, ExternalLink, Globe } from 'lucide-react';
+import { Check, Loader2, ExternalLink, Globe, Eye, EyeOff, Lock, RotateCcw } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import type { LayoutAST } from '@/types/presentation';
 import { sanitizeSubdomainInput } from '@/lib/subdomainValidation';
@@ -22,6 +22,13 @@ export function PublishSubdomainSection({ ast, namespace, proposalId, rootDomain
   const { apiKey } = useAuth();
   const [subdomain, setSubdomain] = useState('');
   const [copied, setCopied] = useState(false);
+  const [passwordEnabled, setPasswordEnabled] = useState(false);
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [resetPasswordMode, setResetPasswordMode] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const check = useSubdomainCheck(subdomain);
   const publish = usePublishMicrosite();
 
@@ -37,14 +44,25 @@ export function PublishSubdomainSection({ ast, namespace, proposalId, rootDomain
     onPublishingChange?.(publish.status === 'publishing');
   }, [publish.status, onPublishingChange]);
 
+  const passwordValid = !passwordEnabled || password.length >= 6;
+
   const canPublish = useMemo(
-    () => check.status === 'available' && publish.status !== 'publishing',
-    [check.status, publish.status],
+    () => check.status === 'available' && publish.status !== 'publishing' && passwordValid,
+    [check.status, publish.status, passwordValid],
   );
 
   async function handlePublish() {
     if (!canPublish) return;
-    await publish.publish(namespace, ast, subdomain, proposalId, apiKey);
+    await publish.publish(namespace, ast, subdomain, proposalId, apiKey, passwordEnabled ? password : undefined);
+  }
+
+  async function handleResetPassword() {
+    if (!publish.subdomain || resetting) return;
+    setResetting(true);
+    await publish.publish(namespace, ast, publish.subdomain, proposalId, apiKey, newPassword || undefined);
+    setResetting(false);
+    setResetPasswordMode(false);
+    setNewPassword('');
   }
 
   async function handleCopy() {
@@ -74,6 +92,23 @@ export function PublishSubdomainSection({ ast, namespace, proposalId, rootDomain
           <p style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', margin: 0, lineHeight: 1.5 }}>
             Published
           </p>
+          {publish.passwordProtected && (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                fontSize: 11,
+                color: 'var(--muted)',
+                background: 'var(--panel)',
+                border: '1px solid var(--border)',
+                borderRadius: 4,
+                padding: '2px 6px',
+              }}
+            >
+              <Lock size={10} /> Password protected
+            </span>
+          )}
         </div>
         <a
           href={publish.url}
@@ -109,9 +144,19 @@ export function PublishSubdomainSection({ ast, namespace, proposalId, rootDomain
             <Icon icon={ExternalLink} size="sm" /> Visit
           </a>
           <button
+            onClick={() => setResetPasswordMode((v) => !v)}
+            className="btn btn-sm"
+            title="Update password protection"
+          >
+            <RotateCcw size={12} /> Password
+          </button>
+          <button
             onClick={() => {
               publish.reset();
               setSubdomain('');
+              setPasswordEnabled(false);
+              setPassword('');
+              setResetPasswordMode(false);
             }}
             className="btn btn-sm"
             style={{ marginLeft: 'auto' }}
@@ -119,6 +164,84 @@ export function PublishSubdomainSection({ ast, namespace, proposalId, rootDomain
             Publish another
           </button>
         </div>
+
+        {resetPasswordMode && (
+          <div
+            style={{
+              marginTop: 12,
+              padding: '12px 14px',
+              background: 'var(--panel)',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+            }}
+          >
+            <p style={{ fontSize: 12, fontWeight: 500, color: 'var(--text)', margin: '0 0 8px' }}>
+              Update password
+            </p>
+            <p style={{ fontSize: 11, color: 'var(--muted)', margin: '0 0 10px', lineHeight: 1.4 }}>
+              Leave blank to remove password protection.
+            </p>
+            <div style={{ position: 'relative', marginBottom: 10 }}>
+              <input
+                type={showNewPassword ? 'text' : 'password'}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value.replace(/\s/g, ''))}
+                placeholder="New password (leave blank to remove)"
+                style={{
+                  width: '100%',
+                  padding: '8px 36px 8px 10px',
+                  border: '1px solid var(--border)',
+                  borderRadius: 6,
+                  background: 'var(--bg)',
+                  fontSize: 12,
+                  color: 'var(--text)',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPassword((v) => !v)}
+                style={{
+                  position: 'absolute',
+                  right: 8,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 2,
+                  color: 'var(--muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                {showNewPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+            {newPassword.length > 0 && newPassword.length < 6 && (
+              <p style={{ fontSize: 11, color: '#dc2626', margin: '0 0 8px' }}>
+                Password must be at least 6 characters.
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleResetPassword}
+                disabled={resetting || (newPassword.length > 0 && newPassword.length < 6)}
+                className="btn btn-sm btn-primary"
+              >
+                {resetting ? <><Icon icon={Loader2} size="sm" /> Updating…</> : 'Update'}
+              </button>
+              <button
+                onClick={() => { setResetPasswordMode(false); setNewPassword(''); }}
+                className="btn btn-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         <p style={{ fontSize: 11, color: 'var(--subtle)', margin: '10px 0 0', lineHeight: 1.4 }}>
           To publish to a different subdomain, open this dialog again. The current URL will stay live.
         </p>
@@ -216,6 +339,81 @@ export function PublishSubdomainSection({ ast, namespace, proposalId, rootDomain
           <span style={{ color: 'var(--subtle)' }}>
             3–63 characters, lowercase letters, numbers, and hyphens
           </span>
+        )}
+      </div>
+
+      {/* Password protection */}
+      <div style={{ marginBottom: 12 }}>
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            cursor: 'pointer',
+            userSelect: 'none',
+            fontSize: 12,
+            color: 'var(--text)',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={passwordEnabled}
+            onChange={(e) => {
+              setPasswordEnabled(e.target.checked);
+              if (!e.target.checked) setPassword('');
+            }}
+            disabled={publish.status === 'publishing'}
+            style={{ cursor: 'pointer' }}
+          />
+          <Lock size={12} style={{ opacity: 0.6 }} />
+          Password protect this site
+        </label>
+        {passwordEnabled && (
+          <div style={{ marginTop: 8, position: 'relative' }}>
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value.replace(/\s/g, ''))}
+              placeholder="Set a password (min. 6 characters)"
+              disabled={publish.status === 'publishing'}
+              autoComplete="new-password"
+              style={{
+                width: '100%',
+                padding: '8px 36px 8px 10px',
+                border: `1px solid ${password.length > 0 && password.length < 6 ? '#dc2626' : 'var(--border)'}`,
+                borderRadius: 6,
+                background: 'var(--bg)',
+                fontSize: 12,
+                color: 'var(--text)',
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              style={{
+                position: 'absolute',
+                right: 8,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 2,
+                color: 'var(--muted)',
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+        )}
+        {passwordEnabled && password.length > 0 && password.length < 6 && (
+          <p style={{ fontSize: 11, color: '#dc2626', margin: '4px 0 0' }}>
+            Password must be at least 6 characters.
+          </p>
         )}
       </div>
 

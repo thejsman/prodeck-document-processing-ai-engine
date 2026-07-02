@@ -2,8 +2,43 @@ import { mkdir, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises'
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply, FastifyBaseLogger } from 'fastify';
 import { llmGenerateFn } from './agent-routes.js';
+import { fetchPexelsImageUrl } from './image-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
 import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
+import { readOrgContextSettings, resolveVoiceBlock, superClientWorkdir } from '@ai-engine/runtime';
+
+// Strip preview-only injections that the UI adds to srcdoc iframes.
+// These must never be saved to disk — if the client sends currentHtml that
+// already contains them, strip them before patching and persisting.
+const PREVIEW_INJECTION_IDS = [
+  '__preview-cursor-reset',
+  '__nav-anchor-fix',
+  '__preview-reveal-fix',
+  '__microsite-iframe-edit',
+  '__scroll-restore',
+];
+function stripPreviewInjections(html: string): string {
+  let out = html;
+  for (const id of PREVIEW_INJECTION_IDS) {
+    out = out.replace(
+      new RegExp(`<(?:style|script)[^>]*\\bid="${id}"[\\s\\S]*?</(?:style|script)>\\s*`, 'g'),
+      '',
+    );
+  }
+  return out;
+}
+
+// Strip constructs that would render source code as visible text in the microsite.
+// Called on every LLM response before it is written into customHtml.
+function sanitizeHtmlOutput(html: string): string {
+  return html
+    // Embedded markdown code fence blocks inside HTML body → remove entirely
+    .replace(/```(?:html|css|js|javascript|typescript|text|xml)?\s*\r?\n([\s\S]*?)\r?\n```/g, '')
+    // <pre> blocks containing HTML entities (escaped HTML/CSS/JS code) → remove
+    .replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/gi, (match) =>
+      /&lt;|&gt;|&amp;lt;/.test(match) ? '' : match,
+    );
+}
 
 function slugify(input: string): string {
   return input
@@ -24,6 +59,7 @@ interface HistoryEntry {
   role: 'user' | 'assistant';
   content: string;
   createdAt: string;
+  editContext?: 'microsite' | 'proposal';
 }
 
 interface ScFile {
@@ -46,6 +82,34 @@ interface ScMicrosite {
   proposalTitle: string;
   savedAt: string;
   version: number;
+  pdfPresentation?: boolean;
+  pdfOrientation?: 'landscape' | 'portrait';
+}
+
+interface GenerationEntry {
+  id: string;
+  clientSlug: string;
+  type: 'proposal' | 'microsite';
+  phase: 'generating' | 'complete' | 'error';
+  title: string;
+  steps: string[];
+  createdAt?: string;
+  charCount?: number;
+  error?: string;
+  result?: { fileName?: string; micrositeId?: string };
+}
+
+async function readGenerations(dir: string): Promise<GenerationEntry[]> {
+  try {
+    const raw = await readFile(path.join(dir, 'generations.json'), 'utf-8');
+    return JSON.parse(raw) as GenerationEntry[];
+  } catch {
+    return [];
+  }
+}
+
+async function writeGenerations(dir: string, gens: GenerationEntry[]): Promise<void> {
+  await writeFile(path.join(dir, 'generations.json'), JSON.stringify(gens, null, 2));
 }
 
 async function readMeta(dir: string): Promise<SuperClientMeta> {
@@ -56,7 +120,15 @@ async function readMeta(dir: string): Promise<SuperClientMeta> {
 async function readHistory(dir: string): Promise<HistoryEntry[]> {
   try {
     const raw = await readFile(path.join(dir, 'history.json'), 'utf-8');
-    return JSON.parse(raw) as HistoryEntry[];
+    const entries = JSON.parse(raw) as HistoryEntry[];
+    // Sort ascending by createdAt. Entries without a timestamp (written before
+    // this field existed) sort to the front so old history stays in place.
+    return entries.sort((a, b) => {
+      if (!a.createdAt && !b.createdAt) return 0;
+      if (!a.createdAt) return -1;
+      if (!b.createdAt) return 1;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
   } catch {
     return [];
   }
@@ -171,6 +243,52 @@ function extractSectionUpdates(text: string): Array<{ heading: string; content: 
 
 function stripSectionUpdateTags(text: string): string {
   return text.replace(/<section-update\s+heading="[^"]*">[\s\S]*?<\/section-update>/gi, '').trim();
+}
+
+const TONE_PATTERNS = [
+  /\buse\s+a?\s*([\w][\w\s-]{1,30}?)\s+tone\b/i,
+  /\bwrite\s+(?:in\s+)?a?\s*([\w][\w\s-]{1,30}?)\s+(?:tone|style|voice)\b/i,
+  /\bsound(?:s)?\s+more\s+([\w-]+)\b/i,
+  /\bbe\s+more\s+([\w-]+)\b/i,
+  /\bswitch\s+(?:to\s+)?(?:a?\s*)?([\w\s-]{2,20}?)\s+(?:tone|style|voice)\b/i,
+  /\badopt\s+(?:a?\s*)?([\w\s-]{2,20}?)\s+(?:tone|style|voice)\b/i,
+  /\bmake\s+(?:it|this)\s+(?:sound\s+)?(?:more\s+)?([\w-]+)\b/i,
+];
+
+const TONE_WORDS = new Set([
+  'casual', 'informal', 'friendly', 'warm', 'conversational', 'relaxed',
+  'formal', 'professional', 'corporate', 'serious', 'authoritative', 'assertive',
+  'confident', 'direct', 'concise', 'aggressive', 'bold',
+  'consultative', 'empathetic', 'collaborative', 'inclusive',
+  'enthusiastic', 'energetic', 'passionate', 'neutral', 'objective',
+  'technical', 'simple', 'plain', 'persuasive', 'compelling', 'playful',
+]);
+
+/**
+ * Scan the current message and recent user messages for an explicit tone/style
+ * override request. Returns the matched phrase if found, null otherwise.
+ * Checks the current message first (highest recency), then walks back through
+ * the last 5 user turns so a tone set earlier in the conversation still wins.
+ */
+function detectToneOverride(
+  currentMessage: string,
+  history: Array<{ role: string; content: string }>,
+): string | null {
+  const recentUserMessages = history
+    .filter((h) => h.role === 'user')
+    .slice(-5)
+    .map((h) => h.content);
+
+  for (const text of [currentMessage, ...recentUserMessages]) {
+    for (const pattern of TONE_PATTERNS) {
+      const match = text.match(pattern);
+      if (!match) continue;
+      const captured = match[1]?.toLowerCase().trim() ?? '';
+      const hasToneWord = [...TONE_WORDS].some((tw) => captured.includes(tw));
+      if (hasToneWord) return match[0].trim();
+    }
+  }
+  return null;
 }
 
 function patchProposalSections(
@@ -625,7 +743,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
     reply.hijack();
     reply.raw.writeHead(200, {
-      'Content-Type': 'text/event-stream',
+      'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
@@ -636,11 +754,13 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     };
 
     try {
-      const [contextMd, history, memResult, scFiles] = await Promise.all([
+      const [contextMd, history, memResult, scFiles, authorVoiceBlock, orgSettings] = await Promise.all([
         readContext(dir),
         readHistory(dir),
         new ClientMemoryService(workdir).prepopulate(name),
         readScFiles(dir),
+        resolveVoiceBlock(workdir, superClientWorkdir(workdir, name)),
+        readOrgContextSettings(workdir),
       ]);
 
       const extractedFiles = scFiles.filter((f) => f.status === 'extracted');
@@ -711,6 +831,19 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       if (contextMd.trim()) {
         promptParts.push(`\n## Client Intelligence\n\n${contextMd.trim()}`);
+      }
+
+      // Org-level Author Voice — STYLE ONLY (no client facts). Injected when the
+      // org has learned a voice from past proposals and the toggle is on.
+      if (orgSettings.applyAuthorVoice && authorVoiceBlock) {
+        promptParts.push(`\n${authorVoiceBlock}`);
+
+        const toneOverride = detectToneOverride(message, history);
+        if (toneOverride) {
+          promptParts.push(
+            `\n⚡ USER TONE OVERRIDE ACTIVE: The user has requested "${toneOverride}". This takes absolute priority over every tone, voice, and style directive in the Author Voice block above. Ignore those style directives entirely and apply the user's requested style instead. You may still use structural patterns (section order, headings) from the Author Voice if they don't conflict with the user's request.`,
+          );
+        }
       }
 
       if (memResult.found && (Object.keys(memResult.stableFields).length > 0 || memResult.knowledge.length > 0 || memResult.stakeholders.length > 0)) {
@@ -812,12 +945,16 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }
       }
 
-      // Persist turn to history
-      const now = new Date().toISOString();
+      // Persist turn to history.
+      // User and assistant get distinct timestamps (+1 ms apart) so timestamp-
+      // based sort always places the user message before its paired assistant reply.
+      const userTs      = new Date().toISOString();
+      const assistantTs = new Date(Date.now() + 1).toISOString();
+      const editCtx = activeProposalId ? ({ editContext: 'proposal' } as const) : {};
       const updatedHistory: HistoryEntry[] = [
         ...history,
-        { role: 'user', content: message, createdAt: now },
-        { role: 'assistant', content: displayResponse, createdAt: now },
+        { role: 'user',      content: message,         createdAt: userTs,      ...editCtx },
+        { role: 'assistant', content: displayResponse, createdAt: assistantTs, ...editCtx },
       ];
       await writeFile(path.join(dir, 'history.json'), JSON.stringify(updatedHistory, null, 2));
 
@@ -837,6 +974,32 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     } finally {
       reply.raw.end();
     }
+  });
+
+  // POST /super-clients/:name/history/append — persist arbitrary messages (e.g. edit actions)
+  app.post('/super-clients/:name/history/append', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name } = req.params as { name: string };
+    const dir = path.join(superClientsRoot, name);
+    try {
+      await readMeta(dir);
+    } catch {
+      return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
+    const body = req.body as { messages?: Array<{ role: string; content: string; createdAt?: string; editContext?: string }> } | undefined;
+    const entries = body?.messages ?? [];
+    if (!Array.isArray(entries) || entries.length === 0) {
+      return reply.code(400).send({ error: 'messages array required' });
+    }
+    const history = await readHistory(dir);
+    const now = new Date().toISOString();
+    const toAppend: HistoryEntry[] = entries.map((m) => ({
+      role: (m.role === 'user' || m.role === 'assistant' ? m.role : 'user') as 'user' | 'assistant',
+      content: String(m.content ?? ''),
+      createdAt: m.createdAt ?? now,
+      ...(m.editContext === 'microsite' || m.editContext === 'proposal' ? { editContext: m.editContext } : {}),
+    }));
+    await writeFile(path.join(dir, 'history.json'), JSON.stringify([...history, ...toAppend], null, 2));
+    return reply.send({ ok: true });
   });
 
   // GET /super-clients/:name/documents
@@ -1011,17 +1174,21 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // microsites are saved within the same second.
     const id = `${now.toISOString().replace(/[:.]/g, '-').slice(0, 23)}-${Math.random().toString(36).slice(2, 6)}`;
     const proposalTitle = body.proposalTitle?.trim() ?? 'Proposal';
+    const micrositeTitle = proposalTitle.replace(/\bProposal\b/g, 'Microsite').replace(/\bproposal\b/g, 'microsite');
 
     const existing = await readMicrosites(dir);
     const priorCount = existing.filter((m) => m.proposalTitle === proposalTitle).length;
     const version = priorCount + 1;
 
+    const astObj = body.ast as Record<string, unknown> | undefined;
     const entry: ScMicrosite = {
       id,
-      title: `${proposalTitle} (v${version})`,
+      title: `${micrositeTitle} (v${version})`,
       proposalTitle,
       savedAt: now.toISOString(),
       version,
+      ...(astObj?.pdfPresentation ? { pdfPresentation: true } : {}),
+      ...(astObj?.pdfOrientation ? { pdfOrientation: astObj.pdfOrientation as 'landscape' | 'portrait' } : {}),
     };
 
     await writeFile(path.join(micrositesDir, `${id}.json`), JSON.stringify(body.ast, null, 2));
@@ -1070,12 +1237,57 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     return reply.send({ ok: true });
   });
 
+  // GET /super-clients/:name/generations
+  app.get('/super-clients/:name/generations', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name } = req.params as { name: string };
+    const dir = path.join(superClientsRoot, name);
+    try {
+      await readMeta(dir); // 404 guard
+      return reply.send(await readGenerations(dir));
+    } catch {
+      return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
+  });
+
+  // PUT /super-clients/:name/generations/:id — upsert one generation entry
+  app.put('/super-clients/:name/generations/:id', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+    const dir = path.join(superClientsRoot, name);
+    const body = req.body as GenerationEntry | undefined;
+    if (!body || body.id !== id) return reply.code(400).send({ error: 'Body must include matching id' });
+    try {
+      await readMeta(dir); // 404 guard
+      const existing = await readGenerations(dir);
+      const updated = [...existing.filter((g) => g.id !== id), body];
+      await writeGenerations(dir, updated);
+      return reply.send({ ok: true });
+    } catch {
+      return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
+  });
+
+  // DELETE /super-clients/:name/generations/:id
+  app.delete('/super-clients/:name/generations/:id', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+    const dir = path.join(superClientsRoot, name);
+    try {
+      await readMeta(dir); // 404 guard
+      const existing = await readGenerations(dir);
+      await writeGenerations(dir, existing.filter((g) => g.id !== id));
+      return reply.send({ ok: true });
+    } catch {
+      return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
+  });
+
   // POST /super-clients/:name/microsites/:id/edit  — LLM patch edit on microsite HTML
   app.post('/super-clients/:name/microsites/:id/edit', async (req: FastifyRequest, reply: FastifyReply) => {
     const { name, id } = req.params as { name: string; id: string };
     if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
 
-    const body = req.body as { instruction?: string } | undefined;
+    const body = req.body as { instruction?: string; currentHtml?: string } | undefined;
     const instruction = body?.instruction?.trim();
     if (!instruction) return reply.code(400).send({ error: 'Missing instruction' });
 
@@ -1094,8 +1306,43 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     }
 
     const sections = ast.sections as Array<Record<string, unknown>> | undefined;
-    const html = (sections?.[0]?.customHtml as string | undefined) ?? '';
+    // Use client-provided HTML when available — it reflects in-memory edits that
+    // may not have been persisted to disk yet (e.g. after a failed save).
+    // Strip preview injections (srcdoc-only CSS/JS) so they are never saved to disk
+    // and never confuse edit operations that search/replace within the raw HTML.
+    const diskHtml = stripPreviewInjections((sections?.[0]?.customHtml as string | undefined) ?? '');
+    const html = stripPreviewInjections(body?.currentHtml?.trim() || diskHtml) || '';
     if (!html) return reply.code(400).send({ error: 'Microsite has no HTML content' });
+
+    // ── Microsite edit log — shows instruction type and key metadata ────────────
+    {
+      const instrType = instruction.split(':')[0] ?? instruction.slice(0, 40);
+      const isLLM     = instruction.startsWith('__ELEMENT_EDIT__:');
+      const userText  = instruction.includes('||')
+        ? instruction.slice(instruction.lastIndexOf('||') + 2).slice(0, 120)
+        : instruction.slice(0, 120);
+      console.log('\n╔══ MICROSITE EDIT ════════════════════════════════════════════');
+      console.log(`║ Microsite  : ${id}`);
+      console.log(`║ Instruction: ${instrType}`);
+      console.log(`║ HTML source: ${body?.currentHtml ? 'client (in-memory)' : 'disk'} — ${html.length} chars`);
+      if (isLLM) {
+        console.log(`║ → LLM call will be made`);
+        console.log(`║ User prompt: ${userText}`);
+      } else {
+        console.log(`║ → Deterministic (no LLM)`);
+      }
+      console.log('╚══════════════════════════════════════════════════════════════');
+    }
+
+    // ── Instruction format convention ────────────────────────────────────────
+    // Deterministic instructions follow: __VERB__:[cssPath]||[payload](||[hint])
+    // The hint is the selected element's outerHTML (≤400 chars), sent by the
+    // client to aid fallback lookups. It is ALWAYS the last ||-segment and
+    // MUST be ignored by regexes that capture URLs or text values.
+    // Safe pattern: ((?:https?://|data:)[^\|]+)(?:\|\|[\s\S]*)?$
+    //   or for text: ([\s\S]+?)(?:\|\|[\s\S]*)?$  (non-greedy stops before hint)
+    // Never use (.+)$ or ([\s\S]+)$ for a URL/text group — those eat the hint.
+    // ─────────────────────────────────────────────────────────────────────────
 
     // Shared context flags used by both video removal and video injection below
     const userPart = instruction.includes('||') ? instruction.slice(instruction.lastIndexOf('||') + 2) : instruction;
@@ -1159,6 +1406,110 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     }
     // ─────────────────────────────────────────────────────────────────────────
 
+    // ── LLM-placed video embed inside a named section ────────────────────────
+    // Format: __VIDEO_IN_SECTION__:||[sectionKeyword]||[rawVideoUrl]||[userPrompt]
+    // Built by the client only when no element is selected and a named section is given.
+    const videoInSectionMatch = instruction.match(
+      /^__VIDEO_IN_SECTION__:[^|]*\|\|([\s\S]*?)\|\|(https?:\/\/[^|]+)\|\|([\s\S]*)$/s,
+    );
+    if (videoInSectionMatch) {
+      const sectionKw   = videoInSectionMatch[1].trim();
+      const rawVideoUrl = videoInSectionMatch[2].trim();
+      const userPrompt  = videoInSectionMatch[3].trim();
+
+      const toEmbedUrl = (raw: string): string => {
+        const vimeoM = raw.match(/^https?:\/\/(?:www\.)?vimeo\.com\/(\d+)([?&]\S*)?/i);
+        if (vimeoM) {
+          const id     = vimeoM[1];
+          const params = vimeoM[2] ?? '?autoplay=1&loop=1&muted=1&title=0&byline=0&portrait=0';
+          return `https://player.vimeo.com/video/${id}${params}`;
+        }
+        const ytW = raw.match(/youtube\.com\/watch\?.*\bv=([a-zA-Z0-9_-]{11})/i);
+        if (ytW) return `https://www.youtube.com/embed/${ytW[1]}?autoplay=1&loop=1&mute=1&controls=0&playlist=${ytW[1]}`;
+        const ytS = raw.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/i);
+        if (ytS) return `https://www.youtube.com/embed/${ytS[1]}?autoplay=1&loop=1&mute=1&controls=0&playlist=${ytS[1]}`;
+        return raw;
+      };
+      const embedUrl = toEmbedUrl(rawVideoUrl);
+
+      const isBgIntent = /\b(?:background|bg)\b/i.test(userPrompt);
+
+      // Section selection:
+      // - Named section → score by keyword
+      // - Explicit bg intent, no name → use first section (hero/banner is fine for bg)
+      // - No section, no bg intent → skip hero-like first section, prefer first content section
+      let bestSlice: ReturnType<typeof extractBestSection>;
+      if (sectionKw) {
+        bestSlice = extractBestSection(html, sectionKw);
+      } else if (isBgIntent) {
+        bestSlice = extractBestSection(html, 'hero first banner');
+      } else {
+        const allSecs = extractAllTopLevelSections(html);
+        const HERO_LIKE = /\b(?:hero|banner|jumbotron)\b/i;
+        const firstHtml = allSecs[0] ? html.slice(allSecs[0].start, Math.min(allSecs[0].start + 400, allSecs[0].end)) : '';
+        const useSecond = HERO_LIKE.test(firstHtml) && allSecs.length > 1;
+        const targetSec = useSecond ? allSecs[1] : allSecs[0];
+        bestSlice = targetSec
+          ? { before: html.slice(0, targetSec.start), section: html.slice(targetSec.start, targetSec.end), after: html.slice(targetSec.end), tag: 'section' }
+          : null;
+      }
+
+      if (!bestSlice) {
+        return reply.code(422).send({ error: 'No sections found in this microsite' });
+      }
+      const platform   = /vimeo/i.test(rawVideoUrl) ? 'Vimeo' : 'YouTube';
+
+      const embedBlock = isBgIntent
+        ? [
+            `  Modify the opening <section> tag to add style="position:relative;overflow:hidden" (merge with existing styles).`,
+            `  Add this as the very first child inside the section:`,
+            `  <iframe src="${embedUrl}" style="position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100%;min-width:177.78vh;transform:translate(-50%,-50%);border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen" frameborder="0"></iframe>`,
+          ].join('\n')
+        : [
+            `  Wrap the video in a responsive container and insert it at a natural visual break`,
+            `  (after the intro paragraph, before any CTA button, or at the end of main content):`,
+            `  <div class="video-embed" style="position:relative;padding-top:56.25%;margin:2rem 0"><iframe src="${embedUrl}" style="position:absolute;inset:0;width:100%;height:100%;border:none" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>`,
+          ].join('\n');
+
+      const prompt = [
+        `You are editing one HTML section of a microsite. Your job: add a ${platform} video embed.`,
+        ``,
+        `SECTION HTML:`,
+        bestSlice.section.slice(0, 12000),
+        ``,
+        `EMBED URL (use exactly — do NOT change it): ${embedUrl}`,
+        ``,
+        `USER INSTRUCTION: ${userPrompt}`,
+        ``,
+        `WHAT TO DO:`,
+        embedBlock,
+        ``,
+        `STRICT RULES:`,
+        `- Use the EXACT embed URL above — never alter it`,
+        `- Return ONLY the complete modified <section>...</section> element`,
+        `- Do NOT include <!DOCTYPE>, <html>, <head>, or <body>`,
+        `- Preserve all existing text, styles, and children — only ADD the video`,
+        `- Do not remove or reorder any existing content`,
+      ].join('\n');
+
+      console.log('\n┌─ __VIDEO_IN_SECTION__ ──────────────────────────────────────');
+      console.log(`  keyword: "${sectionKw}" | bg: ${isBgIntent} | url: ${embedUrl.slice(0, 80)}`);
+      console.log('└────────────────────────────────────────────────────────────');
+
+      const raw      = await llmGenerateFn(prompt);
+      const modified = extractHtmlFromResponse(raw);
+
+      if (!modified) return reply.code(502).send({ error: 'LLM returned no HTML — try rephrasing' });
+      if (!/^<section[\s>]/i.test(modified.trim())) {
+        return reply.code(422).send({ error: 'LLM returned unexpected structure — try again' });
+      }
+
+      return saveValidatedEdit(
+        bestSlice.before + modified + bestSlice.after,
+        `${platform} video added to ${sectionKw || 'section'}`,
+      );
+    }
+
     // ── Deterministic video-background injection (bypasses LLM entirely) ──────
     const vimeoIdMatch = instruction.match(/vimeo\.com\/(\d+)/i);
     const youtubeIdMatch = instruction.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
@@ -1167,7 +1518,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // is placed where the user intended (below, beside, inside the section) rather than always
     // being injected as a fullscreen background in the first <section>.
     const isVideoBgIntent = /\b(?:background|bg)\b/i.test(userPart);
-    if ((vimeoIdMatch ?? youtubeIdMatch) && !(isElementEditCtx && !isVideoBgIntent)) {
+    if ((vimeoIdMatch ?? youtubeIdMatch) && !(isElementEditCtx && !isVideoBgIntent) && !instruction.startsWith('__VIDEO_INJECT__:') && !instruction.startsWith('__VIDEO_IN_SECTION__:') && !instruction.startsWith('__REMOVE_BY_PATH__:')) {
       const isVimeo = !!vimeoIdMatch;
       const videoId = (vimeoIdMatch ?? youtubeIdMatch)![1];
       const src = isVimeo
@@ -1234,6 +1585,59 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       const summary = `Added ${isVimeo ? 'Vimeo' : 'YouTube'} video background`;
       return saveValidatedEdit(updatedHtml, summary);
+    }
+    // ── Video src replacement — replaces the iframe src in a video container ───
+    // Format: __VIDEO_INJECT__:[cssPath]||[videoUrl]||[hintHtml?]
+    // Converts watch-page URLs to embed format before patching.
+    const videoInjectMatch = instruction.match(/^__VIDEO_INJECT__:([\s\S]+?)\|\|(https?:\/\/[^\|]+)(?:\|\|[\s\S]*)?$/s);
+    if (videoInjectMatch) {
+      const cssPath = videoInjectMatch[1].trim();
+      const rawUrl  = videoInjectMatch[2].trim();
+
+      function normalizeVideoUrl(raw: string): string {
+        const ytWatch = raw.match(/youtube\.com\/watch\?.*\bv=([a-zA-Z0-9_-]{11})/i);
+        if (ytWatch) {
+          const id = ytWatch[1];
+          return `https://www.youtube.com/embed/${id}?autoplay=1&loop=1&mute=1&controls=0&playlist=${id}`;
+        }
+        const ytShort = raw.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/i);
+        if (ytShort) {
+          const id = ytShort[1];
+          return `https://www.youtube.com/embed/${id}?autoplay=1&loop=1&mute=1&controls=0&playlist=${id}`;
+        }
+        const vimeoWatch = raw.match(/^https?:\/\/(?:www\.)?vimeo\.com\/(\d+)/i);
+        if (vimeoWatch) {
+          return `https://player.vimeo.com/video/${vimeoWatch[1]}?background=1&autoplay=1&loop=1&muted=1`;
+        }
+        return raw; // already an embed URL or custom src — use as-is
+      }
+
+      const newSrc = normalizeVideoUrl(rawUrl);
+
+      function patchIframeSrc(target: string): string {
+        return target.replace(
+          /(<iframe\b[^>]*?\bsrc=["'])([^'"]+)(["'])/i,
+          (_m, pre, _old, post) => `${pre}${newSrc}${post}`,
+        );
+      }
+
+      const bounds = findByPath(html, cssPath);
+      if (bounds) {
+        const elementHtml = html.slice(bounds.start, bounds.end);
+        const patched = patchIframeSrc(elementHtml);
+        if (patched !== elementHtml) {
+          return saveValidatedEdit(
+            html.slice(0, bounds.start) + patched + html.slice(bounds.end),
+            'Video updated',
+          );
+        }
+      }
+      // Fallback: patch the first video iframe anywhere in the document
+      const globalPatched = patchIframeSrc(html);
+      if (globalPatched !== html) {
+        return saveValidatedEdit(globalPatched, 'Video updated');
+      }
+      return reply.code(400).send({ error: 'Could not locate video iframe in the document' });
     }
     // ── Deterministic logo injection (bypasses LLM entirely) ─────────────────
     const logoInjectMatch = instruction.match(/^__LOGO_INJECT__:([\s\S]+)$/);
@@ -1321,6 +1725,69 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     }
     // ─────────────────────────────────────────────────────────────────────────
 
+    // ── Surgical logo swap — path-targeted ───────────────────────────────────
+    // Format: __LOGO_SWAP__:[cssPath]||[imageUrl]
+    // Handles three cases:
+    //   SVG element   → replaces the entire <svg>…</svg> with <img src="…">
+    //   img element   → replaces its src (strips onerror fallback)
+    //   text element  → replaces inner content with <img>
+    const logoSwapMatch = instruction.match(/^__LOGO_SWAP__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)$/s);
+    if (logoSwapMatch) {
+      const cssPath = logoSwapMatch[1].trim();
+      const newSrc  = logoSwapMatch[2].trim();
+      const imgTag  = `<img src="${newSrc}" alt="logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;">`;
+
+      // Strip any prior overlay artifacts before patching
+      const cleanedHtml = html
+        .replace(/<div[^>]*id="__brand-logo__"[^>]*>[\s\S]*?<\/div>/gi, '')
+        .replace(/<script[^>]*>\/\*__logo-inject__\*\/[\s\S]*?<\/script>/gi, '');
+
+      const bounds = findByPath(cleanedHtml, cssPath);
+      if (bounds) {
+        const elHtml = cleanedHtml.slice(bounds.start, bounds.end);
+
+        // Case: SVG element — replace the entire element with an <img>
+        if (/^<svg\b/i.test(elHtml)) {
+          return saveValidatedEdit(
+            cleanedHtml.slice(0, bounds.start) + imgTag + cleanedHtml.slice(bounds.end),
+            'Logo updated',
+          );
+        }
+
+        // Case: element already has an <img> child — replace its src + strip onerror
+        // Non-greedy [^>]*? so we match the real src= not one inside onerror="...src=..."
+        if (/<img\b/i.test(elHtml)) {
+          const patched = elHtml
+            .replace(/(<img\b[^>]*?)\bsrc="[^"]*"/i, `$1src="${newSrc}"`)
+            .replace(/(<img\b[^>]*?)\bonerror="[^"]*"/gi, '$1');
+          return saveValidatedEdit(
+            cleanedHtml.slice(0, bounds.start) + patched + cleanedHtml.slice(bounds.end),
+            'Logo updated',
+          );
+        }
+
+        // Case: text/anchor element — keep outer tag, replace innerHTML with img
+        const openTagEnd = elHtml.indexOf('>');
+        const closeTagM  = elHtml.match(/<\/(\w+)>\s*$/);
+        if (openTagEnd !== -1 && closeTagM) {
+          const openTag  = elHtml.slice(0, openTagEnd + 1);
+          const closeTag = closeTagM[0];
+          return saveValidatedEdit(
+            cleanedHtml.slice(0, bounds.start) + openTag + imgTag + closeTag + cleanedHtml.slice(bounds.end),
+            'Logo updated',
+          );
+        }
+      }
+
+      // Fallback — overlay injection (path not found or unhandled shape)
+      const logoDiv2 = `<div id="__brand-logo__" style="position:fixed;top:0;left:0;z-index:2147483647;pointer-events:none;display:flex;align-items:center;height:64px;padding-left:20px;">${imgTag}</div>`;
+      const fbHtml = /<body[^>]*>/i.test(cleanedHtml)
+        ? cleanedHtml.replace(/(<body[^>]*>)/i, `$1${logoDiv2}`)
+        : logoDiv2 + cleanedHtml;
+      return saveValidatedEdit(fbHtml, 'Logo updated');
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // ── Deterministic background-image / img-src injection ───────────────────
     const imageInjectMatch = instruction.match(/^__IMAGE_INJECT__:(https?:\/\/.+)$/);
     if (imageInjectMatch) {
@@ -1342,9 +1809,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
 
       // 3. If still unchanged, replace first <img src="..."> in the document
+      // Non-greedy [^>]*? prevents matching src= inside onerror handlers.
       if (updatedHtml === html) {
         updatedHtml = html.replace(
-          /(<img\b[^>]+\bsrc=["'])(https?:\/\/[^'"]+)(["'])/i,
+          /(<img\b[^>]*?\bsrc=["'])(https?:\/\/[^'"]+)(["'])/i,
           (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
         );
       }
@@ -1361,7 +1829,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // Format: __IMAGE_INJECT_SCOPED__:[cssPath]||[imageUrl]
     // Tries to replace background-image / img src / data-bg within that element.
     // Falls back to the element's parent section if the element itself has no image.
-    const scopedImageMatch = instruction.match(/^__IMAGE_INJECT_SCOPED__:([\s\S]+?)\|\|(https?:\/\/[^\|]+)(?:\|\|([\s\S]*))?$/s);
+    const scopedImageMatch = instruction.match(/^__IMAGE_INJECT_SCOPED__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|([\s\S]*))?$/s);
     if (scopedImageMatch) {
       const cssPath   = scopedImageMatch[1].trim();
       const newUrl    = scopedImageMatch[2].trim();
@@ -1374,9 +1842,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           () => `background-image: url('${newUrl}')`,
         );
         if (out !== target) return out;
-        // 2. <img src="..."> — matches ANY existing src value (relative, data:, https://, etc.)
+        // 2. <img src="..."> — matches the FIRST src= in the tag (non-greedy [^>]*?).
+        // Without ?, the greedy match skips the real src and lands on src= inside
+        // onerror handlers (e.g. onerror="this.src='fallback'"), leaving the
+        // visible image unchanged while only the fallback URL gets replaced.
         out = target.replace(
-          /(<img\b[^>]*\bsrc=["'])([^'"]+)(["'])/i,
+          /(<img\b[^>]*?\bsrc=["'])([^'"]+)(["'])/i,
           (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
         );
         if (out !== target) return out;
@@ -1387,7 +1858,15 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       // Also directly patch src attribute on a void element (img/source/input type=image)
       // when findByPath locates it — handles elements with relative or data: src values.
+      // Uses <img\b[^>]*?\bsrc= (non-greedy) so the first src= in the tag is matched,
+      // never the src= inside an onerror="this.src='fallback'" handler.
       function patchSrcOnElement(target: string): string {
+        const patched = target.replace(
+          /(<img\b[^>]*?\bsrc=["'])([^'"]+)(["'])/i,
+          (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
+        );
+        if (patched !== target) return patched;
+        // Fallback for non-img void elements (source, input[type=image], etc.)
         return target.replace(
           /(\bsrc=["'])([^'"]+)(["'])/i,
           (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
@@ -1413,15 +1892,48 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           const updatedHtml = html.slice(0, bounds.start) + modifiedEl + html.slice(bounds.end);
           return saveValidatedEdit(updatedHtml, 'Image updated');
         }
-        // Element itself has no image — try its parent section
-        const sectionBounds = extractAllTopLevelSections(html);
-        const parentSec = sectionBounds.find(s => s.start <= bounds.start && bounds.end <= s.end);
-        if (parentSec) {
-          const sectionHtml = html.slice(parentSec.start, parentSec.end);
-          const modifiedSec = injectImageInto(sectionHtml);
-          if (modifiedSec !== sectionHtml) {
-            const updatedHtml = html.slice(0, parentSec.start) + modifiedSec + html.slice(parentSec.end);
-            return saveValidatedEdit(updatedHtml, 'Image updated');
+
+        // Element itself has no image — walk UP the CSS path one level at a time.
+        // This handles any HTML structure (section, div, article, etc.) without
+        // relying on extractAllTopLevelSections which only finds <section> tags.
+        const pathParts = cssPath.split(/\s*>\s*/).filter(Boolean);
+        for (let i = pathParts.length - 1; i >= 1; i--) {
+          const ancestorPath = pathParts.slice(0, i).join(' > ');
+          const ancestorBounds = findByPath(html, ancestorPath);
+          if (!ancestorBounds) continue;
+          const ancestorHtml = html.slice(ancestorBounds.start, ancestorBounds.end);
+          const modifiedAncestor = injectImageInto(ancestorHtml);
+          if (modifiedAncestor !== ancestorHtml) {
+            return saveValidatedEdit(
+              html.slice(0, ancestorBounds.start) + modifiedAncestor + html.slice(ancestorBounds.end),
+              'Image updated',
+            );
+          }
+        }
+
+        // Final fallback: background-image lives in the <style> block as a CSS class rule,
+        // not in any DOM element (common pattern: .hero-bg { background-image: url(...) }).
+        // Extract the element's class/id names and patch the matching CSS rule.
+        const cssRuleReplace = (src: string, selector: string): string => {
+          const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const re = new RegExp(
+            `((?:\\.|#)${escaped}\\b[^{]*\\{[^}]*)background-image\\s*:\\s*url\\([^)]+\\)`,
+            'gi',
+          );
+          return src.replace(re, `$1background-image: url('${newUrl}')`);
+        };
+
+        // Try each class name of the selected element, then its id
+        const classAttr = elementHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '';
+        const idAttr    = elementHtml.match(/\bid="([^"]+)"/i)?.[1] ?? '';
+        const candidates = [
+          ...classAttr.trim().split(/\s+/).filter(Boolean),
+          ...(idAttr ? [idAttr] : []),
+        ];
+        for (const name of candidates) {
+          const patched = cssRuleReplace(html, name);
+          if (patched !== html) {
+            return saveValidatedEdit(patched, 'Image updated');
           }
         }
       }
@@ -1445,15 +1957,86 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           }
         }
       }
+
+      // Absolute final fallback: find the img by its current src URL, scoped to
+      // the nearest section/id anchor from the CSS path so that if 2 images share
+      // the same src URL the correct one (in the right section) is replaced.
+      if (hintHtml) {
+        // Browser outerHTML encodes & as &amp; — decode before searching stored HTML
+        const rawHintSrc = hintHtml.match(/\bsrc="([^"]+)"/i)?.[1];
+        const oldSrc = rawHintSrc ? rawHintSrc.replace(/&amp;/gi, '&') : undefined;
+        if (oldSrc && oldSrc !== newUrl) {
+          const escapedSrc = oldSrc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          // Non-greedy [^>]*? prevents matching src= inside onerror= attribute values
+          const imgRe = new RegExp(`(<img\\b[^>]*?\\bsrc=")${escapedSrc}("[^>]*>)`, 'i');
+
+          // Try to scope the replacement to the element's section anchor
+          const sectionM = cssPath.match(/\b(section|div|article|main)#([\w-]+)/);
+          if (sectionM) {
+            const anchorTag = sectionM[1];
+            const anchorId  = sectionM[2];
+            const anchorBounds = findByPath(html, `${anchorTag}#${anchorId}`);
+            if (anchorBounds) {
+              // Replace only within the section that contains the selected element
+              const sectionHtml = html.slice(anchorBounds.start, anchorBounds.end);
+              const scopedPatched = sectionHtml.replace(imgRe, `$1${newUrl}$2`);
+              if (scopedPatched !== sectionHtml) {
+                return saveValidatedEdit(
+                  html.slice(0, anchorBounds.start) + scopedPatched + html.slice(anchorBounds.end),
+                  'Image updated',
+                );
+              }
+            }
+          }
+
+          // No section scope — replace first occurrence in entire document
+          const patched = html.replace(imgRe, `$1${newUrl}$2`);
+          if (patched !== html) {
+            return saveValidatedEdit(patched, 'Image updated');
+          }
+        }
+      }
+
       return reply.code(422).send({ error: 'Could not locate the selected image in the document — try clicking the image again to re-select it' });
     }
     // ─────────────────────────────────────────────────────────────────────────
 
     // ── Position-based element removal (preferred — uses CSS path) ───────────
-    const removeByPathMatch = instruction.match(/^__REMOVE_BY_PATH__:([\s\S]+)$/);
+    // Format: __REMOVE_BY_PATH__:[cssPath]||[hintHtml?]
+    // hintHtml is optional — used as content-based fallback when findByPath fails.
+    const removeByPathMatch = instruction.match(/^__REMOVE_BY_PATH__:([\s\S]+?)(?:\|\|([\s\S]*))?$/);
     if (removeByPathMatch) {
-      const cssPath = removeByPathMatch[1].trim();
-      const bounds  = findByPath(html, cssPath);
+      const cssPath  = removeByPathMatch[1].trim();
+      const hintHtml = (removeByPathMatch[2] ?? '').trim();
+      let bounds = findByPath(html, cssPath);
+
+      // Fallback: content-based element location when path doesn't match
+      // (happens after LLM edits restructure the surrounding DOM)
+      if (!bounds && hintHtml) {
+        const hintStart = locateElement(html, hintHtml);
+        if (hintStart !== -1) {
+          const tagName = hintHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+          const VOID_TAGS_R = new Set(['area','base','br','col','embed','hr','img','input',
+                                       'link','meta','param','source','track','wbr']);
+          let end: number;
+          if (VOID_TAGS_R.has(tagName) || hintHtml.trimEnd().endsWith('/>')) {
+            end = html.indexOf('>', hintStart) + 1;
+          } else {
+            const close = `</${tagName}>`;
+            let depth = 1, j = html.indexOf('>', hintStart) + 1;
+            while (j < html.length && depth > 0) {
+              const nO = html.indexOf(`<${tagName}`, j);
+              const nC = html.indexOf(close, j);
+              if (nC === -1) break;
+              if (nO !== -1 && nO < nC) { depth++; j = nO + tagName.length + 1; }
+              else { depth--; j = nC + close.length; }
+            }
+            end = j;
+          }
+          if (end > hintStart) bounds = { start: hintStart, end };
+        }
+      }
+
       if (!bounds) {
         return reply.code(422).send({ error: 'Element not found — click it again to retry' });
       }
@@ -1524,9 +2107,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         return { ok: false, reason: 'Result HTML is truncated (missing </body> — edit produced incomplete output)' };
       }
 
-      // 2. Length guard — result must be at least 35% of the original
-      //    Prevents edits that silently delete most of the microsite
-      if (updated.length < html.length * 0.35) {
+      // 2. Length guard — result must be at least 35% of the original.
+      //    Skip when the original contains data: URIs (inline images) — replacing
+      //    a large data URI with a URL legitimately shrinks the HTML by >65%.
+      const originalHasDataUri = html.includes('data:image/') || html.includes('data:application/');
+      if (!originalHasDataUri && updated.length < html.length * 0.35) {
         return { ok: false, reason: 'Edit removed too much content — result is less than 35% of the original size' };
       }
 
@@ -1673,8 +2258,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
 
       // 3. src URL for media elements (unique per page)
+      // Decode &amp; → & because browser outerHTML encodes & as &amp; but stored HTML has raw &
       if (['img', 'video', 'source', 'iframe'].includes(openTag)) {
-        const srcVal = snippet.match(/\bsrc="([^"]+)"/)?.[1];
+        const rawSrcVal = snippet.match(/\bsrc="([^"]+)"/)?.[1];
+        const srcVal = rawSrcVal ? rawSrcVal.replace(/&amp;/gi, '&') : undefined;
         if (srcVal) {
           idx = src.indexOf(`src="${srcVal}"`);
           if (idx !== -1) { let s = idx; while (s > 0 && src[s] !== '<') s--; return s; }
@@ -1730,7 +2317,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       // Prefer content inside a ``` fence (even if it's not at the very start)
       const fenceMatch = s.match(/```(?:html)?\r?\n?([\s\S]+?)\r?\n?```/);
-      if (fenceMatch) return fenceMatch[1].trim();
+      if (fenceMatch) return sanitizeHtmlOutput(fenceMatch[1].trim());
 
       // No fence — strip any prose before the first HTML tag
       const firstTag = s.indexOf('<');
@@ -1741,7 +2328,325 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const lastTag = result.lastIndexOf('>');
       if (lastTag !== -1) result = result.slice(0, lastTag + 1);
 
-      return result.trim();
+      return sanitizeHtmlOutput(result.trim());
+    }
+
+
+    // ── Comprehensive background removal ─────────────────────────────────────────
+    // Format: __REMOVE_BACKGROUND__:[cssPath]
+    // Removes background from both the element AND its parent container so that
+    // overlay divs (no own background) also clear the parent's background photo.
+    const removeBgMatch = instruction.match(/^__REMOVE_BACKGROUND__:([\s\S]+)$/);
+    if (removeBgMatch) {
+      const cssPath = removeBgMatch[1].trim();
+      const bounds  = findByPath(html, cssPath);
+      if (!bounds) return reply.code(422).send({ error: 'Element not found — click it again to re-select' });
+
+      let updated = html;
+
+      // Helper: clear background from an element at given bounds in `src`
+      function clearBgFromElement(src: string, b: { start: number; end: number }): string {
+        const elHtml  = src.slice(b.start, b.end);
+        const tagEnd  = elHtml.indexOf('>');
+        if (tagEnd === -1) return src;
+
+        const openTag = elHtml.slice(0, tagEnd);
+        const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+        const sm      = styleRx.exec(openTag);
+        let patchedOpen: string;
+        if (sm) {
+          // Remove all background-* declarations from existing inline style
+          const stripped = sm[1]
+            .replace(/\bbackground(?:-image|-color|-position|-size|-repeat|-attachment|-clip|-origin|-blend-mode)?\s*:[^;]+;?\s*/gi, '')
+            .trim().replace(/;$/, '');
+          patchedOpen = openTag.replace(styleRx,
+            `style="${stripped ? stripped + ';' : ''}background:none;background-image:none"`);
+        } else {
+          patchedOpen = `${openTag} style="background:none;background-image:none"`;
+        }
+
+        // Remove background rules from <style> block for this element's class
+        const classMatch = elHtml.match(/\bclass="([^"]+)"/i);
+        let result = src.slice(0, b.start) + patchedOpen + elHtml.slice(tagEnd) + src.slice(b.end);
+        if (classMatch) {
+          const firstCls = classMatch[1].trim().split(/\s+/).find(c => c.length > 1);
+          if (firstCls) {
+            const clsRe = new RegExp(
+              `(\\.${firstCls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(?:,[^{]*)?\\{[^}]*)background(?:-image|-color|-position|-size|-repeat|-attachment|-clip|-origin)?\\s*:[^;]+;?\\s*`,
+              'gi',
+            );
+            result = result.replace(clsRe, '$1');
+          }
+        }
+
+        // Also hide any <img> that is a DIRECT child of this element (background photo pattern)
+        // by setting display:none on it
+        const inner = result.slice(b.start, b.start + 3000);
+        const imgRe = /(<img\b)([^>]*)(\/?>)/gi;
+        result = result.replace(imgRe, (match, open, attrs, close) => {
+          if (!inner.includes((open + attrs).slice(0, 60))) return match;
+          // Already display:none — skip
+          if (/\bdisplay\s*:\s*none\b/i.test(attrs)) return match;
+          const styleM = attrs.match(/\bstyle="([^"]*)"/i);
+          if (styleM) {
+            return match.replace(/\bstyle="([^"]*)"/i, `style="${styleM[1].trim()};display:none"`);
+          }
+          return `${open}${attrs} style="display:none"${close}`;
+        });
+
+        return result;
+      }
+
+      // Apply to the selected element first (clears inline style + CSS class gradient)
+      updated = clearBgFromElement(updated, bounds);
+
+      // ALWAYS also try the parent container — the background photo (<img>) is typically
+      // a sibling of an overlay div, living inside the parent (.hero-bg, etc.).
+      // Doing this unconditionally means a single "remove background" prompt clears
+      // both the gradient overlay AND the photo in one shot.
+      const parentPath = cssPath.split(/\s*>\s*/).slice(0, -1).join(' > ');
+      if (parentPath) {
+        // Re-find parent bounds in the (possibly already modified) `updated` HTML
+        const parentBounds = findByPath(updated, parentPath);
+        if (parentBounds) {
+          updated = clearBgFromElement(updated, parentBounds);
+        }
+      }
+
+      if (updated === html) {
+        return reply.code(422).send({ error: 'No background found on this element or its parent' });
+      }
+      return saveValidatedEdit(updated, 'Background removed');
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Inline style property patch (from InlineEditPanel) ─────────────────────
+    // Format: __STYLE_PATCH__:[cssPath]||[property]||[value]||[hintHtml?]
+    // hintHtml is optional — used for content-based fallback when findByPath fails.
+    // Deterministic — no LLM. Whitelisted properties only.
+    const stylePatchMatch = instruction.match(/^__STYLE_PATCH__:([\s\S]+?)\|\|([\w-]+)\|\|([\s\S]+?)(?:\|\|([\s\S]*))?$/s);
+    if (stylePatchMatch) {
+      const cssPath  = stylePatchMatch[1].trim();
+      const prop     = stylePatchMatch[2].trim().toLowerCase();
+      const rawValue = stylePatchMatch[3].trim();
+      const hintHtml = (stylePatchMatch[4] ?? '').trim();
+
+      const ALLOWED_STYLE_PROPS = new Set([
+        'color', 'background-color', 'background-image', 'background',
+        'font-size', 'font-family', 'font-weight', 'font-style',
+        'opacity', 'border-radius', 'text-align', 'letter-spacing', 'line-height',
+      ]);
+      if (!ALLOWED_STYLE_PROPS.has(prop))
+        return reply.code(400).send({ error: `Property "${prop}" is not patchable via __STYLE_PATCH__` });
+
+      const value = rawValue.replace(/[;'"<>]/g, '').trim().slice(0, 120);
+      if (!value) return reply.code(400).send({ error: 'Empty style value' });
+
+      let bounds = findByPath(html, cssPath);
+      // Content-based fallback when path doesn't match (e.g. after LLM restructured the DOM)
+      if (!bounds && hintHtml) {
+        const hs = locateElement(html, hintHtml);
+        if (hs !== -1) {
+          const ht = html.indexOf('>', hs);
+          if (ht !== -1) bounds = { start: hs, end: ht + 1 };
+        }
+      }
+      if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
+
+      const elementHtml = html.slice(bounds.start, bounds.end);
+      const tagEnd = elementHtml.indexOf('>');
+      if (tagEnd === -1) return reply.code(422).send({ error: 'Malformed element' });
+
+      const openTag = elementHtml.slice(0, tagEnd);
+      const rest    = elementHtml.slice(tagEnd);
+      const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+      const sm = styleRx.exec(openTag);
+      // When setting background-color, also clear background-image so the color shows
+      // (bg-image renders on top of bg-color; CSS class bg-image needs !important override)
+      const clearBgImage = prop === 'background-color';
+      let patchedTag: string;
+      if (sm) {
+        const escaped = prop.replace(/-/g, '\\-');
+        let existing = sm[1]
+          .replace(new RegExp(`\\b${escaped}\\s*:[^;]+;?\\s*`, 'gi'), '')
+          .trim().replace(/;$/, '');
+        if (clearBgImage) {
+          existing = existing.replace(/background-image\s*:[^;]+;?\s*/gi, '').trim().replace(/;$/, '');
+        }
+        const extra = clearBgImage ? '; background-image:none !important' : '';
+        patchedTag = openTag.replace(styleRx, `style="${existing ? existing + '; ' : ''}${prop}:${value}${extra}"`);
+      } else {
+        const extra = clearBgImage ? '; background-image:none !important' : '';
+        patchedTag = `${openTag} style="${prop}:${value}${extra}"`;
+      }
+      const updatedHtml = html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end);
+      return saveValidatedEdit(updatedHtml, `${prop} set to ${value}`);
+    }
+
+    // ── Inline text content patch (from InlineEditPanel) ────────────────────
+    // Format: __TEXT_PATCH__:[cssPath]||[newText]
+    // Deterministic — no LLM. Replaces text nodes, preserves child elements.
+    // Format: __TEXT_PATCH__:[cssPath]||[newText](||[hint — ignored])
+    // Non-greedy group 2 stops before the trailing ||hint so the hint's outerHTML
+    // is never concatenated into the visible text content.
+    const textPatchMatch = instruction.match(/^__TEXT_PATCH__:([\s\S]+?)\|\|([\s\S]+?)(?:\|\|[\s\S]*)?$/s);
+    if (textPatchMatch) {
+      const cssPath = textPatchMatch[1].trim();
+      const newText = textPatchMatch[2].trim().slice(0, 2000);
+
+      const bounds = findByPath(html, cssPath);
+      if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
+
+      const elementHtml  = html.slice(bounds.start, bounds.end);
+      const openTagMatch = elementHtml.match(/^(<[^>]+>)/);
+      const closeTagMatch = elementHtml.match(/<\/(\w+)>\s*$/);
+      if (!openTagMatch || !closeTagMatch)
+        return reply.code(422).send({ error: 'Element is not a paired tag' });
+
+      const openTag  = openTagMatch[1];
+      const closeTag = `</${closeTagMatch[1]}>`;
+      const innerHtml = elementHtml.slice(openTag.length, elementHtml.lastIndexOf(closeTag));
+      const hasChildren = /<\w/.test(innerHtml);
+
+      const newInner = hasChildren
+        ? newText + innerHtml.replace(/^[^<]+/, '').replace(/>[^<]+</g, '><').replace(/[^>]+$/, '')
+        : newText;
+
+      const updatedHtml = html.slice(0, bounds.start) + openTag + newInner + closeTag + html.slice(bounds.end);
+      return saveValidatedEdit(updatedHtml, 'Text updated');
+    }
+
+    // ── Background-image patch (from InlineEditPanel "BG Image" input) ─────────
+    // Format: __BG_IMAGE_PATCH__:[cssPath]||[imageUrl](||[hint — ignored])
+    // [^\|]+ stops at the next || so a trailing hint doesn't corrupt data: URLs.
+    const bgImagePatchMatch = instruction.match(/^__BG_IMAGE_PATCH__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|[\s\S]*)?$/s);
+    if (bgImagePatchMatch) {
+      const cssPath = bgImagePatchMatch[1].trim();
+      // Strip HTML-dangerous chars from https URLs; data: URLs are base64 and never contain them.
+      const imgUrl  = bgImagePatchMatch[2].trim().replace(/['"<>]/g, (c) => bgImagePatchMatch[2].startsWith('data:') ? c : '');
+
+      const bounds = findByPath(html, cssPath);
+      if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
+
+      const elementHtml = html.slice(bounds.start, bounds.end);
+
+      // Strategy 1 (CSS rules — runs FIRST): look in <style> blocks for rules whose
+      // selector references the element's ID word (e.g. section#hero → .hero-bg, #hero).
+      // This is the most common pattern: the visual background lives in a CSS class
+      // (.hero-bg, .about-bg, etc.) not inline on the element itself. Running this first
+      // prevents Strategy 2 from short-circuiting on stale inline styles left by earlier
+      // fallback writes, which would update the invisible outer-element style while the
+      // real .hero-bg CSS rule keeps showing the old image.
+      const sectionId = cssPath.match(/#([\w-]+)/)?.[1] ?? '';
+      if (sectionId) {
+        const esc = sectionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const patchedHtml = html.replace(
+          /([^{}]+)\{([^}]*\bbackground-image\s*:\s*url\([^)]*\)[^}]*)\}/gi,
+          (match, selector, body) => {
+            if (!new RegExp(`\\b${esc}\\b`, 'i').test(selector)) return match;
+            const newBody = body.replace(
+              /\bbackground-image\s*:\s*url\([^)]*\)/gi,
+              `background-image:url('${imgUrl}')`,
+            );
+            return `${selector}{${newBody}}`;
+          },
+        );
+        if (patchedHtml !== html) {
+          return saveValidatedEdit(patchedHtml, 'Background image updated');
+        }
+      }
+
+      // Strategy 2: replace every background-image:url() in the element's inline HTML
+      // (opening tag inline style + nested child divs with inline background-image).
+      const bgReplaceRe = /\bbackground-image\s*:\s*url\([^)]*\)/gi;
+      if (bgReplaceRe.test(elementHtml)) {
+        const fullPatched = elementHtml.replace(
+          bgReplaceRe,
+          `background-image:url('${imgUrl}')`,
+        );
+        return saveValidatedEdit(
+          html.slice(0, bounds.start) + fullPatched + html.slice(bounds.end),
+          'Background image updated',
+        );
+      }
+
+      // Strategy 3: no existing background-image anywhere — add inline style to opening tag
+      const tagEnd = elementHtml.indexOf('>');
+      if (tagEnd === -1) return reply.code(422).send({ error: 'Malformed element' });
+
+      const openTag = elementHtml.slice(0, tagEnd);
+      const rest    = elementHtml.slice(tagEnd);
+      const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+      const sm = styleRx.exec(openTag);
+      const bgVal = `background-image:url('${imgUrl}') !important;background-size:cover !important;background-position:center !important`;
+      let patchedTag: string;
+      if (sm) {
+        // Use url\([^)]*\) to match the entire url(...) token — including data URIs
+        // which contain internal semicolons (data:image/png;base64,...).
+        const existing = sm[1]
+          .replace(/\bbackground-image\s*:\s*(?:url\([^)]*\)|[^;]*)\s*;?\s*/gi, '')
+          .replace(/\bbackground-size\s*:[^;]+;?\s*/gi, '')
+          .replace(/\bbackground-position\s*:[^;]+;?\s*/gi, '')
+          .trim().replace(/;$/, '');
+        patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}${bgVal}"`);
+      } else {
+        patchedTag = `${openTag} style="${bgVal}"`;
+      }
+      return saveValidatedEdit(
+        html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end),
+        'Background image updated',
+      );
+    }
+
+    // ── Lucide SVG replacement — replaces element with raw SVG markup ─────────
+    // Format: __SVG_REPLACE__:[cssPath]||[svgMarkup]
+    // Used by the Lucide icon picker in InlineEditPanel.
+    const svgReplaceMatch = instruction.match(/^__SVG_REPLACE__:([\s\S]+?)\|\|([\s\S]+)$/s);
+    if (svgReplaceMatch) {
+      const cssPath   = svgReplaceMatch[1].trim();
+      let   svgMarkup = svgReplaceMatch[2].trim();
+
+      if (!svgMarkup.startsWith('<svg'))
+        return reply.code(400).send({ error: 'Payload must be an SVG element' });
+
+      const bounds = findByPath(html, cssPath);
+      if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
+
+      const originalHtml = html.slice(bounds.start, bounds.end);
+      // Preserve class and inline style from the original element
+      const cls   = originalHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '';
+      const style = originalHtml.match(/\bstyle="([^"]+)"/i)?.[1] ?? '';
+      // Inject class/style into the incoming SVG opening tag
+      svgMarkup = svgMarkup.replace(/^<svg\b/, `<svg${cls ? ` class="${cls}"` : ''}${style ? ` style="${style}"` : ''}`);
+      // Remove duplicate class/style injected above if original SVG already had them
+      svgMarkup = svgMarkup.replace(/(<svg[^>]*)\bclass="[^"]*"\s*class="[^"]*"/, '$1');
+
+      const updatedHtml = html.slice(0, bounds.start) + svgMarkup + html.slice(bounds.end);
+      return saveValidatedEdit(updatedHtml, 'Icon replaced');
+    }
+
+    // ── Icon / SVG replacement (from InlineEditPanel "Replace Icon" input) ─────
+    // Format: __ICON_REPLACE__:[cssPath]||[imageUrl]
+    // Replaces the selected SVG/icon element with an <img> pointing at the new URL.
+    const iconReplaceMatch = instruction.match(/^__ICON_REPLACE__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|[\s\S]*)?$/s);
+    if (iconReplaceMatch) {
+      const cssPath = iconReplaceMatch[1].trim();
+      const imgUrl  = iconReplaceMatch[2].trim().replace(/['"<>]/g, '');
+
+      const bounds = findByPath(html, cssPath);
+      if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
+
+      const elementHtml = html.slice(bounds.start, bounds.end);
+      // Preserve width/height/class from the original element where possible
+      const wMatch = elementHtml.match(/\bwidth="([^"]+)"/i) || elementHtml.match(/\bwidth\s*:\s*([^;'"]+)/i);
+      const hMatch = elementHtml.match(/\bheight="([^"]+)"/i) || elementHtml.match(/\bheight\s*:\s*([^;'"]+)/i);
+      const cls   = elementHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '';
+      const style = elementHtml.match(/\bstyle="([^"]+)"/i)?.[1] ?? '';
+      const w = wMatch?.[1] ?? '1em';
+      const h = hMatch?.[1] ?? '1em';
+      const imgTag = `<img src="${imgUrl}" alt="icon"${cls ? ` class="${cls}"` : ''} style="width:${w};height:${h};object-fit:contain;display:inline-block;${style ? style + ';' : ''}" />`;
+      const updatedHtml = html.slice(0, bounds.start) + imgTag + html.slice(bounds.end);
+      return saveValidatedEdit(updatedHtml, 'Icon replaced');
     }
 
     // ── Element-scoped LLM edit ───────────────────────────────────────────────
@@ -1813,14 +2718,21 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         ? `Located in section ${parentSecIdx + 1} of ${sectionBounds.length}`
         : 'Located outside named sections';
 
+      // ── Detect section-regeneration intent early — must happen before the
+      // deterministic BG shortcuts below so a prompt that mentions "background"
+      // or a hex colour (e.g. "Background: #020509") doesn't get intercepted
+      // by the colour-patch shortcut instead of reaching the redesign flow.
+      const isRedesignIntent = /\b(regenerat|redesign|completely new|redo|rebuild|restyle|overhaul)\b/i.test(editInstruction);
+
       // ── Deterministic background-image injection for element edits ──────────
       // When the instruction contains an image URL AND "background" intent,
       // patch the CSS directly instead of sending to LLM (LLM adds <img> tags
       // instead of setting background-image, which looks like a logo overlay).
+      // Skip when the user is doing a full section redesign — let that flow handle it.
       const bgUrlMatch = editInstruction.match(/(https?:\/\/\S+)/);
       const isBgImageIntent = /\b(?:background|bg)\b/i.test(editInstruction) &&
         /\b(?:add|set|use|change|put|apply|inject)\b/i.test(editInstruction);
-      if (bgUrlMatch && isBgImageIntent) {
+      if (!isRedesignIntent && bgUrlMatch && isBgImageIntent) {
         const rawUrl = bgUrlMatch[1].replace(/['"]/g, '').replace(/[,)]+$/, '');
         // Apply background-image to the first matching element (section, div, header, etc.)
         const tagEnd = storedElementHtml.indexOf('>');
@@ -1832,7 +2744,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           let patchedTag: string;
           if (sm) {
             const existing = sm[1]
-              .replace(/\bbackground-image\s*:[^;]+;?\s*/g, '')
+              .replace(/\bbackground-image\s*:\s*(?:url\([^)]*\)|[^;]*)\s*;?\s*/g, '')
               .replace(/\bbackground-size\s*:[^;]+;?\s*/g, '')
               .replace(/\bbackground-position\s*:[^;]+;?\s*/g, '')
               .replace(/\bbackground-repeat\s*:[^;]+;?\s*/g, '')
@@ -1853,10 +2765,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // LLMs confuse hex values like #32a852 with CSS ID selectors and return
       // the element unchanged. Patch inline style directly when a color value
       // and "background" intent are detected.
+      // Skip for section redesigns — they reference many colours in their spec.
       const isBgColorIntent = /\b(?:background[\s-]?color|bg[\s-]?color|background)\b/i.test(editInstruction)
         && !/https?:\/\//.test(editInstruction);
       const colorValueMatch = editInstruction.match(/(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\))/i);
-      if (isBgColorIntent && colorValueMatch) {
+      if (!isRedesignIntent && isBgColorIntent && colorValueMatch) {
         const colorValue = colorValueMatch[1];
         const tagEnd = storedElementHtml.indexOf('>');
         if (tagEnd !== -1) {
@@ -1878,19 +2791,115 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
       // ─────────────────────────────────────────────────────────────────────────
 
+      // ── Section-regeneration flow ─────────────────────────────────────────
+      // isRedesignIntent already computed above (before the deterministic shortcuts).
+      // "Regenerate/redesign/redo the hero section" is fundamentally different
+      // from an element-level edit. When detected:
+      //  1. Auto-elevate the target to the enclosing <section> (so the wrong
+      //     selected element never corrupts the page structure).
+      //  2. Use a section-safe LLM prompt that allows scoped <style>/<script>.
+      //  3. Hoist returned <style>/<script> to <head>/<body> so the page stays
+      //     well-formed after the splice.
+
+      let targetBounds = bounds;
+      let targetHtml   = storedElementHtml;
+
+      if (isRedesignIntent) {
+        // Find the enclosing <section> for the selected element.
+        const allSections = extractAllTopLevelSections(html);
+        const enclosing   = allSections.find(s => s.start <= bounds.start && bounds.end <= s.end);
+
+        // Also check if any section id/class matches a keyword in the instruction.
+        const mentionedName = /\b(hero|about|features?|pricing|contact|footer|header|cta|stats|team|process|next.?step)\b/i
+          .exec(editInstruction)?.[1]?.toLowerCase() ?? '';
+        const namedSection  = allSections.find(s => {
+          const txt = html.slice(s.start, s.start + 200).toLowerCase();
+          return mentionedName && txt.includes(mentionedName);
+        });
+
+        const section = namedSection ?? enclosing;
+        if (section) {
+          targetBounds = section;
+          targetHtml   = html.slice(section.start, section.end);
+          console.log(`⬆ Section-regeneration intent detected — target elevated to section (${targetHtml.length} chars)`);
+        }
+      }
+
       // ── Detect element type for specialised prompt guidance ──────────────
-      const elTag = storedElementHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
-      const isImgEl = elTag === 'img';
-      const currentSrc = isImgEl
-        ? (storedElementHtml.match(/\bsrc="([^"]+)"/)?.[1] ?? '')
+      const elTag = targetHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+      const isImgEl   = elTag === 'img';
+      const hasImgChild = !isImgEl && /<img\b/i.test(targetHtml);
+      const hasImg    = isImgEl || hasImgChild;
+      const currentSrc = hasImg
+        ? (targetHtml.match(/\bsrc="([^"]+)"/)?.[1] ?? '')
         : '';
-      const currentAlt = isImgEl
-        ? (storedElementHtml.match(/\balt="([^"]*)"/)?.[1] ?? '')
+      const currentAlt = hasImg
+        ? (targetHtml.match(/\balt="([^"]*)"/)?.[1] ?? '')
         : '';
 
-      // ── Focused LLM prompt — element only, not full section ──────────────
-      const imageGuidance = isImgEl ? `
-IMAGE-SPECIFIC RULES (this element is an <img>):
+      // ── Pexels shortcut — descriptive image replacement (no URL) ─────────
+      // When the user describes the desired image without providing a URL,
+      // search Pexels for a contextually matching photo and inject it directly.
+      // This avoids asking the LLM to recall a valid Unsplash photo ID from
+      // training memory, which reliably produces wrong or stale URLs.
+      if (!isRedesignIntent && hasImg && !(/https?:\/\//.test(editInstruction))) {
+        // Strip "[sectionType] <Element Label>: " prefixes to get raw user text.
+        const stripped = editInstruction
+          .replace(/^\[[^\]]+\]\s*/, '')
+          .replace(/^<[^>]+>:\s*/, '')
+          .trim();
+
+        // Gate: does the instruction mention an image noun at all?
+        // Avoids calling LLM+Pexels for non-image edits (text changes, color tweaks, etc.)
+        const mentionsImage = /\b(?:image|photo|picture|pic|img)\b/i.test(stripped);
+
+        if (mentionsImage) {
+          // Ask the LLM to extract a clean search query — this handles any verb or
+          // phrasing ("use", "take", "grab", "find", etc.) without enumerating them.
+          // The LLM is reliable at understanding intent; only unreliable at picking URLs.
+          const extractPrompt = `Extract a concise 2-5 keyword image search query from this instruction. Return ONLY the keywords, nothing else.\n\nInstruction: ${stripped}`;
+          let pexelsQuery = '';
+          try {
+            pexelsQuery = (await llmGenerateFn(extractPrompt))
+              .trim()
+              .replace(/^["'`]|["'`]$/g, '')
+              .trim()
+              .slice(0, 80);
+            console.log(`🔍 Image query extracted: "${pexelsQuery}"`);
+          } catch { /* fall through to LLM edit */ }
+
+          if (pexelsQuery) {
+            const pexelsUrl = await fetchPexelsImageUrl(pexelsQuery);
+            console.log(`📸 Pexels result for "${pexelsQuery}": ${pexelsUrl ?? '(no result — using Unsplash Source fallback)'}`);
+            const imageUrl = pexelsUrl
+              ?? `https://source.unsplash.com/featured/1200x800/?${encodeURIComponent(pexelsQuery)}`;
+            const injectUrl = (target: string, url: string): string => {
+              let out = target.replace(
+                /\bbackground-image\s*:\s*url\(\s*['"]?[^'")\s]+['"]?\s*\)/gi,
+                () => `background-image: url('${url}')`,
+              );
+              if (out !== target) return out;
+              out = target.replace(
+                /(<img\b[^>]*?\bsrc=["'])([^'"]+)(["'])/i,
+                (_m, pre, _old, post) => `${pre}${url}${post}`,
+              );
+              return out;
+            };
+            const patched = injectUrl(targetHtml, imageUrl);
+            if (patched !== targetHtml) {
+              console.log(`⚡ Image shortcut (${pexelsUrl ? 'pexels' : 'unsplash-source'}): "${pexelsQuery}" → ${imageUrl}`);
+              return saveValidatedEdit(
+                html.slice(0, targetBounds.start) + patched + html.slice(targetBounds.end),
+                'Image updated',
+              );
+            }
+          }
+        }
+      }
+
+      // ── Build the LLM prompt (element-edit vs section-redesign) ──────────
+      const imageGuidance = hasImg ? `
+IMAGE-SPECIFIC RULES (this element contains an image):
 - Current src: ${currentSrc}
 - Current alt: ${currentAlt || '(none)'}
 - If the instruction asks to change/replace/update the image without specifying a URL:
@@ -1899,13 +2908,30 @@ IMAGE-SPECIFIC RULES (this element is an <img>):
   • Replace ONLY the src attribute value — keep all other attributes unchanged
 - If the instruction provides a specific URL, use that URL exactly` : '';
 
-      const elementPrompt = `You are making a precise edit to one HTML element. Return ONLY the modified element — same root tag, same nesting. Do not return any surrounding HTML, parent elements, or the full section.
+      const elementPrompt = isRedesignIntent
+        ? `You are regenerating a complete HTML section. Return ONLY the <section> element — nothing before or after it.
+
+SECTION TO REDESIGN:
+${targetHtml}
+
+INSTRUCTION: ${editInstruction}
+
+Output rules (strictly enforced):
+- Start your output with the section's opening tag and end with </section>
+- Do NOT output <!DOCTYPE>, <html>, <head>, or <body>
+- All CSS MUST be inside a single <style> tag placed as the LAST child of <section>, before </section>
+- All CSS selectors MUST be scoped with a unique prefix (e.g. .regen-${Date.now().toString(36)}-) — zero style leakage to other sections
+- All JS MUST be inside a single <script> tag placed as the LAST child of <section>, just before </section>
+- All JS MUST be wrapped in an IIFE: (function(){ ... })(); — no global variable declarations
+- Keep ALL existing text content exactly as-is — only visual/structural design changes
+- No external libraries except Google Fonts (loaded via @import inside the <style> tag)`
+        : `You are making a precise edit to one HTML element. Return ONLY the modified element — same root tag, same nesting. Do not return any surrounding HTML, parent elements, or the full section.
 
 ELEMENT PATH: ${cssPath || hintHtml.slice(0, 80)}
 CONTEXT: ${breadcrumb}
 
 ELEMENT TO EDIT:
-${storedElementHtml}
+${targetHtml}
 
 INSTRUCTION: ${editInstruction}
 ${imageGuidance}
@@ -1918,20 +2944,90 @@ Strict rules:
 - For adding/removing a child: do so while preserving all other children unchanged
 - Never truncate or omit any part of this element`;
 
+      // ── LLM call with clear logging ──────────────────────────────────────────
+      console.log('\n┌─ LLM PROMPT ─────────────────────────────────────────────────');
+      console.log(elementPrompt.slice(0, 1000));
+      console.log('└──────────────────────────────────────────────────────────────');
+
       const raw      = await llmGenerateFn(elementPrompt);
       const modified = extractHtmlFromResponse(raw);
+
+      console.log('\n┌─ LLM RESPONSE (raw) ─────────────────────────────────────────');
+      console.log(raw?.slice(0, 2000) ?? '(empty)');
+      console.log('├─ EXTRACTED HTML ──────────────────────────────────────────────');
+      console.log(modified?.slice(0, 1000) ?? '(none — extraction failed)');
+      console.log(`└─ Status: ${modified ? '✓ HTML extracted successfully' : '✗ No HTML extracted'}`);
 
       if (!modified) {
         return reply.code(502).send({ error: 'LLM returned empty response — try rephrasing' });
       }
 
+      // ── Guard: reject full-page HTML — these would corrupt the document ──
+      if (/<!doctype|<html[\s>]/i.test(modified) || /<\/?(head|body)\b/i.test(modified)) {
+        console.log('✗ LLM returned full-page HTML — rejecting');
+        return reply.code(422).send({
+          error: 'LLM returned a full HTML page instead of just the section. Try selecting the specific section element and rephrasing.',
+        });
+      }
+
+      // ── Guard: root tag mismatch (element-level edits only) ──────────────
+      if (!isRedesignIntent) {
+        const originalRoot = targetHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+        const returnedRoot = modified.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+        if (originalRoot && returnedRoot && returnedRoot !== originalRoot) {
+          console.log(`✗ Root tag mismatch: expected <${originalRoot}>, got <${returnedRoot}>`);
+          return reply.code(422).send({
+            error: `Edit mismatch: you selected a <${originalRoot}> element but the edit targets a <${returnedRoot}>. Click directly on the section you want to redesign, then retry.`,
+          });
+        }
+      }
+
+      // ── Hoist <style>/<script> from section body to <head>/<body> ────────
+      // LLMs embed <style> and <script> inside <section> even when asked to
+      // put them at the end. Hoisting keeps the document well-formed and
+      // prevents styles being applied before the stylesheet is parsed.
+      let splicedSection = modified;
+      const hoistedStyles:  string[] = [];
+      const hoistedScripts: string[] = [];
+
+      if (isRedesignIntent) {
+        splicedSection = splicedSection
+          .replace(/<style\b[^>]*>([\s\S]*?)<\/style>/gi, (m) => {
+            hoistedStyles.push(m);
+            return '';
+          })
+          .replace(/<script\b[^>]*>([\s\S]*?)<\/script>/gi, (m) => {
+            hoistedScripts.push(m);
+            return '';
+          });
+        console.log(`⬆ Hoisting ${hoistedStyles.length} <style> block(s) and ${hoistedScripts.length} <script> block(s)`);
+      }
+
       // ── Exact positional splice — no string matching needed ───────────────
-      const updatedHtml = html.slice(0, bounds.start) + modified + html.slice(bounds.end);
+      let updatedHtml = html.slice(0, targetBounds.start) + splicedSection + html.slice(targetBounds.end);
+
+      // Inject hoisted styles before </head> and scripts before </body>
+      if (hoistedStyles.length) {
+        const headClose = updatedHtml.indexOf('</head>');
+        const styleBlock = hoistedStyles.join('\n');
+        updatedHtml = headClose !== -1
+          ? updatedHtml.slice(0, headClose) + styleBlock + '\n' + updatedHtml.slice(headClose)
+          : styleBlock + '\n' + updatedHtml;
+      }
+      if (hoistedScripts.length) {
+        const bodyClose = updatedHtml.lastIndexOf('</body>');
+        const scriptBlock = hoistedScripts.join('\n');
+        updatedHtml = bodyClose !== -1
+          ? updatedHtml.slice(0, bodyClose) + scriptBlock + '\n' + updatedHtml.slice(bodyClose)
+          : updatedHtml + '\n' + scriptBlock;
+      }
 
       if (updatedHtml === html) {
+        console.log('⚠ LLM edit produced no change in the HTML');
         return reply.code(422).send({ error: 'Edit produced no change — try being more specific' });
       }
 
+      console.log('✓ Edit applied successfully\n');
       return saveValidatedEdit(updatedHtml, editInstruction.replace(/^\[[^\]]+\]\s*/, '').slice(0, 80));
     }
     // ─────────────────────────────────────────────────────────────────────────
@@ -2010,36 +3106,18 @@ Strict rules:
       let applied = 0, missed = 0;
       for (const p of patches) {
         if (!p.find || p.replace === undefined) continue;
-        if (!result.includes(p.find)) { missed++; continue; }
+        if (!result.includes(p.find)) {
+          console.warn(`⚠️  Patch MISS: find="${p.find.slice(0, 80)}" → replace="${p.replace.slice(0, 40)}"`);
+          missed++;
+          continue;
+        }
+        console.log(`✅ Patch HIT:  find="${p.find.slice(0, 80)}" → replace="${p.replace.slice(0, 40)}"`);
         result = result.split(p.find).join(p.replace);
         applied++;
       }
       return { html: result, applied, missed };
     }
 
-    function parseJsonPatches(rawText: string): { patches: Array<{ find: string; replace: string }>; summary: string } | null {
-      const start = rawText.indexOf('{');
-      if (start === -1) return null;
-      // Use brace-depth tracking to find the END of the first complete JSON object.
-      // lastIndexOf('}') would include any LLM reasoning text appended after the JSON.
-      let depth = 0, end = -1, inString = false, escaped = false;
-      for (let i = start; i < rawText.length; i++) {
-        const c = rawText[i];
-        if (escaped) { escaped = false; continue; }
-        if (c === '\\' && inString) { escaped = true; continue; }
-        if (c === '"') { inString = !inString; continue; }
-        if (inString) continue;
-        if (c === '{') depth++;
-        else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
-      }
-      if (end === -1) return null;
-      try {
-        const slice = rawText.slice(start, end + 1)
-          .replace(/("(?:[^"\\]|\\.)*")/gs, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
-        const parsed = JSON.parse(slice) as { patches?: Array<{ find: string; replace: string }>; summary?: string };
-        return { patches: parsed.patches ?? [], summary: parsed.summary ?? 'Applied edit' };
-      } catch { return null; }
-    }
 
     function extractBlockFromResponse(rawText: string): { block: string; tag: string } | null {
       // Reject JSON responses — LLM "find" values contain HTML tags that would be
@@ -2062,21 +3140,16 @@ Strict rules:
     // Extract CSS :root block so the LLM knows available design tokens
     const cssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
 
-    const LARGE_HTML = 15000;
-    const isLarge = html.length > LARGE_HTML;
-
-    // "regenerate/rewrite/rebuild/redesign" → skip patches, go straight to section rewrite
+    // "regenerate/redesign" with explicit intent → still uses single-section regen
     const isRegenIntent = /\b(?:regenerate|rewrite|rebuild|redesign|redo|remake|recreate)\b/i.test(instruction);
-
-    // For logo/header/nav instructions on large HTML, prefer to extract the header block
     const isHeaderInstruction = /\b(?:logo|brand|icon|favicon|header|nav(?:bar)?)\b/i.test(instruction);
 
     let sectionCtx: SectionSlice | null = null;
-    if (isLarge) {
+    if (isRegenIntent) {
       sectionCtx = (isHeaderInstruction ? extractHeaderBlock(html) : null) ?? extractBestSection(html, instruction);
     }
 
-    // ── Section regeneration helper (used by regen intent + fallback) ─────────
+    // ── Section regeneration helper (explicit regen intent only) ─────────────
     async function regenSection(ctx: SectionSlice): Promise<string> {
       const regenPrompt = `You are rewriting one section of an HTML microsite.
 
@@ -2094,158 +3167,132 @@ ${ctx.section}`;
       if (!block) throw new Error('LLM did not return a valid HTML block');
       return ctx.before + block.block + ctx.after;
     }
-    // ──────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
 
-    const EDIT_TYPE_HINT = `
-Edit type examples (all supported):
-- Text/content  : "change heading to X", "update body copy", "add bullet point"
-- Color         : "make background dark blue", "change primary color to #e05", "update button color"
-- Font/typography: "use Inter font", "make headings bold", "increase font size to 18px"
-- Images        : "replace hero image with X", "add logo", "change background image"
-- Layout/spacing: "add more padding", "make two columns", "center the text"
-- Style         : "make it more modern", "add a gradient background", "remove border"
-- Regeneration  : "regenerate this section", "rewrite with dark theme"`;
+    // Build a human-readable section list so the LLM can reference sections by name
+    const allSecs = extractAllTopLevelSections(html);
+    const sectionList = allSecs.map((s, i) => {
+      const snippet = html.slice(s.start, Math.min(s.start + 300, s.end));
+      return snippet.match(/\bid="([^"]+)"/)?.[1]
+        ?? snippet.match(/\bdata-section="([^"]+)"/)?.[1]
+        ?? snippet.match(/\bclass="([^"\s]+)/)?.[1]
+        ?? snippet.match(/<h[1-3][^>]*>([^<]{1,40})<\/h[1-3]>/i)?.[1]?.trim()
+        ?? `section-${i + 1}`;
+    }).join(', ');
 
-    let combinedPrompt: string;
+    // ── Structured-operation prompt ───────────────────────────────────────────
+    // The LLM always receives the FULL HTML (so it sees every section) but
+    // responds with a small typed JSON object — never the whole page back.
+    // This works for any HTML size and handles every edit type in one pass.
+    type MicrositeOp =
+      | { op: 'patches'; patches: Array<{ find: string; replace: string }>; summary: string }
+      | { op: 'section_replace'; anchor: string; html: string; summary: string }
+      | { op: 'section_insert'; anchor: string; position: 'before' | 'after'; html: string; summary: string }
+      | { op: 'section_delete'; anchor: string; summary: string };
 
-    if (isLarge && sectionCtx && !isRegenIntent) {
-      combinedPrompt = `You are editing a section of an HTML microsite. Apply the instruction using the lightest format that works.
-${EDIT_TYPE_HINT}
-
-OPTION 1 — surgical patches (preferred for targeted changes: text, colors, fonts, images, styles, attributes):
-Output ONLY a JSON object, no preamble:
-{ "patches": [{ "find": "exact substring", "replace": "replacement" }], "summary": "one-line description" }
-Patch rules:
-- Copy "find" strings EXACTLY from the HTML/CSS below — character-for-character, no rewording
-- Include 15–30 chars of surrounding context so each "find" is unique in the full document
-- NEVER put newlines inside "find" or "replace" — single-line strings only
-- For COLORS: patch the CSS variable value → find "--color-primary: #aabbcc", replace "--color-primary: #112233"
-- For FONTS: patch font variable → find "--font-heading: 'OldFont'", replace "--font-heading: 'NewFont'" OR patch font-family in a style attribute
-- For TEXT: patch the exact text node or attribute value with enough surrounding markup to be unique
-- For IMAGES: patch src="old-url" with src="new-url"
-- For INLINE STYLES: patch the specific style property string
-- Use 1–8 patches; use multiple patches for the same change across multiple places
-
-OPTION 2 — full section rewrite (use for: add/remove elements, major layout change, section restructure):
-Output ONLY the complete replacement HTML block — start with the opening tag, end with closing tag. No preamble, no code fences.
-
-CSS DESIGN TOKENS (patch these variables for color/font/spacing changes):
-${cssVarsBlock}
-
-SECTION HTML (copy "find" strings EXACTLY from this text):
-${sectionCtx.section}
-
-EDIT INSTRUCTION: ${instruction}`;
-    } else if (!isLarge) {
-      combinedPrompt = `You are an HTML microsite editor. Apply the edit instruction with minimal, surgical changes.
-${EDIT_TYPE_HINT}
-
-OPTION 1 — surgical patches (preferred for targeted changes: text, colors, fonts, images, styles, attributes):
-Respond with ONLY a JSON object (no preamble, start with {, end with }):
-{ "patches": [{ "find": "exact substring", "replace": "replacement" }], "summary": "one-line description" }
-Patch rules:
-- Copy "find" strings EXACTLY from the HTML below — character-for-character
-- Include enough surrounding context to make each "find" unique in the document
-- NEVER put newlines inside "find" or "replace" — single-line strings only
-- For COLORS: patch CSS variable → find "--color-bg: #fff", replace "--color-bg: #1a1a2e"
-- For FONTS: patch font variable or font-family in style attribute
-- For TEXT: patch the exact visible text with surrounding markup for uniqueness
-- For IMAGES: patch src="old" with src="new"
-- For STYLES: patch specific inline style property strings
-- Use 1–8 patches
-
-OPTION 2 — full HTML rewrite (for: adding/removing entire sections, major structural redesign, complete regeneration):
-Output the sentinel line then a complete valid HTML document:
-REWRITE
-<!DOCTYPE html>
-...complete new HTML...
-
-EDIT INSTRUCTION: ${instruction}
-
-CURRENT HTML:
-${html}`;
-    } else {
-      combinedPrompt = ''; // handled by isRegenIntent path
+    function parseOp(raw: string): MicrositeOp | null {
+      const start = raw.indexOf('{');
+      if (start === -1) return null;
+      let depth = 0, end = -1, inStr = false, esc = false;
+      for (let i = start; i < raw.length; i++) {
+        const c = raw[i];
+        if (esc) { esc = false; continue; }
+        if (c === '\\' && inStr) { esc = true; continue; }
+        if (c === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (c === '{') depth++;
+        else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
+      }
+      if (end === -1) return null;
+      try {
+        const slice = raw.slice(start, end + 1)
+          .replace(/("(?:[^"\\]|\\.)*")/gs, m => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
+        return JSON.parse(slice) as MicrositeOp;
+      } catch { return null; }
     }
 
-    const raw = combinedPrompt ? await llmGenerateFn(combinedPrompt) : '';
+    const opPrompt = isRegenIntent ? '' : `You are editing an HTML microsite. Pick the ONE operation that best fits the instruction and respond with a single JSON object — nothing else.
+
+OPERATION TYPES:
+
+OP patches — targeted changes to existing content (text, values, colors, images, styles).
+Works across ALL sections in one pass. Use multiple patches for values repeated in different sections.
+{ "op": "patches", "patches": [{ "find": "exact substring", "replace": "new value" }], "summary": "..." }
+Rules:
+- Copy each "find" string EXACTLY from the HTML — character-for-character, no paraphrasing
+- Include 15–40 chars of surrounding context so each "find" is unique in the document
+- NEVER put newlines inside "find" or "replace" — single-line strings only
+- Up to 12 patches
+
+OP section_replace — redesign or restructure an existing section completely:
+{ "op": "section_replace", "anchor": "section-id-or-keyword", "html": "<section>...</section>", "summary": "..." }
+
+OP section_insert — add a brand-new section before or after an existing one:
+{ "op": "section_insert", "anchor": "section-id-or-keyword", "position": "before|after", "html": "<section>...</section>", "summary": "..." }
+
+OP section_delete — remove an existing section entirely:
+{ "op": "section_delete", "anchor": "section-id-or-keyword", "summary": "..." }
+
+KNOWN SECTIONS: ${sectionList}
+${cssVarsBlock ? `\nCSS DESIGN TOKENS:\n${cssVarsBlock}\n` : ''}
+INSTRUCTION: ${instruction}
+
+FULL HTML:
+${html}`;
+
+    console.log(`\n┌─ GLOBAL EDIT ── regenIntent=${isRegenIntent} sections=[${sectionList}] ──`);
+    console.log(`│ instruction: ${instruction.slice(0, 120)}`);
+
+    const raw = opPrompt ? await llmGenerateFn(opPrompt) : '';
+
+    if (raw) console.log(`│ LLM raw (first 500): ${raw.slice(0, 500)}`);
+    console.log(`└──────────────────────────────────────────────────────────────`);
 
     let updatedHtml = html;
     let summary = 'Applied edit';
     let changedTexts: string[] = [];
 
-    if (isLarge && sectionCtx) {
-      if (isRegenIntent) {
-        // User explicitly asked for regeneration — skip patches entirely
-        try {
-          updatedHtml = await regenSection(sectionCtx);
-          summary = 'Section regenerated';
-        } catch {
-          return reply.code(502).send({ error: 'Could not regenerate section — try providing more detail in your instruction' });
-        }
-      } else {
-        // Try OPTION 1 patches first
-        const parsed = parseJsonPatches(raw);
-        if (parsed && parsed.patches.length > 0) {
-          const { html: patched, applied, missed } = applyPatches(html, parsed.patches);
-          if (applied > 0) {
-            updatedHtml = patched;
-            summary = parsed.summary;
-            changedTexts = parsed.patches.filter(p => p.replace !== undefined).map(p => p.replace);
-            if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
-          } else {
-            // All patches missed — fall back to section rewrite
-            const blockResult = extractBlockFromResponse(raw);
-            if (blockResult) {
-              updatedHtml = sectionCtx.before + blockResult.block + sectionCtx.after;
-              summary = 'Section rewritten';
-            } else {
-              try {
-                updatedHtml = await regenSection(sectionCtx);
-                summary = 'Section regenerated (patch fallback)';
-              } catch {
-                return reply.code(502).send({ error: 'Could not apply edit — try rephrasing your instruction' });
-              }
-            }
-          }
-        } else {
-          // No JSON patches — try block extraction (LLM may have chosen OPTION 2 directly)
-          const blockResult = extractBlockFromResponse(raw);
-          if (blockResult) {
-            updatedHtml = sectionCtx.before + blockResult.block + sectionCtx.after;
-            summary = 'Section updated';
-          } else {
-            // Empty patches or unparseable — fall back to regen
-            try {
-              updatedHtml = await regenSection(sectionCtx);
-              summary = 'Section regenerated';
-            } catch {
-              return reply.code(502).send({ error: 'Could not apply edit — try rephrasing your instruction' });
-            }
-          }
-        }
+    if (isRegenIntent && sectionCtx) {
+      try {
+        updatedHtml = await regenSection(sectionCtx);
+        summary = 'Section regenerated';
+      } catch {
+        return reply.code(502).send({ error: 'Could not regenerate section — try providing more detail in your instruction' });
       }
     } else {
-      // Small HTML: try patches, then REWRITE sentinel
-      const rewriteMatch = raw.match(/REWRITE\s*\r?\n([\s\S]+)/);
-      if (rewriteMatch) {
-        const candidate = extractHtmlFromResponse(rewriteMatch[1]);
-        if (!candidate.includes('</body>') && !candidate.includes('</html>')) {
-          return reply.code(502).send({ error: 'Generated HTML appears truncated — try a more targeted edit instruction' });
-        }
-        updatedHtml = candidate;
-        summary = 'Full rewrite applied';
-      } else {
-        const parsed = parseJsonPatches(raw);
-        if (!parsed) return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
-        const { html: patched, applied, missed } = applyPatches(html, parsed.patches);
-        if (applied === 0) {
-          return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
-        }
+      const op = parseOp(raw);
+      if (!op) return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+
+      if (op.op === 'patches') {
+        const { html: patched, applied, missed } = applyPatches(html, op.patches);
+        if (applied === 0) return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
         updatedHtml = patched;
-        summary = parsed.summary;
-        changedTexts = parsed.patches.filter(p => p.replace !== undefined).map(p => p.replace);
+        summary = op.summary;
+        changedTexts = op.patches.filter(p => p.replace !== undefined).map(p => p.replace);
         if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+
+      } else if (op.op === 'section_replace') {
+        const ctx = extractBestSection(html, op.anchor);
+        if (!ctx) return reply.code(502).send({ error: `Section "${op.anchor}" not found` });
+        updatedHtml = ctx.before + op.html + ctx.after;
+        summary = op.summary;
+
+      } else if (op.op === 'section_insert') {
+        const ctx = extractBestSection(html, op.anchor);
+        if (!ctx) return reply.code(502).send({ error: `Anchor section "${op.anchor}" not found` });
+        updatedHtml = op.position === 'before'
+          ? ctx.before + op.html + ctx.section + ctx.after
+          : ctx.before + ctx.section + op.html + ctx.after;
+        summary = op.summary;
+
+      } else if (op.op === 'section_delete') {
+        const ctx = extractBestSection(html, op.anchor);
+        if (!ctx) return reply.code(502).send({ error: `Section "${op.anchor}" not found` });
+        updatedHtml = ctx.before + ctx.after;
+        summary = op.summary;
+
+      } else {
+        return reply.code(502).send({ error: 'Unknown operation returned by LLM — try rephrasing' });
       }
     }
 
@@ -2396,7 +3443,7 @@ ${sectionHtml}`;
     const sectionMatch = regenRaw.match(/<section[\s\S]*<\/section>/i);
     if (!sectionMatch) return reply.code(502).send({ error: 'LLM did not return a valid section — try rephrasing' });
 
-    const updatedHtml = html.slice(0, target.start) + sectionMatch[0] + html.slice(target.end);
+    const updatedHtml = html.slice(0, target.start) + sanitizeHtmlOutput(sectionMatch[0]) + html.slice(target.end);
     const updatedAst = { ...ast, sections: [{ ...astSections![0], customHtml: updatedHtml, previousHtml: html }, ...((astSections ?? []).slice(1))] };
     await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
 
@@ -2434,8 +3481,9 @@ ${sectionHtml}`;
     const { name, id } = req.params as { name: string; id: string };
     if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
 
-    const { customHtml } = (req.body ?? {}) as { customHtml?: string };
-    if (typeof customHtml !== 'string' || !customHtml.trim()) return reply.code(400).send({ error: 'Missing customHtml' });
+    const { customHtml: rawCustomHtml } = (req.body ?? {}) as { customHtml?: string };
+    if (typeof rawCustomHtml !== 'string' || !rawCustomHtml.trim()) return reply.code(400).send({ error: 'Missing customHtml' });
+    const customHtml = stripPreviewInjections(rawCustomHtml);
 
     const dir = path.join(superClientsRoot, name);
     const filePath = path.join(dir, 'microsites', `${id}.json`);

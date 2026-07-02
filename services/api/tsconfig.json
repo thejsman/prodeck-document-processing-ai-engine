@@ -10,6 +10,7 @@
     { "path": "../../packages/core" },
     { "path": "../../packages/planner" },
     { "path": "../../packages/runtime" },
+    { "path": "../../packages/tools/analyze-image" },
     { "path": "../../packages/tools/extract-section" },
     { "path": "../../packages/tools/generate-content" },
     { "path": "../../packages/tools/search-documents" },
