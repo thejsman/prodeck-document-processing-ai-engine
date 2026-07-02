@@ -2474,11 +2474,11 @@ FRAMEWORK TRANSLATION RULES — apply these when the prompt references any JS fr
 - BlurText / word-by-word animation → JS that splits text into <span> words and stagger-fades them via IntersectionObserver or GSAP
 - FadingVideo crossfade → vanilla JS using requestAnimationFrame to tween video.style.opacity, with ended + timeupdate listeners for manual looping
 
-NAV INTEGRITY RULE — always enforce this:
+${body?.pdfPresentation ? '' : `NAV INTEGRITY RULE — always enforce this:
 - Every href="#anchor" in the navigation must have a matching id="anchor" on a real page section
 - Scan every nav link you generate; if a nav item points to a section not explicitly defined in the prompt, generate a minimal but styled placeholder section for it — same visual language as the rest of the page, with a heading and 1–2 lines of relevant placeholder copy
 - Never wire multiple nav items to the same section ID just because that section is the closest match
-- After writing all sections, do a final mental check: for each nav href, confirm its target id exists in the HTML
+- After writing all sections, do a final mental check: for each nav href, confirm its target id exists in the HTML`}
 
 FULL-WIDTH RULE — CRITICAL, never violate:
 - <html> and <body> must ALWAYS be full-viewport-width — never set max-width, margin:auto, or padding on html or body
@@ -2501,13 +2501,17 @@ MOBILE-FIRST REQUIREMENTS — these are non-negotiable and must be in every outp
 - Images: always width:100%; height:auto, or object-fit:cover inside a container with explicit height
 - Avoid hover-only states for essential interactions — every interactive element must also respond to touch/click
 
-NAVBAR LOGO REQUIREMENTS — non-negotiable in every microsite:
+${body?.pdfPresentation ? `PRESENTATION MODE — NO SITE CHROME (this is a fixed-aspect slide deck exported to PDF, not a website):
+- Do NOT generate any header, navbar, top nav, menu bar, hamburger, or footer navigation — presentation microsites have ZERO site chrome
+- There is NO sticky or fixed navigation of any kind; every slide is a standalone full-bleed composition that fills its frame edge to edge
+- The company logo appears ONLY where the slide rules below specify (first slide only) — never in a header or nav bar
+- Any navbar / nav / header / footer-nav instruction stated elsewhere in these instructions does NOT apply in presentation mode — ignore it entirely` : `NAVBAR LOGO REQUIREMENTS — non-negotiable in every microsite:
 - Every microsite must have a sticky or fixed navbar at the top
 - The navbar must use display:flex;align-items:center so all children are vertically centered
 - The navbar left side must contain exactly this logo element as the first child inside the navbar: <img id="__site-logo__" src="data:," alt="Company Logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;">
 - Wrap the logo in a flex container that is the first child of the nav: <div style="display:flex;align-items:center;flex-shrink:0;"><img id="__site-logo__" src="data:," alt="Company Logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;"></div>
 - The src must be exactly "data:," — it will be replaced with the real logo URL or an SVG initials badge by the system. Do not invent a src value and do not add an onerror attribute.
-- The navbar height must be at least 60px so the logo has room to breathe vertically
+- The navbar height must be at least 60px so the logo has room to breathe vertically`}
 
 ICON SYSTEM — always use modern icons:
 - Choose whichever icon library or inline SVG approach best suits the theme and style you've chosen
@@ -2712,7 +2716,7 @@ You have complete creative freedom: palette, typography, layout, imagery, and vi
 ONLY technical rules (required for rendering):
 - Each page: <section data-section-id="slide-N" id="slide-N" style="aspect-ratio:9/16;overflow:hidden;position:relative;width:100%;max-width:calc(100vh * 9/16);box-sizing:border-box;margin:0 auto 4px">
 - Logo: one <img id="__site-logo__" src="data:," alt="Logo" style="height:32px;width:auto;object-fit:contain"> on the first page only — never repeated
-- Any browser-only element (nav, footer): add data-pdf-hide="true"
+- NO header, navbar, nav, menu, or footer anywhere — this is a slide deck with zero site chrome; each slide stands alone
 - No CSS animations, transitions, or JS — static output only
 - px font sizes only`);
         } else {
@@ -2729,7 +2733,7 @@ You have complete creative freedom: palette, typography, layout, imagery, and vi
 ONLY technical rules (required for rendering):
 - Each page: <section data-section-id="slide-N" id="slide-N" style="aspect-ratio:16/9;overflow:hidden;position:relative;width:100%;box-sizing:border-box;margin-bottom:4px">
 - Logo: one <img id="__site-logo__" src="data:," alt="Logo" style="height:36px;width:auto;object-fit:contain"> before the first page only — never inside a section
-- Browser-only nav: add data-pdf-hide="true"
+- NO header, navbar, nav, menu, or footer anywhere — this is a slide deck with zero site chrome; each slide stands alone
 - No CSS animations, transitions, or JS — static output only
 - px font sizes only
 - All content must stay within each page boundary — overflow is hidden in export`);

@@ -115,7 +115,7 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
     async (req, reply) => {
       const { name, id } = req.params;
       const orientation = req.query.orientation === 'portrait' ? 'portrait' : 'landscape';
-      const { pdfW, vpW, vpH } = DIMS[orientation];
+      const { vpW, vpH } = DIMS[orientation];
 
       const superClientsRoot = path.join(workdir, 'super-clients');
       const filePath = path.join(superClientsRoot, name, 'microsites', `${id}.json`);
@@ -244,18 +244,36 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
           return reply.code(500).send({ error: 'No slide sections found in microsite' });
         }
 
-        // Inject @page rules so each section becomes exactly one PDF page with no margins.
-        // page.pdf() uses the browser's print engine — text stays real PDF text (selectable,
-        // copyable) rather than rasterised JPEG. printBackground:true preserves colours/images.
+        // Measure the FIRST slide's authored dimensions from its live rendered box, rather
+        // than hardcoding 720×1280 / 1280×720. Microsites are authored at different pixel
+        // canvases — some sections use `width:100%; max-width:540px; aspect-ratio:9/16`
+        // (→540×960), others fill the viewport (→720×1280). Forcing a fixed size would fight
+        // `max-width` (left/right letterbox) and override `aspect-ratio` (vertical stretch).
+        // Adapting the page to the authored size reproduces the design exactly.
+        const measured = await page.evaluate(() => {
+          const s = document.querySelector('section[data-section-id]');
+          if (!s) return null;
+          const r = s.getBoundingClientRect();
+          return { w: Math.round(r.width), h: Math.round(r.height) };
+        });
+        const pageW = measured && measured.w > 0 ? measured.w : vpW;
+        const pageH = measured && measured.h > 0 ? measured.h : vpH;
+
+        // Force every section to the measured page size (neutralising max-width, aspect-ratio
+        // and margins so none can reintroduce letterboxing or resize the box), each on its own
+        // PDF page. Because the size equals the authored size, content fills without distortion.
         await page.evaluate((w, h) => {
           const style = document.createElement('style');
           style.textContent = [
             `@page { size: ${w}px ${h}px; margin: 0; }`,
-            `body { margin: 0 !important; padding: 0 !important; width: ${w}px !important; }`,
+            `html, body { margin: 0 !important; padding: 0 !important; width: ${w}px !important; background: #fff; }`,
             `section[data-section-id] {`,
             `  width: ${w}px !important; height: ${h}px !important;`,
+            `  min-width: ${w}px !important; max-width: none !important;`,
+            `  min-height: ${h}px !important; max-height: ${h}px !important;`,
+            `  aspect-ratio: auto !important;`,
             `  overflow: hidden !important; display: block !important;`,
-            `  margin: 0 !important; padding: 0 !important;`,
+            `  margin: 0 !important; box-sizing: border-box !important;`,
             `  page-break-after: always !important; break-after: page !important;`,
             `}`,
             `section[data-section-id]:last-of-type {`,
@@ -263,7 +281,11 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
             `}`,
           ].join('\n');
           document.head.appendChild(style);
-        }, vpW, vpH);
+        }, pageW, pageH);
+
+        // Match the viewport to the page so any viewport-relative units (vw/vh) resolve
+        // against the authored canvas exactly as they do in the on-screen viewer.
+        await page.setViewport({ width: pageW, height: pageH, deviceScaleFactor: 1 });
 
         // Render with screen media so the PDF matches the on-screen design (page.pdf()
         // defaults to print media, which would apply any print-only CSS behavior).
@@ -272,8 +294,8 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
         // pageRanges caps output at exactly one page per slide, so any sub-pixel overflow
         // can't emit trailing blank pages.
         const pdfBytes = await page.pdf({
-          width: `${vpW}px`,
-          height: `${vpH}px`,
+          width: `${pageW}px`,
+          height: `${pageH}px`,
           printBackground: true,
           margin: { top: '0', right: '0', bottom: '0', left: '0' },
           pageRanges: `1-${slideCount}`,
