@@ -3,7 +3,9 @@ import {
   buildResponse,
   buildNotReadyResponse,
   buildPlanFailureResponse,
+  buildConfirmationResponse,
 } from './response-builder.js';
+import { buildGenerationConfirmation } from './confirmation-gate.js';
 import type { ChatContext } from './intents.js';
 import type { ExtractionResult } from './context.types.js';
 import type { ReadinessResult } from './readiness-engine.js';
@@ -455,5 +457,26 @@ describe('buildPlanFailureResponse', () => {
   it('sets requirementsUpdated false when extraction has no fields', () => {
     const res = buildPlanFailureResponse(EMPTY_EXTRACTION);
     expect(res.requirementsUpdated).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildConfirmationResponse — confirm_generation (ask before big generation)
+// ---------------------------------------------------------------------------
+
+describe('buildConfirmationResponse — confirm_generation', () => {
+  it('asks to confirm a microsite generation', () => {
+    const req = buildGenerationConfirmation('GENERATE_MICROSITE');
+    const res = buildConfirmationResponse(req, EMPTY_EXTRACTION);
+    expect(res.text).toMatch(/create a microsite/i);
+    expect(res.text).toMatch(/go ahead|yes/i);
+    expect(res.confirmationRequest).toEqual(req);
+  });
+
+  it('asks to confirm a proposal generation', () => {
+    const req = buildGenerationConfirmation('GENERATE_PROPOSAL');
+    const res = buildConfirmationResponse(req, EMPTY_EXTRACTION);
+    expect(res.text).toMatch(/generate a proposal/i);
+    expect(res.confirmationRequest).toEqual(req);
   });
 });

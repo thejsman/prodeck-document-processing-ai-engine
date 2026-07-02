@@ -32,6 +32,13 @@ describe('keyword rules', () => {
     ['kw_microsite', 'generate a microsite from the proposal', 'GENERATE_MICROSITE'],
     ['kw_microsite', 'create a presentation for the client', 'GENERATE_MICROSITE'],
     ['kw_microsite', 'convert to presentation slides', 'GENERATE_MICROSITE'],
+    // Natural-language microsite synonyms (no literal "microsite" word)
+    ['kw_microsite', 'create a landing page for the client', 'GENERATE_MICROSITE'],
+    ['kw_microsite', 'make me a 1 pager site', 'GENERATE_MICROSITE'],
+    ['kw_microsite', 'build a single page website', 'GENERATE_MICROSITE'],
+    ['kw_microsite', 'I want a one-pager', 'GENERATE_MICROSITE'],
+    ['kw_microsite', 'turn this proposal into a mini-site', 'GENERATE_MICROSITE'],
+    ['kw_microsite', 'build a slide deck', 'GENERATE_MICROSITE'],
     ['kw_template_create', 'create a new template for consulting', 'GENERATE_TEMPLATE'],
     ['kw_template_create', 'generate template for software projects', 'GENERATE_TEMPLATE'],
     ['kw_template_create', 'build a template', 'GENERATE_TEMPLATE'],

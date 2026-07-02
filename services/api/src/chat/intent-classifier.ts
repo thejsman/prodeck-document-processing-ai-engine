@@ -29,8 +29,14 @@ const INTENT_RULES: Array<{
   // awaiting-input state. Contextual rules are fallbacks for short answers
   // that have no keyword signal (e.g. "yes", "acme corp").
   {
+    // Explicit microsite phrasings — high confidence, proceeds directly.
+    // Covers natural synonyms users reach for: "landing page", "one-pager",
+    // "single page site", "mini-site", "slide deck", as well as
+    // "convert/turn ... into a (presentation|site|page|one-pager)".
     id: 'kw_microsite',
-    test: (msg) => /\b(microsite|presentation|convert\s+to\s+(a\s+)?present)/i.test(msg),
+    test: (msg) =>
+      /\b(microsite|micro-site|presentation|slide\s?deck|slides|landing\s?page|(one|1)[-\s]?pager|single[-\s]?page\s+(site|website|page)|(one|1)[-\s]?page\s+(site|website)|mini[-\s]?site)\b/i.test(msg) ||
+      /\b(convert|turn|make|build)\b[^.?!]*\binto\s+(a\s+)?(presentation|microsite|site|page|landing\s?page|(one|1)[-\s]?pager)\b/i.test(msg),
     intent: 'GENERATE_MICROSITE',
     confidence: 0.90,
   },
@@ -220,11 +226,22 @@ NON-PROJECT:
     requests, jokes, weather, math, coding help, writing emails, off-topic chat.
   UNKNOWN — gibberish, empty, completely unparseable
 
+MICROSITE SYNONYMS: A microsite is a small web presentation built from a proposal.
+Treat ALL of these as GENERATE_MICROSITE, even without the word "microsite":
+landing page, one-pager / 1-pager, single-page site, single page website, mini-site,
+slide deck / slides, "a web page for the proposal", "turn/convert this into a site/page/presentation".
+
 IMPORTANT: If the message is ambiguous but COULD relate to project work
 (e.g., "help me with pricing", "summarize this", "analyze the competition"),
 classify it as the most relevant project intent (QUERY, UPDATE_REQUIREMENTS, etc.),
 NOT as GENERAL_CHAT. Only use GENERAL_CHAT when the message is clearly unrelated
 to proposals, templates, microsites, or client project work.
+
+CONFIDENCE: Be honest about uncertainty. If you are confident the message clearly
+asks for a specific action, return confidence >= 0.85. If you are GUESSING that a
+vague message maps to a generation intent (GENERATE_PROPOSAL / GENERATE_MICROSITE),
+return a moderate confidence in the 0.6–0.8 range so the system can confirm with the
+user first. Use confidence < 0.6 only for gibberish or genuinely unparseable input.
 
 Context:
 - Namespace: ${context.namespace}
