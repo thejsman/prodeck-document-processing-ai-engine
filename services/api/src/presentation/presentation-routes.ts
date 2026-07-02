@@ -2695,385 +2695,44 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
       }
       if (vimeoNote) parts.push(vimeoNote);
       if (body?.referenceImage?.base64) parts.push('A reference design screenshot is attached.');
-      // PDF presentation directive — overrides motion and enforces fixed-aspect slide layout
+      // Presentation page directive — tells LLM it is designing pages, not a webpage
       if (body?.pdfPresentation) {
         const isPortrait = body?.pdfOrientation === 'portrait';
         if (isPortrait) {
-          parts.push(`PDF PORTRAIT SLIDE MODE (9:16) — Build a mobile-portrait presentation at 720px wide × 1280px tall.
+          parts.push(`PORTRAIT CATALOG — 9:16
 
-YOUR ROLE: You are simultaneously a world-class copywriter AND a slide designer. The source document gives you raw facts and bullet points — your job is to TRANSFORM them into rich, fully-written slide content. A one-line fact in the document becomes 3–4 polished sentences on the slide. A bullet point becomes a complete, compelling description. You are crafting presentation copy, NOT summarising the document.
+You are a senior graphic designer and frontend developer. You are NOT building a webpage. You are creating a high-end catalog — a curated collection of individual pages, each in strict 9:16 portrait format. Think Dezeen brand book, MOMA exhibition catalog, Kinfolk magazine, or a luxury product lookbook. Not a scrolling website. Not a presentation template.
 
-CONTENT RICHNESS — non-negotiable: Every slide's main body zone must be VISUALLY FULL. Imagine the body zone as a physical area on the phone screen — it must be at least 75% filled with text, cards, or visual elements. A half-empty slide is a failed output. Sparse content (short labels, one-liners, nearly empty cards) is rejected regardless of layout correctness.
+Every page is a complete, standalone composition. Use the full canvas — bleed colors to edges, let imagery dominate when content calls for it, play with asymmetry, negative space, bold type. Vary the rhythm across pages: some image-forward, some type-forward, some data-driven.
 
-Every slide must feel COMPLETE and DENSE with information — purposefully written, not extracted snippets.
+No two pages should look alike. One page might be a single bold number on a dark field. The next a full-bleed photo with a thin caption. The next a strict grid of micro-stats. The aspect ratio is sacred — every design decision lives within the 9:16 bounds.
 
-═══ DESIGN THEME — invent a UNIQUE palette for every generation ═══
-Do NOT reuse a standard palette or default to what you used last time. Read the document's industry, brand name, tone, and mood — then CREATE an original color palette specifically for this presentation. Every generation must look different.
+You have complete creative freedom: palette, typography, layout, imagery, and visual language are entirely your professional decisions. There is no prescribed style — derive everything from the content you are given.
 
-Design rules for your invented palette:
-  1. Choose a DOMINANT BACKGROUND — dark (near-black with a color tint), light (off-white/cream), or gradient-rich — based on industry tone
-  2. Choose ONE ACCENT COLOR that feels native to the brand/industry — not generic green unless the brand is explicitly green
-  3. Choose a SECONDARY ACCENT (15–30% lighter or a complementary hue) for callout bars and highlights
-  4. Apply per-slide background VARIATIONS — slightly shift the hue or lightness across slides so the deck feels dynamic, not monotone
-  5. For dark backgrounds: text is #fff or rgba(255,255,255,0.92+)
-     For light backgrounds: text is #111 or #1a1a2e, cards have box-shadow
-
-Industry palette signals (use as inspiration — do NOT copy verbatim):
-  Tech/SaaS: near-black + electric blue, violet, or cyan
-  Outdoor/parks/construction: deep earthy tone + lime, amber, or emerald
-  Finance/legal/consulting: navy or charcoal + gold, teal, or crimson
-  Healthcare: deep teal or slate + mint or warm white
-  Creative/marketing agencies: bold gradient base + coral, neon, or electric yellow
-  Real estate/luxury: near-black + gold, copper, or warm ivory
-  Education: deep navy or forest + orange or yellow-gold
-
-IMPORTANT: Commit to your invented palette before building slide 1 and apply it CONSISTENTLY throughout.
-
-═══ SLIDE WRAPPER (copy exactly for every section) ═══
-<section data-section-id="slide-N" style="aspect-ratio:9/16;overflow:hidden;position:relative;display:flex;flex-direction:column;width:100%;box-sizing:border-box;padding:0">
-
-The section has NO padding. Children depend on slide position:
-- slide-1 ONLY: top nav bar (52px) → content area (flex:1). Content area height = 1280 − 52 = 1228px.
-- Middle slides (slides 2 through N-1): content area ONLY (flex:1). Content area fills full 1280px.
-- Last slide (slide-N) ONLY: content area (flex:1) → bottom bar (52px). Content area height = 1280 − 52 = 1228px.
-
-═══ TOP NAV BAR (FIRST SLIDE ONLY — slide-1, NOT on any other slide) ═══
-<div data-pdf-hide="true" style="height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 36px;flex-shrink:0;background:rgba(0,0,0,0.18);border-bottom:1px solid rgba(255,255,255,0.09);position:relative;z-index:2;">
-  Left: logo img placeholder (slide-1 only)
-  Right: slide counter "01 / N" — replace N with the total slide count (font-size:11px;text-transform:uppercase;letter-spacing:0.1em;opacity:0.5;)
-</div>
-On light background slides: use rgba(0,0,0,0.06) background and rgba(0,0,0,0.08) border instead.
-IMPORTANT: the data-pdf-hide="true" attribute is required on this div — it hides the bar in PDF export so the slide content fills the full page cleanly.
-DO NOT add this top nav bar to slides 2 through N.
-
-═══ CONTENT AREA (the ONLY child on middle slides; first child on last slide) ═══
-<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-start;padding:28px 36px;overflow:hidden;position:relative;z-index:1;">
-  EXACTLY 3 direct children — no empty spacers, no extra wrappers:
-  ① HEADER block: eyebrow + title + optional 1-line intro.
-  ② MAIN BODY: add data-portrait-body="1" on this element. CSS forces flex:1 on it — fills all available space between header and callout.
-  ③ CALLOUT BAR: add data-portrait-callout="1" on this element. CSS forces margin-top:auto — pins it to the bottom.
-  data-portrait-body="1" and data-portrait-callout="1" are REQUIRED on every slide without exception.
-</div>
-
-═══ BOTTOM BAR (LAST SLIDE ONLY — slide-N, NOT on any other slide) ═══
-<div data-pdf-hide="true" style="height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 36px;flex-shrink:0;background:rgba(0,0,0,0.18);border-top:1px solid rgba(255,255,255,0.09);position:relative;z-index:2;">
-  Left: company name or brand tagline (font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:accent)
-  Right: CTA or contact (font-size:13px;font-weight:600;) e.g. "Get Started →" or website URL
-</div>
-On light background slides: use rgba(0,0,0,0.06) background and rgba(0,0,0,0.08) border instead.
-IMPORTANT: the data-pdf-hide="true" attribute is required on this div — hidden in PDF export.
-DO NOT add this bottom bar to any slide other than the last slide.
-
-═══ LOGO — CRITICAL RULES ═══
-- The logo placeholder ONLY appears ONCE in the ENTIRE HTML — in the TOP NAV BAR of slide-1 only
-- The exact element: <img id="__site-logo__" src="data:," alt="Company Logo" style="height:30px;width:auto;max-width:120px;object-fit:contain;display:block;flex-shrink:0;">
-- id must be EXACTLY "__site-logo__" — never "__site-logo-2__", "__site-logo-N__", or any variant
-- Slides 2 through N: NO top nav bar — do not add any navigation bar to these slides
-- NEVER repeat id="__site-logo__" or any __site-logo* variant beyond slide-1
-
-═══ TYPOGRAPHY — portrait-native scale, always px, never vw/rem ═══
-Portrait reads on phones at arm's length — text must be LARGE. Use these minimums:
-Hero headline ................ 60–88px, line-height:1.05, font-weight:900 — dominant, takes up 30–40% of screen height
-Section title ................ 40–56px, line-height:1.1, font-weight:800
-Subheading / eyebrow ......... 18–22px, font-weight:700, letter-spacing:0.05em, text-transform:uppercase
-Body paragraph ............... 18–22px, line-height:1.7 — comfortable thumb-scroll reading
-List item / card body ........ 16–18px, line-height:1.65
-Label / tag / caption ........ 13–14px, uppercase, letter-spacing:0.08em, font-weight:700
-Stats / big numbers .......... 72–96px, font-weight:900, line-height:0.95
-Button text .................. 18–22px, font-weight:700, padding:20px 40px minimum
-
-CRITICAL: These are minimum sizes for mobile viewing. Never use vw, em, rem, or clamp(). Small text = rejected output.
-
-═══ CONTENT DENSITY — non-negotiable ═══
-Target: 80%+ of the main body zone must be filled. Write as a copywriter — expand every fact into full prose.
-
-Content minimums (applies regardless of layout structure you choose):
-- Each card / cell MINIMUM 3–5 full sentences — no short labels
-- Each list item MINIMUM 30 words — write 2–3 full sentences
-- Headlines must be 3+ lines at the display size — never a single short line
-- Stats must include a 2–3 line explanation below the number
-
-═══ CREATIVE VARIATION — never generate the same portrait twice ═══
-Every portrait microsite must feel like a DIFFERENT senior designer built it. Randomize:
-  • Hero composition (choose from the hero layout menu below)
-  • Background treatment (full-bleed image, pure gradient, dark noise texture, layered shapes, magazine flat)
-  • Card style (choose ONE: outlined, filled+glass, glassmorphism, gradient card, minimal line)
-  • Border radius (choose ONE deck-wide: 0px sharp · 8px moderate · 16px rounded · 24px pill-friendly)
-  • Typography pairing (choose ONE: Manrope+DM Sans · Playfair Display+Inter · Sora+Inter · Space Grotesk+IBM Plex · Nunito+Inter)
-  • Section order (derive the most logical sequence for this content — don't always use Hero→Benefits→Services→CTA)
-  • Divider style between sections: none · accent line · gradient strip · diagonal clip · wavy SVG
-
-═══ HERO LAYOUT MENU — choose one that fits the brand ═══
-Option A — Full-screen image: Full-bleed photo, headline bottom-anchored over dark gradient overlay
-Option B — Image with bottom content card: Top 55% image, bottom 45% solid card with headline + CTA
-Option C — Centered headline: Full-gradient background, large centered headline, oversized eyebrow, CTA below
-Option D — Floating glass card: Background image, frosted-glass content card centered at 85% width
-Option E — Magazine cover: Asymmetric — left vertical accent strip, headline offset right, photo bleeds right edge
-Option F — Minimal luxury: Clean off-white or near-black bg, 80px+ headline, single brand color accent, no image
-Option G — Layered artwork: Abstract CSS gradient shapes as decoration, headline overlaid, editorial feel
-Option H — Full-screen video placeholder: Dark bg, centered play-button SVG, headline above + CTA below
-
-═══ FREE-FORM SLIDE DESIGN — native portrait-mobile compositions ═══
-Think Instagram Story, LinkedIn mobile, TikTok screen. Design for a phone held vertically. The ONLY fixed constraints:
-  • The slide is 720×1280px (9:16), overflow:hidden, all content must stay within bounds
-  • CRITICAL: every slide wrapper MUST have data-section-id="slide-N" AND id="slide-N"
-  • data-portrait-body="1" on the main content element (CSS forces flex:1 to fill space)
-  • data-portrait-callout="1" on the bottom accent/callout bar (CSS forces margin-top:auto)
-  • Font size minimums from the typography table above
-  • No animations, no JS, no fixed/sticky positioning
-  • Single column is the default — prefer stacked vertical layouts over side-by-side
-
-LAYOUT PREFERENCE ORDER (portrait):
-  1st choice: Single column — full-width cards, vertical stacks, edge-to-edge imagery
-  2nd choice: Two compact cards per row ONLY when content is short labels (e.g. stat pairs, feature icons)
-  Never: 3-column or 4-column grids — they produce unreadably tiny text on mobile
-
-PORTRAIT COMPONENT MENU:
-  • Large stat card: single number (72–96px) + 2-line description below
-  • Stacked feature cards: full-width cards, each with icon + title + 2-3 sentences
-  • Vertical timeline: numbered steps in a stacked column, each step a card
-  • Full-width CTA band: edge-to-edge colored bar, large text, big button
-  • Large quote card: pull quote at 40–56px, attributed below, accent border-left
-  • Portrait gallery: full-width image stacks or portrait-crop images
-  • Feature block: icon top, large number mid, description below — full width
-  • Image + text stack: portrait-cropped image, text block below
-
-Add animation-ready hooks on every section and card: class="fade-in slide-up reveal" (no animation implementation — just the class names for future use)
-
-ALL OTHER SLIDES — complete creative freedom. For each section, design the most compelling portrait-native layout. Ask: what is the BEST way to present THIS content on a phone screen? A full-width number? Stacked cards? A pull quote at 56px? An image with text below? Invent it.
-
-═══ SAFE AREAS (portrait) ═══
-Reserve top 52px: status bar / camera notch area — do not place interactive content here
-Reserve bottom 40px: home indicator zone — do not place primary CTAs below this threshold
-All important content must fall between y=52 and y=1240 of the 1280px slide height
-
-═══ HERO SLIDE (slide-1) ═══
-Choose one hero layout from the HERO LAYOUT MENU above based on the brand/industry tone.
-Whichever layout you choose, the hero must contain:
-  • Large headline: 60–80px, font-weight:900, 2–3 strong lines
-  • Eyebrow pill/label (18px uppercase)
-  • Brand description: 18–20px, 2–3 full sentences
-  • CTA button: padding:20px 44px, font-size:20px, font-weight:700
-  • 2–3 social proof stats (data-portrait-callout="1"): big numbers 56–72px + label 14px
-
-For Unsplash photos use: <img src="https://source.unsplash.com/1080x1920/?[keyword1],[keyword2]" style="width:100%;height:100%;object-fit:cover;display:block;" alt="">
-(Use portrait-ratio 1080×1920 URL for all images in portrait mode)
-
-═══ SPACING ═══
-- Content area padding: 28px top, 36px sides
-- Minimum card/item padding: 16–20px; gap between items: 14–20px
-- Never use empty height spacers — use gap or flex
-
-═══ FORBIDDEN ═══
-- 3-column or 4-column grids for main content
-- 50/50 or 60/40 side-by-side full-text panels
-- Empty <div style="flex:1"></div> spacers — NEVER use an empty div as a flex:1 spacer; flex:1 MUST go on the actual content element (list container, card grid, stats grid, body text wrapper)
-- More than 3 direct children inside the content area div — structure is always: [header-block] [content-block with flex:1] [callout-bar with margin-top:auto]
-- Empty or near-empty containers (containers with less than 2 lines of text that are taller than 60px)
-- fixed / sticky positioned children (use the flow-based top/bottom bars only)
-- CSS animations, JS transitions, IntersectionObserver, scroll effects
-- Any <img> with id containing "__site-logo" in slides 2–N
-- Small font sizes below 14px for body content
-- Sparse slides with only a headline and no supporting content
-- Adding padding to the <section> itself — all padding belongs inside the content area div
-
-═══ CONTRAST & READABILITY — non-negotiable ═══
-Text MUST be clearly readable against its background at all times:
-- Dark background slides: use white (#fff) or very near-white (rgba 255,255,255,≥0.92) for all text
-- Never use rgba text color with opacity below 0.85
-- Card/surface backgrounds: minimum 18% luminance difference from slide background — avoid near-identical tones
-- Use rgba(255,255,255,0.10) to rgba(255,255,255,0.18) for card backgrounds on dark slides — never below 0.08
-- Card border: always add 1px solid rgba(255,255,255,0.18) so cards are visible even on similar-colored backgrounds
-- If a card has a colored tinted background (blue, green tint), ensure text is solid white, not muted
-- Pull-quote or callout boxes: use border-left:4px solid accent + background:rgba(accent,0.15) + white text
-- NEVER create a card where the text blends into the background — every word must be immediately legible`);
+ONLY technical rules (required for rendering):
+- Each page: <section data-section-id="slide-N" id="slide-N" style="aspect-ratio:9/16;overflow:hidden;position:relative;width:100%;max-width:calc(100vh * 9/16);box-sizing:border-box;margin:0 auto 4px">
+- Logo: one <img id="__site-logo__" src="data:," alt="Logo" style="height:32px;width:auto;object-fit:contain"> on the first page only — never repeated
+- Any browser-only element (nav, footer): add data-pdf-hide="true"
+- No CSS animations, transitions, or JS — static output only
+- px font sizes only`);
         } else {
-          parts.push(`PDF LANDSCAPE SLIDE MODE (16:9) — Build a widescreen presentation at exactly 1280px wide × 720px tall. Each slide covers ONE idea with generous breathing room. Spread content across more slides rather than cramming onto fewer — aim for 8–12 slides total. A slide with 2–3 well-spaced cards beats a slide with 6 crowded ones.
+          parts.push(`LANDSCAPE CATALOG — 16:9
 
-═══ DESIGN THEME — invent a UNIQUE palette for every generation ═══
-Do NOT reuse a standard palette or default to what you used last time. Read the document's industry, brand, tone, and mood — then CREATE an original color palette for this presentation. Every generation must look visually distinct.
+You are a senior graphic designer and frontend developer. You are NOT building a webpage. You are creating a high-end catalog — a curated collection of individual pages, each in strict 16:9 widescreen format. Think Monocle annual, Wired magazine double-spread, Hermes lookbook, or an Apple product launch presentation. Not a scrolling website. Not a slide deck template.
 
-Rules for your invented palette:
-  1. DOMINANT BACKGROUND — dark (near-black with a tint), light (off-white), or gradient-based — match the industry tone
-  2. ONE PRIMARY ACCENT — native to the brand/industry, not generic
-  3. ONE SECONDARY ACCENT — lighter shade or complementary hue for callout elements
-  4. Per-slide BACKGROUND VARIATIONS — slight hue/lightness shifts across slides for visual dynamism
-  5. Dark bg → white text; Light bg → #111 text + card shadows
+Every page is a complete, standalone composition. Use the full canvas — bleed colors to edges, let imagery dominate, play with asymmetry, negative space, bold horizontal type. The wide canvas rewards dramatic typographic scale and cinematic split compositions.
 
-Industry signals (inspiration only — don't copy verbatim):
-  Tech/SaaS → near-black + electric blue, violet, or cyan
-  Outdoor/parks/construction → deep earthy + lime, amber, or emerald
-  Finance/legal → navy or charcoal + gold, teal, or crimson
-  Creative/events → bold gradient + coral, neon, or electric yellow
-  Real estate/luxury → near-black + gold or warm ivory
+Vary the rhythm: some pages dense with data, others sparse with a single image, others bold with one statement phrase. The aspect ratio is sacred — all design choices live within the 16:9 bounds.
 
-Commit to your palette before building slide-1 and apply it consistently throughout.
+You have complete creative freedom: palette, typography, layout, imagery, and visual language are entirely your professional decisions. There is no prescribed style — derive everything from the content you are given.
 
-═══ SLIDE WRAPPER (copy exactly for every section) ═══
-<section data-section-id="slide-N" id="slide-N" style="overflow:hidden;position:relative;display:flex;flex-direction:column;justify-content:flex-start;box-sizing:border-box;padding:48px 72px 48px">
-
-Use justify-content:flex-start so content anchors to the top and fills downward. Padding (48px top, 72px sides, 48px bottom) provides generous breathing room. White space is intentional — do not force extra content to fill a slide. NEVER put more than 6 items on one slide — if a section has 7+ items, split across two slides.
-
-═══ MICROSITE NAV BAR (once in <body>, before all slides — browser only) ═══
-Place ONE nav bar as the VERY FIRST child of <body>, before any <section>. Use this EXACT three-part structure:
-
-<nav data-pdf-hide="true" style="position:fixed;top:0;left:0;right:0;height:64px;z-index:1000;display:flex;align-items:center;justify-content:space-between;padding:0 48px;box-sizing:border-box;background:rgba(MATCH_SITE_DARK_BG,0.95);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid rgba(255,255,255,0.08);">
-  <!-- LEFT: logo badge + company name -->
-  <div style="display:flex;align-items:center;gap:12px;flex-shrink:0;">
-    <div style="display:flex;align-items:center;flex-shrink:0;">
-      <img id="__site-logo__" src="data:," alt="Company Logo" style="height:36px;width:auto;max-width:160px;object-fit:contain;display:block;flex-shrink:0;">
-    </div>
-    <span style="font-size:15px;font-weight:600;color:#fff;letter-spacing:0.01em;white-space:nowrap;">CLIENT COMPANY NAME</span>
-  </div>
-  <!-- CENTER: section nav links (one per major slide section, derived from the proposal) -->
-  <div style="display:flex;align-items:center;gap:32px;">
-    <a href="#slide-2" style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.55);text-decoration:none;white-space:nowrap;">SECTION 1</a>
-    <a href="#slide-3" style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.55);text-decoration:none;white-space:nowrap;">SECTION 2</a>
-    <a href="#slide-4" style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.55);text-decoration:none;white-space:nowrap;">SECTION 3</a>
-    <a href="#slide-5" style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.55);text-decoration:none;white-space:nowrap;">SECTION 4</a>
-  </div>
-  <!-- RIGHT: CTA outlined button -->
-  <a href="#slide-last" style="font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:ACCENT_COLOR;border:1.5px solid ACCENT_COLOR;border-radius:4px;padding:8px 18px;text-decoration:none;white-space:nowrap;flex-shrink:0;">CTA LABEL</a>
-</nav>
-
-NAVBAR RULES:
-- data-pdf-hide="true" is REQUIRED — hides this bar automatically in PDF export
-- Place ONCE as the very first child of <body> — never inside any <section>
-- LEFT: logo image placeholder (system replaces src with real logo or SVG initials badge) + client/company name from the proposal
-- CENTER: 4–6 short nav labels derived from the presentation's actual section headings, each linking to the matching slide id (e.g. href="#slide-2")
-- RIGHT: one CTA label from the proposal's call-to-action (e.g. "BEGIN BUILD", "GET STARTED", "VIEW PROPOSAL") — outlined button using the site accent color for both text and border; no fill background
-- Background: use the site's primary dark background color at ~0.95 opacity with backdrop-filter:blur(14px)
-- REQUIRED: the <body> tag MUST have style="padding-top:64px" so slides start below the fixed nav bar. Example: <body style="padding-top:64px;margin:0">
-
-═══ LOGO — CRITICAL RULES ═══
-- The logo img with id="__site-logo__" belongs ONLY in the microsite nav bar above — NEVER inside any <section>
-- id must be EXACTLY "__site-logo__" — never "__site-logo-2__" or any variant
-- Inside slides: use text-only eyebrow labels or styled brand name — never an <img> for the logo
-- NEVER place id="__site-logo__" or any __site-logo* variant inside any <section>
-
-═══ TYPOGRAPHY — always px, never vw/clamp/rem ═══
-Display headline ............. 36–44px, line-height:1.1, font-weight:800 — must dominate the slide
-Section title ................ 28–34px, line-height:1.15, font-weight:700
-Subheading / eyebrow ......... 13–15px, font-weight:600, letter-spacing:0.06em, text-transform:uppercase
-Body paragraph ............... 15–16px, line-height:1.65 — must be readable, not tiny
-List item / card body ........ 13–14px, line-height:1.6
-Label / tag / caption ........ 11–12px, uppercase, letter-spacing:0.07em, font-weight:600
-Stats / big numbers .......... 48–60px, font-weight:900, line-height:1.0
-
-CRITICAL: These font sizes are MINIMUMS. Never use vw, clamp(), or em/rem for font-size, padding, or gap. Small text = rejected output.
-
-═══ CREATIVE VARIATION ENGINE — never generate the same deck twice ═══
-Every deck MUST feel custom-designed by a different senior designer. Before writing slide-1, DECIDE these deck-wide tokens and apply them consistently:
-
-DESIGN TOKENS (choose one value per token for the entire deck):
-  Border radius ............. choose: 0px (sharp) · 6px · 10px · 16px · 24px (soft)
-  Card style ................ choose: outlined (1px border) · filled+shadow · glassmorphism · gradient card · minimal (no border, bg only)
-  Button style .............. choose: pill (border-radius:999px) · rounded (8–12px) · square (0px) · outline-only · gradient fill
-  Spacing density ........... choose: compact (32px gaps) · comfortable (48px gaps) · airy (64px gaps)
-  Typography pairing ........ choose: Manrope+DM Sans · Playfair Display+Inter · Sora+Inter · Space Grotesk+IBM Plex Mono · Nunito+Inter
-  Section divider ........... choose: none · 1px rule · gradient strip · diagonal clip-path · dot pattern
-
-Commit to your chosen tokens before slide-1. Apply them to every slide.
-
-═══ SECTION ORDER — derive the logical sequence for THIS content ═══
-Do NOT always use the same order. Read the document and determine which sequence tells the story best.
-
-Example sequences (pick or invent one that fits):
-  A: Hero → Problem → Solution → Services → Proof → Pricing → CTA
-  B: Hero → Case Study → Services → Process → Team → Investment → CTA
-  C: Hero → Opportunity → Approach → Deliverables → Timeline → Why Us → Next Steps
-  D: Hero → Benefits → Portfolio → Testimonials → Packages → FAQ → CTA
-  Never repeat the exact same order across projects.
-
-═══ HERO LAYOUT MENU — choose one, commit to it ═══
-Option 1 — Full-bleed background: Photo fills slide, headline bottom-anchored over dark gradient
-Option 2 — Left content + right image: 55% text panel left, 45% image panel right (or reversed)
-Option 3 — Split diagonal: Angled clip-path divides dark left (text) from image right — use clip-path:polygon
-Option 4 — Floating content card: Full-bleed image behind, semi-opaque frosted card centered with headline
-Option 5 — Large centered headline: Gradient/dark bg, massive centered headline (52px+), eyebrow above, stat bar below
-Option 6 — Magazine editorial: Large image top half, headline spans full width below, strong typographic hierarchy
-Option 7 — Full-width visual with bottom overlay: Image fills top 65%, dark gradient footer holds headline + CTA
-Option 8 — Image collage: 2–3 image panels in a grid on one side, bold headline on the other
-Option 9 — Video-style hero: Dark bg, play-button SVG element, title above, descriptor below, CTA
-Option 10 — Minimal headline: No image, clean bg with geometric accent, oversized 48–56px headline, brand color accents
-
-═══ CONTENT LAYOUT MENU — choose the right one for each slide ═══
-Use a DIFFERENT layout on every slide. Available options:
-  2-column equal: side-by-side halves (text + visual, or two card groups)
-  3-column equal: three info/feature cards across full width
-  4-column equal: four compact stat or icon cards
-  Asymmetric 60/40: wide content panel + narrow accent panel
-  Alternating zig-zag: image left/right alternating per row (use on process/step slides)
-  Horizontal timeline: steps left-to-right connected by a line
-  Full-width stat hero: one giant number (52–64px) centered, supporting text beneath
-  Feature card + supporting cards: large hero card (60% width) + 2 smaller supporting (40%)
-  Dashboard layout: 2-row grid, numbers top row, detail cards bottom row
-  Quote + context: large pull-quote (40px+) with attribution + supporting bullets beside it
-  Table / comparison: structured data in a clean table or side-by-side comparison columns
-
-═══ FREE-FORM SLIDE DESIGN — technical constraints ═══
-NON-NEGOTIABLE layout rules (creativity must never break these):
-  • Slide is 1280×720px (16:9), overflow:hidden, all content must stay within bounds — content that overflows is INVISIBLE
-  • CRITICAL: every slide wrapper MUST have BOTH id="slide-N" AND data-section-id="slide-N"
-  • data-ls-content="1" on the main content element — CSS forces flex:1 (fills available height)
-  • data-ls-callout="1" on the bottom accent/callout bar — CSS forces margin-top:auto + flex-shrink:0 (pinned to bottom)
-  • Font minimums: body text ≥12px, card/row titles ≥14px, section headlines ≥28px
-  • No CSS animations, no transitions, no JS, no fixed/sticky positioned children
-  • Dark background → white or rgba(255,255,255,0.92+) for ALL text — this includes table labels, spec row keys, list item text, card descriptions, tag text, and captions. NEVER use a dark or mid-tone color for text on a dark background — it becomes invisible in PDF export
-  • Accent color (gold, teal, etc.) is for decorative elements ONLY (borders, icons, eyebrow labels, stat numbers) — never the primary text color for body copy or table content on dark backgrounds
-  • Light background → near-black (#111827) for text — never mid-gray
-  • Every grid cell containing text MUST have min-width:0 to prevent overflow
-  • Grid columns MUST use fr units — never fixed px widths
-  • No width:1280px or width:100vw on any element inside a section
-  • All inner divs/grids/cards MUST use width:100% — NEVER max-width or margin:auto inside a slide
-  • NEVER margin:0 auto inside a slide — use flex justify-content or grid instead
-  • The rendering engine controls section sizing — do NOT set width or height on the section wrapper element itself; do NOT set a fixed width on the body element
-  • NEVER use vw, clamp(), em, rem for font-size, padding, or gap — px only
-
-HEIGHT BUDGET — do the math before writing each slide:
-  Total height: 720px
-  Section padding (top + bottom): 96px → working area: 624px
-  Section header (eyebrow ~20px + gap ~8px + title ~38px + gap ~28px): ~94px → card area: ~530px
-  Callout bar (if used): ~50px → net card area: ~480px
-  Card internal padding (24px top + 24px bottom): ~48px per card
-
-  Per-layout maximums (these are HARD LIMITS — exceeding them clips content invisibly):
-    3-column grid, 1 row (3 cards):  each card body ≤ 5 lines at 13px (≤ 55 words)
-    3-column grid, 2 rows (6 cards): each card body ≤ 2 lines at 13px (≤ 25 words) — use 2 bullets max
-    2-column grid, 2 rows (4 cards): each card body ≤ 3 lines at 13px (≤ 40 words)
-    2-column grid, 1 row (2 cards):  each card body ≤ 6 lines at 13px (≤ 70 words)
-    List rows (≤4 items):            each row ≤ 1 line description (≤ 15 words)
-    Stat block (3–4 numbers):        label ≤ 3 words, supporting note ≤ 10 words
-
-  RULE: If your card text needs more words than the limit allows, split the slide into two slides.
-  RULE: Prefer 2-3 short bullet points (<li> or ● characters) over a prose paragraph — bullets are shorter per visual line.
-  RULE: Never write card body text as a multi-sentence paragraph — write 1 crisp sentence OR 2-3 short bullets.
-
-VISUAL VARIATION — randomize across slides:
-  • Background: vary slightly (hue shift, lightness shift, gradient direction) — never 12 identical backgrounds
-  • Section dividers: vary between slides (none, subtle top line, colored top strip)
-  • Image treatment: mix full-bleed, contained, rounded, polaroid-crop, masked shapes across slides
-  • Icon style: pick ONE style (line icons · filled icons · emoji-style · none) and apply consistently
-  • Stats blocks: vary presentation (large centered · row of 3 · grid of 4 · inline with text)
-
-ANIMATION-READY STRUCTURE — add these class names to elements for future use (no implementation):
-  • Each <section>: class="reveal"
-  • Each headline: class="slide-up"
-  • Each card/item in grids: class="stagger fade-in"
-  • Each background layer: class="parallax-layer"
-  (These classes have no CSS applied — they are hooks for future animation libraries)
-
-CONTENT DENSITY — one idea per slide, never overpack:
-  • A slide holds ONE composition: header + card grid, OR header + stat block, OR header + list — never all three
-  • Max 6 cards in a grid (3×2); max 4 list rows; max 3 step cards — split to a new slide if more
-  • Split into two slides if content exceeds one clean composition
-  • Card grids MUST span full width using display:grid with width:100%
-  • CRITICAL: card body text is capped by the HEIGHT BUDGET above — shorter text beats clipped text
-
-HERO SLIDE (slide-1): Use hero layout from HERO LAYOUT MENU above.
-Must always contain: full-bleed or strong visual background · large headline (40–52px, 3+ lines) · eyebrow label · CTA button · stats row or social proof
-
-For all other slides: select the best content layout from the CONTENT LAYOUT MENU. Every slide must feel handcrafted, not templated.`);
+ONLY technical rules (required for rendering):
+- Each page: <section data-section-id="slide-N" id="slide-N" style="aspect-ratio:16/9;overflow:hidden;position:relative;width:100%;box-sizing:border-box;margin-bottom:4px">
+- Logo: one <img id="__site-logo__" src="data:," alt="Logo" style="height:36px;width:auto;object-fit:contain"> before the first page only — never inside a section
+- Browser-only nav: add data-pdf-hide="true"
+- No CSS animations, transitions, or JS — static output only
+- px font sizes only
+- All content must stay within each page boundary — overflow is hidden in export`);
         }
       }
 
@@ -3180,22 +2839,27 @@ ${(body.urlImages as string[]).map((url: string, i: number) => `Photo ${i + 1}: 
       // Inject hard CSS constraints for PDF presentation mode — fallback if LLM drifts.
       // Only constrains layout/overflow; does NOT change colors, fonts, or visual style.
       const isPortrait = body?.pdfPresentation && body?.pdfOrientation === 'portrait';
-      const finalHtml = body?.pdfPresentation
-        ? html.replace(
-            /(<head[^>]*>)/i,
-            isPortrait
-              ? `$1<style id="__pdf-slide-constraints__">
-[data-section-id]{aspect-ratio:9/16!important;overflow:hidden!important;position:relative!important;min-height:unset!important;height:auto!important;max-height:none!important;width:100%!important;max-width:720px!important;margin-left:auto!important;margin-right:auto!important;box-sizing:border-box!important;display:flex!important;flex-direction:column!important;}
-[data-section-id]>div:not([data-pdf-hide]){flex:1!important;display:flex!important;flex-direction:column!important;overflow:hidden!important;min-height:0!important;}
-[data-portrait-body]{flex:1!important;min-height:0!important;overflow:hidden!important;}
-[data-portrait-callout]{margin-top:auto!important;flex-shrink:0!important;}
-[data-section-id]>div[style*="position:absolute"] img{max-height:none!important;width:100%!important;height:100%!important;object-fit:cover!important;}
-[data-ls-content]{flex:1!important;min-height:0!important;overflow:hidden!important;}
-[data-ls-callout]{flex-shrink:0!important;margin-top:auto!important;}
-</style>`
-              : `$1<meta charset="UTF-8"><style id="__pdf-slide-constraints__">script,style,noscript,template{display:none!important;visibility:hidden!important;}body{overflow-x:hidden!important;width:auto!important;margin:0!important;max-width:none!important;}[data-section-id]{width:1280px!important;height:720px!important;min-height:unset!important;max-height:720px!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;flex-shrink:0!important;display:flex!important;flex-direction:column!important;transform-origin:top left!important;}[data-section-id]:not([style*="padding:0"]):not([style*="padding: 0"]){padding:48px 72px 48px!important;}[data-ls-content]{flex:1!important;min-height:0!important;overflow:hidden!important;}[data-ls-callout]{flex-shrink:0!important;margin-top:auto!important;overflow:visible!important;max-height:none!important;}[data-section-id]>div:last-child:not([data-ls-content]):not([style*="position:absolute"]):not([style*="position: absolute"]){flex-shrink:0!important;margin-top:auto!important;overflow:visible!important;max-height:none!important;}[data-section-id] img:not([id^="__site-logo"]){max-height:none!important;}[data-section-id] svg{max-height:140px!important;max-width:140px!important;}[data-section-id] ul,[data-section-id] ol,[data-section-id] table{max-width:none!important;width:100%!important;}[data-section-id] [data-ls-content]{max-width:none!important;}[data-section-id] div[style*="margin:0 auto"],[data-section-id] div[style*="margin: 0 auto"]{max-width:none!important;width:100%!important;}[data-section-id]>div:not([class]):not([style*="position:absolute"]):not([style*="position: absolute"]):not([data-pdf-hide]){width:100%!important;max-width:none!important;}[data-section-id] [data-ls-content]>div:not([class]):not([style*="position"]){width:100%!important;max-width:none!important;}</style><script id="__slide-scaler__">(function(){var W=1280,H=720;function sc(){var vw=window.innerWidth||document.documentElement.clientWidth;if(!vw)return;var vs=vw/W;var small=vs<1;if(small){document.body.style.display='block';document.body.style.flexDirection='';document.body.style.alignItems='';}else{document.body.style.display='flex';document.body.style.flexDirection='column';document.body.style.alignItems='center';}if(!document.querySelector('[data-section-id]')){document.querySelectorAll('section:not([data-pdf-hide])').forEach(function(el,i){el.setAttribute('data-section-id',el.id||('slide-'+(i+1)));});}document.querySelectorAll('[data-section-id]').forEach(function(el){el.style.setProperty('height',H+'px','important');el.style.setProperty('max-height',H+'px','important');el.style.setProperty('overflow','hidden','important');el.style.setProperty('transform-origin',small?'top left':'top center','important');if(Math.abs(vs-1)<0.005){el.style.transform='';el.style.marginBottom='';}else{el.style.transform='scale('+vs+')';el.style.marginBottom=Math.round(H*(vs-1))+'px';}});}if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',sc);}else{sc();}window.addEventListener('resize',sc);window.addEventListener('load',sc);}());<\/script>`,
-          )
-        : html;
+      // Portrait: inject before </body> so rules come AFTER microsite-bridge CURSOR_RESET_CSS
+      // (which resets aspect-ratio:auto at </head>). Landscape injects in <head>.
+      // Both use aspect-ratio CSS — no hardcoded pixel dimensions, no JS scaler needed.
+      let finalHtml = html;
+      if (body?.pdfPresentation) {
+        if (isPortrait) {
+          finalHtml = html.replace(/(<\/body>)/i, `<style id="__pdf-slide-constraints__">
+html{overflow-x:hidden!important;}body{margin:0!important;padding:0!important;width:100%!important;overflow-x:hidden!important;display:flex!important;flex-direction:column!important;align-items:center!important;}
+*:has(>[data-section-id]){display:flex!important;flex-direction:column!important;align-items:center!important;width:100%!important;max-width:none!important;padding:0!important;margin:0!important;gap:0!important;}
+[data-section-id]{width:100%!important;max-width:calc(100vh * 9/16)!important;aspect-ratio:9/16!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;display:block!important;margin:0 auto 4px!important;}
+[data-section-id]:last-of-type{margin-bottom:0!important;}
+[data-pdf-hide]{display:none!important;}
+</style>$1`);
+        } else {
+          // meta charset goes in <head>; the constraint style goes before </body> so it
+          // is injected AFTER normalizeMicrositeHtml's CURSOR_RESET_CSS (which is also
+          // in <head>) and therefore wins the !important cascade battle.
+          finalHtml = html.replace(/(<head[^>]*>)/i, `$1<meta charset="UTF-8">`);
+          finalHtml = finalHtml.replace(/(<\/body>)/i, `<style id="__pdf-slide-constraints__">script,style,noscript,template{display:none!important;visibility:hidden!important;}body{overflow-x:hidden!important;width:100%!important;margin:0!important;max-width:none!important;display:flex!important;flex-direction:column!important;align-items:stretch!important;}*:has(>[data-section-id]){display:flex!important;flex-direction:column!important;align-items:stretch!important;width:100%!important;max-width:none!important;padding:0!important;margin:0!important;gap:0!important;}[data-section-id]{width:100%!important;aspect-ratio:16/9!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;flex-shrink:0!important;display:flex!important;flex-direction:column!important;margin-bottom:4px!important;}[data-section-id]:last-of-type{margin-bottom:0!important;}[data-section-id]:not([style*="padding:0"]):not([style*="padding: 0"]){padding:48px 72px 48px!important;}[data-ls-content]{flex:1!important;min-height:0!important;overflow:hidden!important;}[data-ls-callout]{flex-shrink:0!important;margin-top:auto!important;overflow:visible!important;max-height:none!important;}[data-section-id]>div:last-child:not([data-ls-content]):not([style*="position:absolute"]):not([style*="position: absolute"]){flex-shrink:0!important;margin-top:auto!important;overflow:visible!important;max-height:none!important;}[data-section-id] img:not([id^="__site-logo"]){max-height:none!important;}[data-section-id] svg{max-height:140px!important;max-width:140px!important;}[data-section-id] ul,[data-section-id] ol,[data-section-id] table{max-width:none!important;width:100%!important;}[data-section-id] [data-ls-content]{max-width:none!important;}[data-section-id] div[style*="margin:0 auto"],[data-section-id] div[style*="margin: 0 auto"]{max-width:none!important;width:100%!important;}[data-section-id]>div:not([class]):not([style*="position:absolute"]):not([style*="position: absolute"]):not([data-pdf-hide]){width:100%!important;max-width:none!important;}[data-section-id] [data-ls-content]>div:not([class]):not([style*="position"]){width:100%!important;max-width:none!important;}[data-pdf-hide]{display:none!important;}</style>$1`);
+        }
+      }
 
       send({ type: 'plan', totalSections: 1, sectionTypes: ['overview'] });
 
