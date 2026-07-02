@@ -1,10 +1,12 @@
 """
 Convert an HTML slide presentation to an editable PPTX via python-pptx + lxml.
 
-Usage:  cat slides.html | python slide-to-pptx.py > output.pptx
+Usage:  cat slides.html | python slide-to-pptx.py [landscape|portrait] > output.pptx
 
 Each .slide / .page / section element becomes one PowerPoint slide.
 Text is extracted and placed in real text boxes — fully editable in PowerPoint.
+Orientation (argv[1]) sets the slide dimensions: landscape 16:9 (default) or
+portrait 9:16.
 """
 import sys
 import re
@@ -217,6 +219,13 @@ def find_slide_elements(tree):
 
 
 def main() -> None:
+    global SLIDE_W, SLIDE_H
+    orientation = sys.argv[1] if len(sys.argv) > 1 else "landscape"
+    if orientation == "portrait":
+        # 9:16 portrait — matches the PDF page size and client-side PPTX layout.
+        SLIDE_W = Inches(7.5)
+        SLIDE_H = Inches(13.333)
+
     html_bytes = sys.stdin.buffer.read()
     html_str   = html_bytes.decode("utf-8")
 

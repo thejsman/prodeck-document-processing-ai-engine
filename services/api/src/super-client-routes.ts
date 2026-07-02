@@ -8,7 +8,7 @@ import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
 import { readOrgContextSettings, resolveVoiceBlock, superClientWorkdir } from '@ai-engine/runtime';
 import { findBestDocumentSkill, loadSkill } from './skills/skill.service.js';
 import { saveDocumentDirect, getDocumentContent, getDocumentMeta } from './documents/document-generator.js';
-import { parseRequestedFormat } from './documents/format-detector.js';
+import { parseRequestedFormat, detectPresentationIntent, detectSlideOrientation } from './documents/format-detector.js';
 import { validateSlideHtml, countSlides, extractTitle } from './slides/slide-generator.js';
 import type { SavedSlide } from './slides/slide-generator.js';
 import { patchHtml } from './html-patch.js';
@@ -311,6 +311,7 @@ async function saveSlide(
   dir: string,
   clientSlug: string,
   html: string,
+  orientation: 'landscape' | 'portrait' = 'landscape',
 ): Promise<SavedSlide> {
   const slidesDir = path.join(dir, 'slides');
   await mkdir(slidesDir, { recursive: true });
@@ -323,6 +324,7 @@ async function saveSlide(
     client: clientSlug,
     slideCount: countSlides(html),
     savedAt: now.toISOString(),
+    orientation,
   };
 
   await writeFile(path.join(slidesDir, `${id}.html`), html);
@@ -904,20 +906,25 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         // Non-critical — skill matching failure should not block generation
       }
 
-      // Detect presentation intent — direct keyword check is the source of truth.
-      // Skill slug match is a secondary signal; keyword check never fails silently.
-      const PRESENTATION_KEYWORDS = [
-        'presentation', 'slide deck', 'slideshow', 'slide show',
-        'make slides', 'create slides', 'build slides', 'write slides',
-        'make a deck', 'create a deck', 'build a deck', 'put together a deck',
-        'powerpoint', 'keynote', 'make a presentation', 'create a presentation',
-        'build a presentation', 'need slides', 'need a deck', 'want slides',
-        'want a deck', 'present to', 'turn this into slides', 'show this as slides',
-      ];
+      // Detect presentation intent — shares the slide/deck/pptx vocabulary of the
+      // format detector (single source of truth), so any phrasing that resolves to
+      // the pptx format (e.g. "create three page slides") reliably enters PRESENTATION
+      // MODE. Skill slug match is a secondary signal.
       const msgLower = message.toLowerCase();
       const isPresentationRequest =
         matchedDocumentSkill?.slug === 'presentation' ||
-        PRESENTATION_KEYWORDS.some((kw) => msgLower.includes(kw));
+        detectPresentationIntent(message);
+      // Orientation follows an explicit aspect-ratio mention: 9:16 → portrait,
+      // otherwise landscape (the historical default, kept byte-for-byte unchanged).
+      const slideOrientation = detectSlideOrientation(message);
+
+      // Orientation-dependent prompt fragments. For landscape these resolve to the
+      // exact historical strings, so the existing 16:9 prompt is unchanged.
+      const isPortrait = slideOrientation === 'portrait';
+      const slideAspect = isPortrait ? '9/16' : '16/9';
+      const slideHeightNote = isPortrait ? 'height = 177.78vw' : 'height = 56.25vw';
+      const portraitDesignNote =
+        `- PORTRAIT FORMAT (9:16): every slide is tall and narrow like a phone screen / story frame. Stack content vertically with generous spacing; prefer justify-content:space-between or flex-start over always centering. Keep one focused idea per slide, oversized headlines, and design for a vertical mobile reading experience.`;
 
       // Build combined prompt — llmGenerateFn takes a single string and routes through
       // the Python LLM bridge which respects LLM_PROVIDER / provider-specific model config.
@@ -933,13 +940,14 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         `HARD CONSTRAINTS:`,
         `- Full HTML document: <!DOCTYPE html> … </html>`,
         `- VERTICAL SCROLL LAYOUT: all slides stack top-to-bottom in a single scrollable page. Do NOT use absolute positioning, visibility toggling, or JS navigation to show/hide slides. Every slide is always visible.`,
-        `- Each slide: width:100%, aspect-ratio:16/9 (i.e. height = 56.25vw). Give every slide element the class "slide".`,
+        `- Each slide: width:100%, aspect-ratio:${slideAspect} (i.e. ${slideHeightNote}). Give every slide element the class "slide".`,
         `- Gap between slides: exactly 12px (use gap:12px on the flex container, or margin-bottom:12px on each slide except the last).`,
         `- Wrap all slides in a single container div with class "deck" using: display:flex; flex-direction:column; gap:12px;`,
         `- Body background: always #111111 (near-black). The system enforces this — do not set a body background. Design every slide to have its own solid background so it looks prominent against the dark surround.`,
         `- Self-contained: inline ALL CSS and JS. No external URLs. System fonts only (-apple-system, Georgia, etc).`,
         `- <title> tag = presentation title`,
         `- No keyboard nav, no click zones, no JS slide transitions — scroll is the navigation.`,
+        ...(isPortrait ? [portraitDesignNote] : []),
         ``,
         `VISUAL DESIGN STANDARD — this must look like a premium designed deck, not a web page or document:`,
         `- Use large, bold typography. Slide titles: 48–80px. Body text: 20–28px. Never smaller.`,
@@ -952,12 +960,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         ``,
         `EXAMPLE STRUCTURE (adapt fully — this is pattern only):`,
         `<div class="deck" style="display:flex;flex-direction:column;gap:12px;background:#0a0a0a;padding:0;">`,
-        `  <div class="slide" style="width:100%;aspect-ratio:16/9;background:linear-gradient(135deg,#0f1923 0%,#1a3a5c 100%);display:flex;flex-direction:column;justify-content:center;padding:6% 8%;position:relative;overflow:hidden;">`,
+        `  <div class="slide" style="width:100%;aspect-ratio:${slideAspect};background:linear-gradient(135deg,#0f1923 0%,#1a3a5c 100%);display:flex;flex-direction:column;justify-content:center;padding:6% 8%;position:relative;overflow:hidden;">`,
         `    <div style="font-size:clamp(9px,1vw,13px);letter-spacing:4px;text-transform:uppercase;color:#4fa3e0;margin-bottom:3%;">Confidential — Q3 2025</div>`,
         `    <h1 style="font-size:clamp(28px,5.5vw,80px);font-weight:800;color:#fff;line-height:1.05;letter-spacing:-1px;max-width:70%;">Scaling to<br>10M Users</h1>`,
         `    <p style="font-size:clamp(13px,1.8vw,24px);color:rgba(255,255,255,0.6);margin-top:3%;font-weight:300;">A growth infrastructure roadmap for Acme Corp</p>`,
         `  </div>`,
-        `  <div class="slide" style="width:100%;aspect-ratio:16/9;background:#fff;display:flex;flex-direction:column;justify-content:center;padding:6% 8%;position:relative;">`,
+        `  <div class="slide" style="width:100%;aspect-ratio:${slideAspect};background:#fff;display:flex;flex-direction:column;justify-content:center;padding:6% 8%;position:relative;">`,
         `    <div style="font-size:clamp(9px,1vw,12px);letter-spacing:3px;text-transform:uppercase;color:#4fa3e0;margin-bottom:2%;">The Problem</div>`,
         `    <h2 style="font-size:clamp(20px,3.5vw,52px);font-weight:700;color:#0f1923;line-height:1.15;margin-bottom:4%;">Current infra fails above 2M concurrent users</h2>`,
         `    <ul style="list-style:none;display:flex;flex-direction:column;gap:1.5%;padding:0;">`,
@@ -1291,8 +1299,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           displayResponse = stripDocumentTag(fullResponse);
         } else if (slidesTagMatch) {
           try {
-            const html = validateSlideHtml(slidesTagMatch.html);
-            slideSaved = await saveSlide(dir, name, html);
+            const html = validateSlideHtml(slidesTagMatch.html, slideOrientation);
+            slideSaved = await saveSlide(dir, name, html, slideOrientation);
           } catch (err) {
             app.log.warn({ err }, '[SuperClient] Failed to save slides');
           }
@@ -4141,10 +4149,14 @@ ${html.slice(0, 50000)}`;
     }
 
     let title = 'Presentation';
+    let orientation: 'landscape' | 'portrait' = 'landscape';
     try {
-      const idx = JSON.parse(await readFile(path.join(dir, 'slides.json'), 'utf-8')) as { id: string; title: string }[];
-      title = idx.find(s => s.id === id)?.title ?? title;
+      const idx = JSON.parse(await readFile(path.join(dir, 'slides.json'), 'utf-8')) as { id: string; title: string; orientation?: 'landscape' | 'portrait' }[];
+      const rec = idx.find(s => s.id === id);
+      title = rec?.title ?? title;
+      orientation = rec?.orientation === 'portrait' ? 'portrait' : 'landscape';
     } catch { /* ok */ }
+    const isPortrait = orientation === 'portrait';
 
     const safeTitle = title.replace(/[^\w\s\-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60);
     const fileName = `${safeTitle || 'presentation'}-${id.slice(0, 8)}`;
@@ -4160,9 +4172,12 @@ ${html.slice(0, 50000)}`;
       const chromeBin = await findChromeBinary();
       if (!chromeBin) return reply.code(503).send({ error: 'Chrome binary not found — run `npm install` to let Puppeteer download it' });
 
-      // Inject print CSS that forces one PDF page per .slide element (16:9 landscape)
+      // Inject print CSS that forces one PDF page per .slide element.
+      // Landscape = 13.333in × 7.5in (16:9); portrait = 7.5in × 13.333in (9:16).
+      const pageW = isPortrait ? '7.5in' : '13.333in';
+      const pageH = isPortrait ? '13.333in' : '7.5in';
       const PRINT_CSS = `<style id="prodeck-print">
-@page { size: 13.333in 7.5in; margin: 0; }
+@page { size: ${pageW} ${pageH}; margin: 0; }
 html, body { margin: 0 !important; padding: 0 !important; }
 .deck,.slides,.slide-container,.presentation-container,.slideshow {
   display: block !important; flex-direction: unset !important; gap: 0 !important;
@@ -4171,7 +4186,7 @@ html, body { margin: 0 !important; padding: 0 !important; }
 }
 .slide,.page,.slide-page,section {
   display: block !important; position: relative !important;
-  width: 13.333in !important; height: 7.5in !important; max-height: 7.5in !important;
+  width: ${pageW} !important; height: ${pageH} !important; max-height: ${pageH} !important;
   aspect-ratio: unset !important; box-shadow: none !important;
   margin: 0 !important; padding: 0 !important; overflow: hidden !important;
   flex-shrink: 0 !important; break-after: page !important; page-break-after: always !important;
@@ -4231,7 +4246,7 @@ html, body { margin: 0 !important; padding: 0 !important; }
       const script    = path.resolve(import.meta.dirname ?? '', 'slide-to-pptx.py');
 
       const pptxBytes = await new Promise<Buffer>((resolve, reject) => {
-        const proc = spawn(pythonBin, [script], { stdio: ['pipe', 'pipe', 'pipe'] });
+        const proc = spawn(pythonBin, [script, orientation], { stdio: ['pipe', 'pipe', 'pipe'] });
         const chunks: Buffer[] = [];
         const errChunks: Buffer[] = [];
         proc.stdout.on('data', (d: Buffer) => chunks.push(d));

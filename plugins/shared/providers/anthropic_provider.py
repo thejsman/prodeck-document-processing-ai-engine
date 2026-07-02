@@ -5,6 +5,13 @@ from typing import Optional
 
 from .base_provider import LLMProvider
 
+# Max output tokens per completion. Raised from 8096 because rich HTML artifacts
+# (e.g. multi-slide presentation decks, especially tall 9:16 portrait slides) were
+# being truncated mid-tag at the old cap, which broke <slides> extraction and made
+# the generated deck silently disappear. 16000 matches the other artifact-generation
+# paths in the codebase and stays within the non-streaming timeout budget.
+MAX_OUTPUT_TOKENS = 16000
+
 # Claude models with native vision support
 VISION_MODELS = {
     "claude-opus-4-7",
@@ -62,7 +69,7 @@ class AnthropicProvider(LLMProvider):
         try:
             response = self._client.messages.create(
                 model=self._generation_model,
-                max_tokens=8096,
+                max_tokens=MAX_OUTPUT_TOKENS,
                 temperature=t,
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -79,7 +86,7 @@ class AnthropicProvider(LLMProvider):
         try:
             with self._client.messages.stream(
                 model=self._generation_model,
-                max_tokens=8096,
+                max_tokens=MAX_OUTPUT_TOKENS,
                 temperature=t,
                 messages=[{"role": "user", "content": prompt}],
             ) as stream:
@@ -98,7 +105,7 @@ class AnthropicProvider(LLMProvider):
         try:
             response = self._client.messages.create(
                 model=vision_model,
-                max_tokens=8096,
+                max_tokens=MAX_OUTPUT_TOKENS,
                 messages=[{
                     "role": "user",
                     "content": [

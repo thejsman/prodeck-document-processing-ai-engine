@@ -3,12 +3,15 @@
 // Validates and passes through LLM-generated standalone HTML slide presentations.
 // The LLM has full creative freedom — we just ensure the output is a valid HTML document.
 
+export type SlideOrientation = 'landscape' | 'portrait'
+
 export interface SavedSlide {
   id: string
   title: string
   client: string
   slideCount: number  // best-effort count, 0 if not detectable
   savedAt: string
+  orientation?: SlideOrientation  // defaults to 'landscape' when absent (back-compat)
 }
 
 // Attempt to count slides using common HTML slide deck patterns.
@@ -41,8 +44,10 @@ export function extractTitle(html: string): string {
 }
 
 // Inject a layout enforcer so slides are always vertically scrollable with 12px gaps,
-// regardless of how the LLM structured its HTML.
-function injectScrollEnforcer(html: string): string {
+// regardless of how the LLM structured its HTML. The per-slide aspect ratio follows
+// the deck orientation — 16/9 landscape (default) or 9/16 portrait.
+function injectScrollEnforcer(html: string, orientation: SlideOrientation = 'landscape'): string {
+  const aspectRatio = orientation === 'portrait' ? '9/16' : '16/9';
   const enforcer = `<script id="prodeck-theme-apply">
 (function(){
   var p = new URLSearchParams(location.search).get('bg');
@@ -54,7 +59,7 @@ function injectScrollEnforcer(html: string): string {
 html{background:var(--prodeck-bg)!important;}
 body{overflow-y:auto!important;overflow-x:hidden!important;height:auto!important;min-height:unset!important;margin:0!important;padding:20px 0!important;background:var(--prodeck-bg)!important;}
 .deck,.slides,.slide-container,.presentation-container,.slideshow{display:flex!important;flex-direction:column!important;gap:12px!important;height:auto!important;min-height:unset!important;overflow:visible!important;position:static!important;background:transparent!important;}
-.slide,.page,.slide-page{position:relative!important;width:100%!important;aspect-ratio:16/9!important;height:auto!important;min-height:unset!important;opacity:1!important;transform:none!important;pointer-events:all!important;flex-shrink:0!important;inset:unset!important;box-shadow:0 8px 32px rgba(0,0,0,0.45),0 2px 8px rgba(0,0,0,0.3)!important;}
+.slide,.page,.slide-page{position:relative!important;width:100%!important;aspect-ratio:${aspectRatio}!important;height:auto!important;min-height:unset!important;opacity:1!important;transform:none!important;pointer-events:all!important;flex-shrink:0!important;inset:unset!important;box-shadow:0 8px 32px rgba(0,0,0,0.45),0 2px 8px rgba(0,0,0,0.3)!important;}
 .slide+.slide,.page+.page{margin-top:0!important;}
 .nav-prev,.nav-next,.nav-zone,.keyboard-hint{display:none!important;}
 </style>`;
@@ -68,7 +73,7 @@ body{overflow-y:auto!important;overflow-x:hidden!important;height:auto!important
 
 // Light validation: ensure output looks like a complete HTML document.
 // Throws with a human-readable message if it looks truncated or non-HTML.
-export function validateSlideHtml(html: string): string {
+export function validateSlideHtml(html: string, orientation: SlideOrientation = 'landscape'): string {
   const trimmed = html.trim();
   if (!trimmed.includes('<html') && !trimmed.includes('<!DOCTYPE')) {
     throw new Error('Slide output is not a valid HTML document');
@@ -76,5 +81,5 @@ export function validateSlideHtml(html: string): string {
   if (!trimmed.includes('</html>') && !trimmed.includes('</body>')) {
     throw new Error('Slide HTML appears truncated (missing closing tags)');
   }
-  return injectScrollEnforcer(trimmed);
+  return injectScrollEnforcer(trimmed, orientation);
 }

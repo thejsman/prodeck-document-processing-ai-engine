@@ -23,6 +23,17 @@ const IFRAME_H = 720;
 const SLIDE_W_IN = 13.333;
 const SLIDE_H_IN = 7.5;
 
+export type SlideOrientation = 'landscape' | 'portrait';
+
+// All exporter dimensions for a given orientation. Landscape reuses the
+// historical 16:9 constants; portrait swaps to 9:16 (same longest edge).
+function dimsFor(orientation: SlideOrientation) {
+  if (orientation === 'portrait') {
+    return { wPt: SLIDE_H_PT, hPt: SLIDE_W_PT, ifW: IFRAME_H, ifH: IFRAME_W, wIn: SLIDE_H_IN, hIn: SLIDE_W_IN };
+  }
+  return { wPt: SLIDE_W_PT, hPt: SLIDE_H_PT, ifW: IFRAME_W, ifH: IFRAME_H, wIn: SLIDE_W_IN, hIn: SLIDE_H_IN };
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface TextNode {
@@ -42,15 +53,19 @@ interface TextNode {
 
 // ── iframe lifecycle ──────────────────────────────────────────────────────────
 
-function createSlideIframe(html: string): Promise<HTMLIFrameElement> {
+function createSlideIframe(
+  html: string,
+  iframeW: number = IFRAME_W,
+  iframeH: number = IFRAME_H,
+): Promise<HTMLIFrameElement> {
   return new Promise((resolve, reject) => {
     const iframe = document.createElement('iframe');
     iframe.style.cssText = [
       'position:fixed',
       'left:-9999px',
       'top:0',
-      `width:${IFRAME_W}px`,
-      `height:${IFRAME_H}px`,
+      `width:${iframeW}px`,
+      `height:${iframeH}px`,
       'border:none',
       'visibility:hidden',
       'pointer-events:none',
@@ -210,6 +225,8 @@ async function domToPptxSlide(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   slide: any, // pptxgenjs Slide — imported dynamically
   iframeWin: Window,
+  slideWIn: number = SLIDE_W_IN,
+  slideHIn: number = SLIDE_H_IN,
 ): Promise<void> {
   const sr = slideEl.getBoundingClientRect();
   if (!sr.width || !sr.height) return;
@@ -217,8 +234,8 @@ async function domToPptxSlide(
   // Helper: convert pixel rect (relative to slide) to pptxgenjs inches
   function px(val: number, dim: 'w' | 'h'): number {
     return dim === 'w'
-      ? (val / sr.width)  * SLIDE_W_IN
-      : (val / sr.height) * SLIDE_H_IN;
+      ? (val / sr.width)  * slideWIn
+      : (val / sr.height) * slideHIn;
   }
   function pos(r: DOMRect) {
     return {
@@ -277,8 +294,8 @@ async function domToPptxSlide(
     // Clamp negatives (partially off-top of slide)
     const cx = Math.max(0, x);
     const cy = Math.max(0, y);
-    const cw = Math.min(w, SLIDE_W_IN - cx);
-    const ch = Math.min(h, SLIDE_H_IN - cy);
+    const cw = Math.min(w, slideWIn - cx);
+    const ch = Math.min(h, slideHIn - cy);
     if (cw < 0.01 || ch < 0.01) return;
 
     // ── <img> ──────────────────────────────────────────────────────────────
@@ -384,8 +401,11 @@ export async function downloadHtmlSlidePdf(
   html: string,
   title: string,
   onProgress?: (pct: number, msg: string) => void,
+  orientation: SlideOrientation = 'landscape',
 ): Promise<void> {
   onProgress?.(5, 'Loading slides…');
+
+  const { wPt, hPt, ifW, ifH } = dimsFor(orientation);
 
   const [jspdfMod, h2cMod] = await Promise.all([
     import('jspdf'),
@@ -397,15 +417,15 @@ export async function downloadHtmlSlidePdf(
     (jspdfMod as any).jsPDF ?? jspdfMod.default;
   const h2canvas = (h2cMod.default ?? h2cMod) as typeof import('html2canvas').default;
 
-  const iframe = await createSlideIframe(html);
+  const iframe = await createSlideIframe(html, ifW, ifH);
   try {
     const doc = iframe.contentDocument!;
     const slides = findSlideElements(doc);
 
     const pdf = new JsPDF({
-      orientation: 'landscape',
+      orientation,
       unit: 'pt',
-      format: [SLIDE_W_PT, SLIDE_H_PT],
+      format: [wPt, hPt],
       compress: true,
     });
     pdf.setProperties({ title, creator: 'ProDeck' });
@@ -424,13 +444,13 @@ export async function downloadHtmlSlidePdf(
         imageTimeout:    15000,
         backgroundColor: null,
         // Use the iframe's window so html2canvas resolves styles correctly
-        windowWidth:     IFRAME_W,
-        windowHeight:    IFRAME_H,
+        windowWidth:     ifW,
+        windowHeight:    ifH,
       });
 
       const imgData = canvas.toDataURL('image/jpeg', 0.92);
-      if (i > 0) pdf.addPage([SLIDE_W_PT, SLIDE_H_PT], 'landscape');
-      pdf.addImage(imgData, 'JPEG', 0, 0, SLIDE_W_PT, SLIDE_H_PT, '', 'FAST');
+      if (i > 0) pdf.addPage([wPt, hPt], orientation);
+      pdf.addImage(imgData, 'JPEG', 0, 0, wPt, hPt, '', 'FAST');
     }
 
     onProgress?.(97, 'Saving…');
@@ -446,17 +466,25 @@ export async function downloadHtmlSlidePptx(
   html: string,
   title: string,
   onProgress?: (pct: number, msg: string) => void,
+  orientation: SlideOrientation = 'landscape',
 ): Promise<void> {
   onProgress?.(5, 'Loading slides…');
+
+  const { ifW, ifH, wIn, hIn } = dimsFor(orientation);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { default: PptxGenJS } = await import('pptxgenjs') as any;
   const pptx = new PptxGenJS();
-  pptx.layout = 'LAYOUT_WIDE'; // 13.333" × 7.5"
+  if (orientation === 'portrait') {
+    pptx.defineLayout({ name: 'PRODECK_PORTRAIT', width: wIn, height: hIn }); // 7.5" × 13.333"
+    pptx.layout = 'PRODECK_PORTRAIT';
+  } else {
+    pptx.layout = 'LAYOUT_WIDE'; // 13.333" × 7.5"
+  }
   pptx.title  = title;
   pptx.author = 'ProDeck';
 
-  const iframe = await createSlideIframe(html);
+  const iframe = await createSlideIframe(html, ifW, ifH);
   try {
     const doc    = iframe.contentDocument!;
     const iWin   = iframe.contentWindow!;
@@ -469,7 +497,7 @@ export async function downloadHtmlSlidePptx(
       );
 
       const slide = pptx.addSlide();
-      await domToPptxSlide(slides[i], slide, iWin);
+      await domToPptxSlide(slides[i], slide, iWin, wIn, hIn);
     }
 
     onProgress?.(97, 'Saving…');

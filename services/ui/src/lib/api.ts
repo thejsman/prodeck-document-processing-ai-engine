@@ -2613,6 +2613,7 @@ export interface SavedSlide {
   client: string;
   slideCount: number;
   savedAt: string;
+  orientation?: 'landscape' | 'portrait'; // defaults to 'landscape' when absent
 }
 
 export interface SuperClientChatEvent {

@@ -755,6 +755,7 @@ export default function SuperClientPage() {
     id: string;
     url: string;
     title: string;
+    orientation?: 'landscape' | 'portrait';
   } | null>(null);
 
   // Cache last-seen content so panels render content during close animation (prevents content flash)
@@ -2841,12 +2842,13 @@ export default function SuperClientPage() {
 
       const { downloadHtmlSlidePdf, downloadHtmlSlidePptx } = await import('@/lib/html-slide-export');
       const title = slideRef.title || 'Presentation';
+      const orientation = slideRef.orientation === 'portrait' ? 'portrait' : 'landscape';
       const progress = (_pct: number, msg: string) => setSlideExportMsg(msg);
 
       if (fmt === 'pdf') {
-        await downloadHtmlSlidePdf(html, title, progress);
+        await downloadHtmlSlidePdf(html, title, progress, orientation);
       } else {
-        await downloadHtmlSlidePptx(html, title, progress);
+        await downloadHtmlSlidePptx(html, title, progress, orientation);
       }
     } catch (err) {
       console.error('Slide export failed:', err);
@@ -2865,6 +2867,7 @@ export default function SuperClientPage() {
       id: slide.id,
       url: getSlideHtmlUrl(name, slide.id, apiKey ?? undefined, bg || undefined),
       title: slide.title,
+      orientation: slide.orientation,
     });
     setSlideStripVisible(true);
     setActiveRightTab("artifacts");
