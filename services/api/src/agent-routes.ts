@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { logError } from './error-log.js';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import {
   ConfigResolver,
@@ -566,6 +567,7 @@ export function registerAgentRoutes(
     try {
       runner = await buildRunner(workdir);
     } catch (err) {
+      await logError({ process: 'agent:run', error: err, namespace, userInput: agentName });
       const message = err instanceof Error ? err.message : String(err);
       return reply.code(500).send({ error: `Failed to initialize agent runner: ${message}` });
     }
@@ -725,6 +727,7 @@ export function registerAgentRoutes(
 
       return reply.send({ result });
     } catch (err) {
+      await logError({ process: 'agent:run', error: err, namespace, userInput: agentName });
       const message = err instanceof Error ? err.message : String(err);
       return reply.code(502).send({ error: `Agent execution failed: ${message}` });
     }
