@@ -278,9 +278,10 @@ export function NamespacePanel({ namespace, onMicrositeClick, fileRefreshTick, o
 
   const handleViewFile = useCallback(
     async (fileName: string) => {
-      await openKnowledgeFile(apiKey, namespace, fileName);
+      const downloadName = files.find((f) => f.fileName === fileName)?.originalName ?? fileName;
+      await openKnowledgeFile(apiKey, namespace, fileName, downloadName);
     },
-    [apiKey, namespace],
+    [apiKey, namespace, files],
   );
 
   const handleDeleteConfirmed = async () => {

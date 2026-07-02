@@ -228,9 +228,10 @@ export function ClientPanel({ namespace, collectionStatus, onAskField, onMicrosi
 
   const handleViewFile = useCallback(
     async (fileName: string) => {
-      await openKnowledgeFile(apiKey, namespace, fileName);
+      const downloadName = files.find((f) => f.fileName === fileName)?.originalName ?? fileName;
+      await openKnowledgeFile(apiKey, namespace, fileName, downloadName);
     },
-    [apiKey, namespace],
+    [apiKey, namespace, files],
   );
 
   const handleDeleteProposalConfirmed = async () => {

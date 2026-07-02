@@ -6000,7 +6000,10 @@ export default function SuperClientPage() {
                 onClick={() => {
                   const id = menuDocId;
                   setMenuDocId(null);
-                  if (id) void openSuperClientDocument(apiKey, name, id);
+                  if (id) {
+                    const downloadName = docs.find((d) => d.fileName === id)?.originalName ?? id;
+                    void openSuperClientDocument(apiKey, name, id, downloadName);
+                  }
                 }}
               >
                 <Icon icon={ExternalLink} size="sm" />
