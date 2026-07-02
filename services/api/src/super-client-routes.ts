@@ -947,6 +947,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         `- Self-contained: inline ALL CSS and JS. No external URLs. System fonts only (-apple-system, Georgia, etc).`,
         `- <title> tag = presentation title`,
         `- No keyboard nav, no click zones, no JS slide transitions — scroll is the navigation.`,
+        `- NEVER break a single word across two lines. Do NOT use word-break:break-all, overflow-wrap:break-word/anywhere, or hyphens. Text wraps only at spaces. Choose a headline font-size that lets each word fit on one line inside its container — if a word would overflow, reduce the font-size (or widen the text column); never split or clip it.`,
         ...(isPortrait ? [portraitDesignNote] : []),
         ``,
         `VISUAL DESIGN STANDARD — this must look like a premium designed deck, not a web page or document:`,
@@ -4191,6 +4192,8 @@ html, body { margin: 0 !important; padding: 0 !important; }
   margin: 0 !important; padding: 0 !important; overflow: hidden !important;
   flex-shrink: 0 !important; break-after: page !important; page-break-after: always !important;
 }
+/* Never break a word across two lines — wrap only at spaces */
+.slide *,.page *,.slide-page *,section * { word-break: normal !important; overflow-wrap: normal !important; hyphens: none !important; }
 /* Cancel trailing page break on the last slide to avoid a blank final page */
 .slide:last-child,.page:last-child,.slide-page:last-child,section:last-child {
   break-after: auto !important; page-break-after: auto !important;

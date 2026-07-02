@@ -60,6 +60,8 @@ html{background:var(--prodeck-bg)!important;}
 body{overflow-y:auto!important;overflow-x:hidden!important;height:auto!important;min-height:unset!important;margin:0!important;padding:20px 0!important;background:var(--prodeck-bg)!important;}
 .deck,.slides,.slide-container,.presentation-container,.slideshow{display:flex!important;flex-direction:column!important;gap:12px!important;height:auto!important;min-height:unset!important;overflow:visible!important;position:static!important;background:transparent!important;}
 .slide,.page,.slide-page{position:relative!important;width:100%!important;aspect-ratio:${aspectRatio}!important;height:auto!important;min-height:unset!important;opacity:1!important;transform:none!important;pointer-events:all!important;flex-shrink:0!important;inset:unset!important;box-shadow:0 8px 32px rgba(0,0,0,0.45),0 2px 8px rgba(0,0,0,0.3)!important;}
+/* Never break a word across two lines — wrap only at spaces (overrides any break-all/break-word/hyphens the LLM may emit) */
+.slide *,.page *,.slide-page *{word-break:normal!important;overflow-wrap:normal!important;hyphens:none!important;}
 .slide+.slide,.page+.page{margin-top:0!important;}
 .nav-prev,.nav-next,.nav-zone,.keyboard-hint{display:none!important;}
 </style>`;
