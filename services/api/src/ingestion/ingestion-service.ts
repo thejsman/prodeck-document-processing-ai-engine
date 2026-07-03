@@ -39,6 +39,8 @@ export type ExtractionStatus = 'pending' | 'processing' | 'extracted' | 'skipped
 
 export interface IngestionFile {
   fileName: string;
+  /** Original filename as provided by the user — used for display only. */
+  originalName?: string;
   size: number;
   uploadedAt: string;
   /** Dual independent status fields — both branches run concurrently (INGEST_PARALLEL). */

@@ -330,6 +330,7 @@ export type IngestionStatus = 'uploaded' | 'processing' | 'indexed' | 'extractin
 
 export interface IngestionFile {
   fileName: string;
+  originalName?: string;
   size: number;
   uploadedAt: string;
   status: IngestionStatus;
@@ -417,6 +418,56 @@ export async function deleteKnowledgeFile(apiKey: string, namespace: string, fil
     { method: 'DELETE', headers: { Authorization: `Bearer ${apiKey}` } },
   );
   await handleResponse<{ ok: boolean }>(res);
+}
+
+// Triggering a download via `window.open(blobUrl, '_blank')` is unreliable in
+// Chrome once a page is served over a real domain: the new tab fetches the
+// blob from a different renderer/process than the one that created it, and
+// that cross-context read can fail with "Check Internet connection" (the
+// download manager then shows the blob's internal UUID as the filename,
+// since there was no `download` hint). Downloading via a same-document
+// anchor avoids the cross-tab handoff entirely and also gives the browser a
+// real filename to save as.
+function downloadBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export async function openSuperClientDocument(
+  apiKey: string,
+  name: string,
+  fileName: string,
+  downloadName?: string,
+): Promise<void> {
+  const res = await fetch(
+    `/api/super-clients/${encodeURIComponent(name)}/documents/${encodeURIComponent(fileName)}/download`,
+    { headers: { Authorization: `Bearer ${apiKey}` } },
+  );
+  if (!res.ok) throw new Error(`Failed to fetch file: ${res.status}`);
+  const blob = await res.blob();
+  downloadBlob(blob, downloadName ?? fileName);
+}
+
+export async function openKnowledgeFile(
+  apiKey: string,
+  namespace: string,
+  fileName: string,
+  downloadName?: string,
+): Promise<void> {
+  const res = await fetch(
+    `/api/knowledge/files/${encodeURIComponent(fileName)}/download?namespace=${encodeURIComponent(namespace)}`,
+    { headers: { Authorization: `Bearer ${apiKey}` } },
+  );
+  if (!res.ok) throw new Error(`Failed to fetch file: ${res.status}`);
+  const blob = await res.blob();
+  downloadBlob(blob, downloadName ?? fileName);
 }
 
 export async function reindexKnowledgeFile(apiKey: string, namespace: string, fileName: string): Promise<void> {
@@ -2346,6 +2397,7 @@ export async function deleteSuperClient(apiKey: string, name: string): Promise<v
 
 export interface SuperClientFile {
   fileName: string;
+  originalName?: string;
   size: number;
   uploadedAt: string;
   status: 'processing' | 'extracted' | 'failed';
