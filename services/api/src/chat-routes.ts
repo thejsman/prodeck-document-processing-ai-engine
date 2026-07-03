@@ -29,6 +29,7 @@ import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { runChatAgent } from './chat/chat-agent.js';
 import type { ToolEvent } from './chat/tool-router.js';
+import { logError } from './error-log.js';
 import {
   chatSessionBus,
   type ChatSessionEvent,
@@ -154,6 +155,7 @@ export function registerChatRoutes(
           },
         });
       } catch (err) {
+        await logError({ process: 'chat', error: err, namespace, userInput: message });
         const errorMessage = err instanceof Error ? err.message : String(err);
         reply.raw.write(
           `event: error\ndata: ${JSON.stringify({ error: errorMessage })}\n\n`,
@@ -178,6 +180,7 @@ export function registerChatRoutes(
       });
       return reply.send({ message: response.text, actions: {} });
     } catch (err) {
+      await logError({ process: 'chat', error: err, namespace, userInput: message });
       const errorMessage = err instanceof Error ? err.message : String(err);
       return reply.code(502).send({ error: `Chat orchestration failed: ${errorMessage}` });
     }
