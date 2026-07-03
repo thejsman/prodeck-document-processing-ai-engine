@@ -198,6 +198,16 @@ export function buildConfirmationResponse(
       label: 'View Full Draft',
       href: request.viewLink,
     });
+  } else if (request.kind === 'confirm_generation') {
+    const action =
+      request.targetIntent === 'GENERATE_MICROSITE'
+        ? 'create a microsite'
+        : 'generate a proposal';
+    lines.push(
+      `It sounds like you'd like me to **${action}**. Want me to go ahead?`,
+      '',
+      'Reply **"yes"** to proceed, or tell me what you meant.',
+    );
   }
 
   return {
