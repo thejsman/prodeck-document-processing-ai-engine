@@ -53,7 +53,8 @@ import {
   runConfirmationGate,
 } from './confirmation-gate.js';
 import type { ConfirmationRequest } from './confirmation-gate.js';
-import { buildBoundaryResponse, buildUnknownResponse } from './boundary-response.js';
+import { detectClarification } from './clarification.js';
+import { buildBoundaryResponse, buildUnknownResponse, buildClarificationChoiceResponse } from './boundary-response.js';
 import { appendChatTurn, loadHistory } from './chat-history.service.js';
 import { readMeta } from '../proposal-meta.js';
 import { CostTracker, DEFAULT_COST_CONFIG } from './cost-control.js';
@@ -595,6 +596,49 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
   if (classification.intent === 'GENERAL_CHAT') {
     const response = buildBoundaryResponse(message);
     await persistState(workdir, namespace, apiKeyHash, chatSessionId, message, response, classification);
+    onDone(response);
+    return response;
+  }
+
+  // --- Early exit: NEEDS CLARIFICATION ---
+  // The LLM fallback matched a generative intent but wasn't confident which
+  // artifact the user wants (gray-band confidence, or it named alternatives).
+  // Ask before generating — never guess an artifact into existence (Golden
+  // Rule #6). Rule-based classifications are trusted and never reach here.
+  if (classification.needsClarification) {
+    onPhase('Clarifying your request...');
+    const response = buildClarificationChoiceResponse(classification.candidates ?? []);
+    await persistState(workdir, namespace, apiKeyHash, chatSessionId, message, response, classification);
+    onDone(response);
+    return response;
+  }
+
+  // =========================================================================
+  // STAGE 1.5 — Clarification Gate (deterministic, no LLM)
+  // =========================================================================
+  // When the user names a generation artifact with no actionable specifics
+  // (e.g. bare "microsite" / "landing page"), ask a short contextual
+  // questionnaire before generating instead of guessing (Golden Rules #4, #6).
+  const clarification = detectClarification(classification.intent, message, chatContext);
+  if (clarification) {
+    onPhase('Getting a few details...');
+    const response: ChatResponse = {
+      text: clarification.intro,
+      actionCards: [],
+      requirementsUpdated: false,
+      toolsCalled: [],
+      questions: clarification.questions,
+    };
+    await persistState(
+      workdir,
+      namespace,
+      apiKeyHash,
+      chatSessionId,
+      message,
+      response,
+      classification,
+      { intent: clarification.resumeIntent },
+    );
     onDone(response);
     return response;
   }

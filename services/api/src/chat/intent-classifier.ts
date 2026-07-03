@@ -13,6 +13,37 @@ import {
   type ClassificationResult,
   type Intent,
 } from './intents.js';
+import {
+  PROPOSAL_ARTIFACT,
+  isBareArtifactRequest,
+  isMicrositeRequest,
+} from './vocabulary.js';
+
+// ---------------------------------------------------------------------------
+// Generative-intent disambiguation policy
+// ---------------------------------------------------------------------------
+//
+// Generative intents produce a durable, hard-to-undo artifact. When the intent
+// comes from a deterministic rule we trust it. But when it comes from the LLM
+// fallback — i.e. no rule matched, the request was inherently vague — we must
+// NOT let a merely-plausible guess trigger generation. If the LLM is not
+// confident (gray band) or itself reports other plausible generative actions,
+// we ask the user which one they meant rather than silently generating the
+// wrong thing (Golden Rule #6 — ask, never guess).
+
+const GENERATIVE_INTENTS: ReadonlySet<Intent> = new Set<Intent>([
+  'GENERATE_PROPOSAL',
+  'GENERATE_DOCUMENT',
+  'GENERATE_MICROSITE',
+  'GENERATE_TEMPLATE',
+]);
+
+/**
+ * LLM self-confidence at or above this bar is trusted to auto-generate.
+ * Below it (but at/above the 0.6 UNKNOWN floor) a generative intent is treated
+ * as ambiguous and routed to disambiguation.
+ */
+const GENERATIVE_COMMIT_THRESHOLD = 0.85;
 
 // ---------------------------------------------------------------------------
 // Rule table (spec section 4.2 — order is load-bearing, first match wins)
@@ -29,8 +60,11 @@ const INTENT_RULES: Array<{
   // awaiting-input state. Contextual rules are fallbacks for short answers
   // that have no keyword signal (e.g. "yes", "acme corp").
   {
+    // Flexible microsite vocabulary lives in vocabulary.ts — users can say
+    // "microsite", "landing page", "one pager site", "mini-site", "splash
+    // page", "single page site", "presentation", etc. Add a synonym there.
     id: 'kw_microsite',
-    test: (msg) => /\b(microsite|presentation|convert\s+to\s+(a\s+)?present)/i.test(msg),
+    test: (msg) => isMicrositeRequest(msg),
     intent: 'GENERATE_MICROSITE',
     confidence: 0.90,
   },
@@ -57,6 +91,18 @@ const INTENT_RULES: Array<{
     test: (msg) => /\b(create|generate|write|draft|build|need)\b.*\bproposal\b/i.test(msg),
     intent: 'GENERATE_PROPOSAL',
     confidence: 0.90,
+  },
+  {
+    // Bare "proposal" (no verb, no context) previously fell through to the LLM,
+    // which could not tell what to do. Classify it deterministically so the
+    // readiness engine can ask for the missing required fields (client, service,
+    // industry). Guarded against bare-detection false positives ("list proposals"
+    // → kw_status; plural "proposals" is not matched) and never hijacks an
+    // in-progress confirmation flow.
+    id: 'kw_proposal_bare',
+    test: (msg, ctx) => !ctx.awaitingConfirmation && isBareArtifactRequest(msg, PROPOSAL_ARTIFACT),
+    intent: 'GENERATE_PROPOSAL',
+    confidence: 0.80,
   },
   {
     id: 'kw_requirement_update',
@@ -249,6 +295,12 @@ classify it as the most relevant project intent (QUERY, UPDATE_REQUIREMENTS, etc
 NOT as GENERAL_CHAT. Only use GENERAL_CHAT when the message is clearly unrelated
 to proposals, templates, microsites, or client project work.
 
+When the message clearly maps to ONE action, return it with high confidence (>= 0.85).
+When it could reasonably mean more than one GENERATIVE action — for example a
+standalone document vs a full client proposal vs a one-page presentation
+microsite — do NOT pick one. Set confidence below 0.85 and list every plausible
+action in "alternatives". Asking the user is better than generating the wrong artifact.
+
 Context:
 - Namespace: ${context.namespace}
 - Active proposals: ${activeProposals}
@@ -257,7 +309,8 @@ Context:
 User message: "${message}"
 
 Respond with ONLY this JSON:
-{"intent": "...", "confidence": 0.XX}`
+{"intent": "...", "confidence": 0.XX, "alternatives": ["..."]}
+"alternatives" is optional — omit it or use [] when you are confident.`
 }
 
 // ---------------------------------------------------------------------------
@@ -301,7 +354,7 @@ export class IntentClassifier {
     try {
       const prompt = buildLLMPrompt(message, context)
       const raw = await this.generateFn(prompt)
-      const parsed = safeParseJSON<{ intent: string; confidence: number }>(raw)
+      const parsed = safeParseJSON<{ intent: string; confidence: number; alternatives?: unknown }>(raw)
 
       if (!parsed) {
         return { intent: 'UNKNOWN', confidence: 0, source: 'llm' }
@@ -315,8 +368,32 @@ export class IntentClassifier {
         return { intent: 'UNKNOWN', confidence: parsed.confidence ?? 0, source: 'llm' }
       }
 
+      const intent = parsed.intent as Intent
+
+      // Generative disambiguation gate — a vague request that reached the LLM
+      // fallback must clear a higher bar before we generate an artifact. Below
+      // it, or when the LLM offered other plausible generative actions, we ask.
+      if (GENERATIVE_INTENTS.has(intent)) {
+        const alternatives = Array.isArray(parsed.alternatives)
+          ? (parsed.alternatives as unknown[])
+              .filter((a): a is Intent => VALID_INTENTS.includes(a as Intent) && GENERATIVE_INTENTS.has(a as Intent))
+          : []
+        const candidates = Array.from(new Set<Intent>([intent, ...alternatives]))
+        const ambiguous = parsed.confidence < GENERATIVE_COMMIT_THRESHOLD || candidates.length > 1
+
+        if (ambiguous) {
+          return {
+            intent,
+            confidence: parsed.confidence,
+            source: 'llm',
+            needsClarification: true,
+            candidates,
+          }
+        }
+      }
+
       return {
-        intent: parsed.intent as Intent,
+        intent,
         confidence: parsed.confidence,
         source: 'llm',
       }

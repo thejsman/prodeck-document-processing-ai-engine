@@ -53,6 +53,15 @@ export interface ClassificationResult {
   confidence: number
   source: 'rule' | 'llm'
   matchedRule?: string
+  /** Set when the LLM matched a generative intent but was not confident enough
+   *  to commit to generation (gray-band confidence, or it reported plausible
+   *  alternatives). The pipeline asks the user to disambiguate instead of
+   *  producing an artifact — Golden Rule #6 (missing/ambiguous input → ask,
+   *  never guess). Only ever set for source === 'llm'. */
+  needsClarification?: boolean
+  /** Candidate generative intents to choose between when needsClarification is
+   *  set. Always includes the winning intent first. */
+  candidates?: Intent[]
 }
 
 export interface ProposalRef {

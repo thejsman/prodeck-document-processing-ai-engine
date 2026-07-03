@@ -32,6 +32,12 @@ describe('keyword rules', () => {
     ['kw_microsite', 'generate a microsite from the proposal', 'GENERATE_MICROSITE'],
     ['kw_microsite', 'create a presentation for the client', 'GENERATE_MICROSITE'],
     ['kw_microsite', 'convert to presentation slides', 'GENERATE_MICROSITE'],
+    // Flexible microsite vocabulary — synonyms all route to GENERATE_MICROSITE
+    ['kw_microsite', 'create a landing page', 'GENERATE_MICROSITE'],
+    ['kw_microsite', 'build a one pager site', 'GENERATE_MICROSITE'],
+    ['kw_microsite', 'make a single page website', 'GENERATE_MICROSITE'],
+    ['kw_microsite', 'a mini-site for the client', 'GENERATE_MICROSITE'],
+    ['kw_microsite', 'microsite', 'GENERATE_MICROSITE'],
     ['kw_template_create', 'create a new template for consulting', 'GENERATE_TEMPLATE'],
     ['kw_template_create', 'generate template for software projects', 'GENERATE_TEMPLATE'],
     ['kw_template_create', 'build a template', 'GENERATE_TEMPLATE'],
@@ -46,6 +52,9 @@ describe('keyword rules', () => {
     ['kw_proposal_create', 'generate proposal for cloud migration', 'GENERATE_PROPOSAL'],
     ['kw_proposal_create', 'draft a proposal about data analytics', 'GENERATE_PROPOSAL'],
     ['kw_proposal_create', 'I need a proposal for this client', 'GENERATE_PROPOSAL'],
+    // Bare "proposal" classifies deterministically (was previously LLM-confused)
+    ['kw_proposal_bare', 'proposal', 'GENERATE_PROPOSAL'],
+    ['kw_proposal_bare', 'the proposal', 'GENERATE_PROPOSAL'],
     ['kw_requirement_update', 'the budget is $50,000', 'UPDATE_REQUIREMENTS'],
     ['kw_requirement_update', 'budget is changed to $80k', 'UPDATE_REQUIREMENTS'],
     ['kw_requirement_update', 'they want a 6-month timeline', 'UPDATE_REQUIREMENTS'],
@@ -331,6 +340,17 @@ describe('confirmation gate interaction', () => {
     expect(result.intent).toBe('CONFIRM_TEMPLATE')
   })
 
+  it('bare "proposal" does NOT hijack a pending template confirmation', async () => {
+    const result = await classifier.classify(
+      'proposal',
+      makeCtx({ awaitingConfirmation: { kind: 'confirm_template' } }),
+    )
+    // kw_proposal_bare is guarded against awaitingConfirmation, so this falls
+    // through to the confirmation-input rule instead of restarting generation.
+    expect(result.matchedRule).not.toBe('kw_proposal_bare')
+    expect(result.intent).toBe('CONFIRM_TEMPLATE')
+  })
+
   it('"finalize" while awaiting approve_generated_template → CONFIRM_TEMPLATE (ctx_confirm_template_input fallback)', async () => {
     // "finalize" matches kw_approve_proposal regex but the confirmation guard blocks it;
     // it's not a yes-word so it falls to ctx_confirm_template_input
@@ -363,5 +383,66 @@ describe('result metadata', () => {
     const result2 = await new IntentClassifier(generateFn).classify('xyzzy abc', makeCtx())
     expect(result2.matchedRule).toBeUndefined()
     expect(result2.source).toBe('llm')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Generative disambiguation — LLM must not guess an artifact into existence
+// ---------------------------------------------------------------------------
+
+describe('generative disambiguation gate', () => {
+  it('generative intent with gray-band confidence → needsClarification (ask, do not generate)', async () => {
+    const generateFn = vi.fn().mockResolvedValue('{"intent":"GENERATE_DOCUMENT","confidence":0.7}')
+    const result = await new IntentClassifier(generateFn).classify('xqzpwv', makeCtx())
+    expect(result.source).toBe('llm')
+    expect(result.intent).toBe('GENERATE_DOCUMENT')
+    expect(result.needsClarification).toBe(true)
+    expect(result.candidates).toEqual(['GENERATE_DOCUMENT'])
+  })
+
+  it('generative intent WITH alternatives → needsClarification even at high confidence', async () => {
+    const generateFn = vi.fn().mockResolvedValue(
+      '{"intent":"GENERATE_DOCUMENT","confidence":0.92,"alternatives":["GENERATE_MICROSITE"]}',
+    )
+    const result = await new IntentClassifier(generateFn).classify('xqzpwv', makeCtx())
+    expect(result.needsClarification).toBe(true)
+    expect(result.candidates).toEqual(['GENERATE_DOCUMENT', 'GENERATE_MICROSITE'])
+  })
+
+  it('generative intent with high confidence and no alternatives → commits (no clarification)', async () => {
+    const generateFn = vi.fn().mockResolvedValue('{"intent":"GENERATE_PROPOSAL","confidence":0.9}')
+    const result = await new IntentClassifier(generateFn).classify('xqzpwv', makeCtx())
+    expect(result.intent).toBe('GENERATE_PROPOSAL')
+    expect(result.needsClarification).toBeUndefined()
+  })
+
+  it('non-generative intent at gray-band confidence → commits (read-only intents never gated)', async () => {
+    const generateFn = vi.fn().mockResolvedValue('{"intent":"QUERY","confidence":0.7}')
+    const result = await new IntentClassifier(generateFn).classify('xqzpwv', makeCtx())
+    expect(result.intent).toBe('QUERY')
+    expect(result.needsClarification).toBeUndefined()
+  })
+
+  it('generative intent below the 0.6 floor → UNKNOWN (not clarification)', async () => {
+    const generateFn = vi.fn().mockResolvedValue('{"intent":"GENERATE_MICROSITE","confidence":0.5}')
+    const result = await new IntentClassifier(generateFn).classify('xqzpwv', makeCtx())
+    expect(result.intent).toBe('UNKNOWN')
+    expect(result.needsClarification).toBeUndefined()
+  })
+
+  it('non-generative / invalid alternatives are filtered out of candidates', async () => {
+    const generateFn = vi.fn().mockResolvedValue(
+      '{"intent":"GENERATE_DOCUMENT","confidence":0.7,"alternatives":["QUERY","BOGUS_INTENT"]}',
+    )
+    const result = await new IntentClassifier(generateFn).classify('xqzpwv', makeCtx())
+    expect(result.candidates).toEqual(['GENERATE_DOCUMENT'])
+    expect(result.needsClarification).toBe(true)
+  })
+
+  it('LLM prompt asks the model to surface alternatives when ambiguous', async () => {
+    const generateFn = vi.fn().mockResolvedValue('{"intent":"QUERY","confidence":0.80}')
+    await new IntentClassifier(generateFn).classify('xqzpwv', makeCtx())
+    const prompt = generateFn.mock.calls[0][0] as string
+    expect(prompt).toContain('alternatives')
   })
 })
