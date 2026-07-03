@@ -51,6 +51,7 @@ import {
 import type { ChatResponse } from './response-builder.js';
 import {
   runConfirmationGate,
+  buildGenerationConfirmation,
 } from './confirmation-gate.js';
 import type { ConfirmationRequest } from './confirmation-gate.js';
 import { detectClarification } from './clarification.js';
@@ -583,6 +584,46 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
 
   const chatContext = await buildChatContext(namespace, chatSessionId, apiKeyHash, workdir);
   let classification = await classifier.classify(message, chatContext);
+
+  // =========================================================================
+  // STAGE 1.5 — Confirm-Generation Gate (only when unsure)
+  // =========================================================================
+  // Big generations (proposal / microsite) must never fire on a guess. When
+  // the intent is recognised with low confidence — or the user is replying to
+  // a pending confirmation — resolve it here, before any extraction work.
+  const BIG_GENERATION_INTENTS: Intent[] = ['GENERATE_PROPOSAL', 'GENERATE_MICROSITE'];
+  const GEN_CONFIRM_THRESHOLD = 0.85;
+  const trimmed = message.trim();
+  const isAffirmative =
+    /^(yes|yep|yup|sure|ok(ay)?|correct|confirmed?|proceed|go\s+ahead|do\s+it|please\s+do|that'?s\s+right|looks?\s+good)\b/i.test(trimmed);
+  const isNegative =
+    /^(no|nope|nah|not\s+(now|yet)|don'?t|do\s+not|cancel|stop|never\s*mind|later|maybe\s+later)\b/i.test(trimmed);
+
+  // Resume: user is answering a pending "want me to go ahead?" confirmation.
+  if (chatContext.awaitingConfirmation?.kind === 'confirm_generation') {
+    const targetIntent = chatContext.awaitingConfirmation.targetIntent;
+    if (isAffirmative && targetIntent) {
+      // Confirmed — proceed with the target intent at high confidence.
+      classification = {
+        intent: targetIntent,
+        confidence: 0.97,
+        source: 'rule',
+        matchedRule: 'ctx_confirm_generation_yes',
+      };
+    } else if (isNegative) {
+      // Declined — acknowledge and clear the pending confirmation.
+      const response: ChatResponse = {
+        text: "No problem — just let me know when you'd like to go ahead.",
+        actionCards: [],
+        requirementsUpdated: false,
+        toolsCalled: [],
+      };
+      await persistState(workdir, namespace, apiKeyHash, chatSessionId, message, response, classification);
+      onDone(response);
+      return response;
+    }
+    // Otherwise: not a clear yes/no — fall through and use the fresh classification.
+  }
 
   // --- Early exit: UNKNOWN ---
   if (classification.intent === 'UNKNOWN') {

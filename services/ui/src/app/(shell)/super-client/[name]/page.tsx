@@ -2492,6 +2492,10 @@ export default function SuperClientPage() {
     return changed;
   }
 
+  // Mirrors the backend intent-classifier `kw_microsite` rule (services/api/src/chat/
+  // intent-classifier.ts) — keep the two in sync. Recognises natural phrasings:
+  // microsite, presentation, slide deck, landing page, one-/1-pager, single-page
+  // site, mini-site, plus "convert/turn ... into a site/page/presentation".
   const MICROSITE_INTENT_RE =
     /\b(generate|create|make|build|design)\b[^.?!]*\bmicrosite\b|\bmicrosite\b[^.?!]*\b(generate|create|make|build|design)\b/i;
   const PROPOSAL_INTENT_RE =
@@ -3277,8 +3281,11 @@ export default function SuperClientPage() {
       setInput('');
       // Extract any context the user included alongside the trigger word and pre-fill instructions
       const extracted = text
-        .replace(/\b(generate|create|make|build|design)\b/gi, '')
-        .replace(/\bmicrosite\b/gi, '')
+        .replace(/\b(generate|create|make|build|design|turn|convert|into)\b/gi, '')
+        .replace(
+          /\b(microsite|micro-site|presentation|slide\s?deck|slides|landing\s?page|(one|1)[-\s]?pager|single[-\s]?page\s+(site|website|page)|(one|1)[-\s]?page\s+(site|website)|mini[-\s]?site)\b/gi,
+          '',
+        )
         .replace(/\b(a|an|the|me|my|for|please|can you|could you)\b/gi, '')
         .replace(/\s{2,}/g, ' ')
         .trim();

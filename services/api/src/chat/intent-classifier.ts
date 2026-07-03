@@ -289,6 +289,11 @@ NON-PROJECT:
     requests, jokes, weather, math, coding help, writing emails, off-topic chat.
   UNKNOWN — gibberish, empty, completely unparseable
 
+MICROSITE SYNONYMS: A microsite is a small web presentation built from a proposal.
+Treat ALL of these as GENERATE_MICROSITE, even without the word "microsite":
+landing page, one-pager / 1-pager, single-page site, single page website, mini-site,
+slide deck / slides, "a web page for the proposal", "turn/convert this into a site/page/presentation".
+
 IMPORTANT: If the message is ambiguous but COULD relate to project work
 (e.g., "help me with pricing", "summarize this", "analyze the competition"),
 classify it as the most relevant project intent (QUERY, UPDATE_REQUIREMENTS, etc.),

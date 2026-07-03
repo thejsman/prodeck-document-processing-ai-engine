@@ -88,8 +88,10 @@ export interface ChatContext {
   /** Pending confirmation kind from the confirmation gate. Set when the
    *  pipeline halted at Stage 4.5 waiting for the user to say yes/no. */
   awaitingConfirmation?: {
-    kind: 'confirm_entities' | 'confirm_template' | 'approve_generated_template'
+    kind: 'confirm_entities' | 'confirm_template' | 'approve_generated_template' | 'confirm_generation'
     templateSlug?: string
+    /** For 'confirm_generation' — the big-generation intent awaiting a yes/no. */
+    targetIntent?: Intent
   }
   /** Content of the last assistant message — used to give the extraction LLM
    *  context about which field was most recently asked for, so it can correctly
