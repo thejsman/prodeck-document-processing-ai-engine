@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { ArrowLeft, Download } from "lucide-react";
 import { useAuth } from "@/lib/auth-context";
+import { ThemeToggle } from "@/components/system/ThemeToggle";
 import {
   getGeneratedDocumentContent,
   generatedDocumentExportUrl,
@@ -207,6 +208,7 @@ export function DocumentViewerPage() {
             </>
           )}
         </div>
+        <ThemeToggle />
       </div>
 
       {/* Body */}

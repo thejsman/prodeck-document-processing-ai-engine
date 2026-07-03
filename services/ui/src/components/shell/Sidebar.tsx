@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { NamespacesSection } from './NamespacesSection';
-import { Globe, FileText, MoreVertical, Layers, ChevronsLeft, ChevronsRight, Sparkles } from 'lucide-react';
+import { Archive, MoreVertical, ChevronsLeft, ChevronsRight, Sparkles } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useSidebar } from '@/lib/sidebar-store';
 
@@ -90,20 +90,12 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
       <nav className="sidebar-nav">
         <div className="sidebar-group">
           <Link
-            href="/proposal"
-            className={`sidebar-link${pathname?.startsWith('/proposal') ? ' sidebar-link--active' : ''}`}
+            href="/artifacts"
+            className={`sidebar-link${pathname?.startsWith('/artifacts') ? ' sidebar-link--active' : ''}`}
             onClick={onMobileClose}
           >
-            <Icon icon={FileText} size="md" className="sidebar-icon" />
-            <span className="sidebar-label">Proposals</span>
-          </Link>
-          <Link
-            href="/presentation"
-            className={`sidebar-link${pathname?.startsWith('/presentation') ? ' sidebar-link--active' : ''}`}
-            onClick={onMobileClose}
-          >
-            <Icon icon={Globe} size="md" className="sidebar-icon" />
-            <span className="sidebar-label">Microsites</span>
+            <Icon icon={Archive} size="md" className="sidebar-icon" />
+            <span className="sidebar-label">Artifacts</span>
           </Link>
           <Link
             href="/inspiration-context"
