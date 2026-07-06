@@ -2497,6 +2497,7 @@ MOBILE-FIRST REQUIREMENTS — these are non-negotiable and must be in every outp
 - Hero sections must be fully legible at 375px wide — no content cut off, no horizontal scroll
 - Horizontal overflow is forbidden: add overflow-x:hidden to html,body and any fixed-width inner containers
 - Navigation on mobile (<768px): use a hamburger toggle or vertical stacked list — never a horizontal nav row that overflows
+- The desktop→hamburger breakpoint must be chosen from the nav's OWN content width, not a fixed 768px assumption: a logo/wordmark plus more than ~5 nav links plus a CTA pill routinely needs 1200-1300px to fit on one line without wrapping or overflowing — measured, not guessed, since gaps/padding using clamp() shrink with viewport width but link labels do not. If your nav has 6+ links, err generously high and set the hamburger breakpoint around 1280px (e.g. @media (max-width: 1280px)) rather than a tight estimate, so there is no dead zone above 768px where the desktop nav row is still shown but no longer fits and overflows off the right edge
 - Section padding must scale: use clamp() or percentage-based values (e.g. padding: clamp(48px, 8vw, 120px) clamp(20px, 5vw, 80px))
 - Images: always width:100%; height:auto, or object-fit:cover inside a container with explicit height
 - Avoid hover-only states for essential interactions — every interactive element must also respond to touch/click
