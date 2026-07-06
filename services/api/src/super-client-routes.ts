@@ -958,7 +958,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         `- Use color intentionally — pick a palette of 2–3 colors and apply consistently. Cover and closing slides use the darkest/richest treatment.`,
         `- Add real visual hierarchy: eyebrow labels (10–12px uppercase tracked), oversized headlines, supporting body, callout boxes with border-left accents.`,
         `- Use CSS for visual elements: clip-path for diagonal splits, border-radius for accent shapes, box-shadow for card depth, ::before/::after for decorative lines or dots.`,
-        `- Slide transitions: slides are absolutely positioned, the active one is opacity:1 transform:translateX(0), others are opacity:0 transform:translateX(60px). Transition: 0.4s ease.`,
+        `- Every element must be positioned in normal document flow (static or relative) within its own slide. Never use position:absolute/fixed, negative margins, or transform offsets to place content — each slide is a self-contained box and nothing may render outside its own boundary or overlap the slide before/after it.`,
         `- Vary layouts across the deck. No two consecutive slides should look identical.`,
         ``,
         `EXAMPLE STRUCTURE (adapt fully — this is pattern only):`,

@@ -2714,11 +2714,14 @@ No two pages should look alike. One page might be a single bold number on a dark
 You have complete creative freedom: palette, typography, layout, imagery, and visual language are entirely your professional decisions. There is no prescribed style — derive everything from the content you are given.
 
 ONLY technical rules (required for rendering):
-- Each page: <section data-section-id="slide-N" id="slide-N" style="aspect-ratio:9/16;overflow:hidden;position:relative;width:100%;max-width:calc(100vh * 9/16);box-sizing:border-box;margin:0 auto 4px">
+- Each page: <section data-section-id="slide-N" id="slide-N" style="aspect-ratio:9/16;overflow:hidden;position:relative;width:100%;max-width:540px;box-sizing:border-box;margin:0 auto 4px">
+- Wrap the page's main body in one direct child marked data-ls-content (e.g. <div data-ls-content style="...">…</div>) — it is forced to stretch and fill all remaining vertical space, so the page never leaves a dead gap. Size headline, body, imagery, and stat blocks inside it to actually occupy the full height — don't just top-align a small amount of content in a tall frame.
+- If a page ends with a bottom-pinned accent bar, stat strip, or callout, mark that element data-ls-callout — it is forced to the bottom of the page automatically.
 - Logo: one <img id="__site-logo__" src="data:," alt="Logo" style="height:32px;width:auto;object-fit:contain"> on the first page only — never repeated
 - NO header, navbar, nav, menu, or footer anywhere — this is a slide deck with zero site chrome; each slide stands alone
 - No CSS animations, transitions, or JS — static output only
-- px font sizes only`);
+- px font sizes only
+- All content must stay within each page boundary — overflow is hidden in export. The 9:16 frame is narrow and tall: keep body copy concise, cap list items, and size type conservatively so nothing gets clipped.`);
         } else {
           parts.push(`LANDSCAPE CATALOG — 16:9
 
@@ -2852,8 +2855,11 @@ ${(body.urlImages as string[]).map((url: string, i: number) => `Photo ${i + 1}: 
           finalHtml = html.replace(/(<\/body>)/i, `<style id="__pdf-slide-constraints__">
 html{overflow-x:hidden!important;}body{margin:0!important;padding:0!important;width:100%!important;overflow-x:hidden!important;display:flex!important;flex-direction:column!important;align-items:center!important;}
 *:has(>[data-section-id]){display:flex!important;flex-direction:column!important;align-items:center!important;width:100%!important;max-width:none!important;padding:0!important;margin:0!important;gap:0!important;}
-[data-section-id]{width:100%!important;max-width:calc(100vh * 9/16)!important;aspect-ratio:9/16!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;display:block!important;margin:0 auto 4px!important;}
+[data-section-id]{width:100%!important;max-width:540px!important;aspect-ratio:9/16!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;display:flex!important;flex-direction:column!important;margin:0 auto 4px!important;}
 [data-section-id]:last-of-type{margin-bottom:0!important;}
+[data-ls-content]{flex:1!important;min-height:0!important;overflow:hidden!important;}
+[data-ls-callout]{flex-shrink:0!important;margin-top:auto!important;overflow:visible!important;max-height:none!important;}
+[data-section-id]>div:last-child:not([data-ls-content]):not([style*="position:absolute"]):not([style*="position: absolute"]){flex-shrink:0!important;margin-top:auto!important;overflow:visible!important;max-height:none!important;}
 [data-pdf-hide]{display:none!important;}
 </style>$1`);
         } else {
