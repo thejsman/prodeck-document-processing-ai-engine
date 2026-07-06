@@ -223,11 +223,23 @@ export function stripPreviewInjections(html: string): string {
   return out;
 }
 
+// A truncated generation (SSE cut off mid-stream) can end the document inside an
+// unterminated tag, e.g. "...color:#b8956a;\">3</div" with no closing ">". Appending
+// our own <script> right after that dangling fragment merges it into the tokenizer's
+// in-progress tag name, so the browser never recognises a <script> element at all —
+// the whole script body then renders as literal visible text on the page. Stripping
+// any trailing "<" or "</" that never reaches a ">" before EOF guarantees our own
+// injected markup always starts from a clean, tag-boundary position.
+function closeDanglingTag(html: string): string {
+  return html.replace(/<\/?[a-zA-Z][^>]*$/, '');
+}
+
 export function normalizeMicrositeHtml(html: string): string {
   if (!html) return html;
   // Strip any stale injections first — ensures the latest code always runs even
   // when the server saved HTML that already contained older injection versions.
   let out = stripPreviewInjections(html);
+  out = closeDanglingTag(out);
 
   // 1. Cursor-reset + animation-visibility CSS → <head>
   const headClose = out.indexOf('</head>');

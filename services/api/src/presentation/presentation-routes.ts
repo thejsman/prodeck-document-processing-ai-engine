@@ -2721,7 +2721,7 @@ ONLY technical rules (required for rendering):
 - Logo: one <img id="__site-logo__" src="data:," alt="Logo" style="height:32px;width:auto;object-fit:contain"> on the first page only — never repeated
 - NO header, navbar, nav, menu, or footer anywhere — this is a slide deck with zero site chrome; each slide stands alone
 - No CSS animations, transitions, or JS — static output only
-- px font sizes only
+- px font sizes only — literal numbers like font-size:32px. Never clamp(), vw, vh, or % for font-size: this is a fixed-size printed page, not a responsive viewport, and viewport-relative units compute to unreadably small text (well under 10px) whenever the page renders in a narrow context. Minimum sizes: body copy 14px, supporting/caption labels 11px, headlines 24px+
 - All content must stay within each page boundary — overflow is hidden in export. The 9:16 frame is narrow and tall: keep body copy concise, cap list items, and size type conservatively so nothing gets clipped.`);
         } else {
           parts.push(`LANDSCAPE CATALOG — 16:9
@@ -2739,7 +2739,7 @@ ONLY technical rules (required for rendering):
 - Logo: one <img id="__site-logo__" src="data:," alt="Logo" style="height:36px;width:auto;object-fit:contain"> before the first page only — never inside a section
 - NO header, navbar, nav, menu, or footer anywhere — this is a slide deck with zero site chrome; each slide stands alone
 - No CSS animations, transitions, or JS — static output only
-- px font sizes only
+- px font sizes only — literal numbers like font-size:32px. Never clamp(), vw, vh, or % for font-size: this is a fixed-size printed page, not a responsive viewport, and viewport-relative units compute to unreadably small text (well under 10px) whenever the page renders in a narrow context. Minimum sizes: body copy 14px, supporting/caption labels 11px, headlines 24px+
 - All content must stay within each page boundary — overflow is hidden in export`);
         }
       }
