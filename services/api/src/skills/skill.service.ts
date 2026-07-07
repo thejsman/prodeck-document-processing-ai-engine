@@ -359,6 +359,41 @@ export async function findBestDocumentSkill(
   return null;
 }
 
+/**
+ * Compose a prompt block that lets the slide generator apply a matched document
+ * skill's narrative expertise (instructions.md) and recommended slide arc
+ * (sections.json). Pure — no I/O. Returns '' when there is nothing worth
+ * injecting. The block is content/narrative only: the requested slide count and
+ * the caller's hardcoded HTML/visual rules stay authoritative.
+ */
+export function formatSkillForSlides(
+  skill: Skill,
+  instructionsMd: string,
+  sections: SectionDefinition[],
+): string {
+  const instructions = instructionsMd.trim();
+  const orderedSections = [...sections].sort((a, b) => a.order - b.order);
+  if (!instructions && orderedSections.length === 0) return '';
+
+  const parts: string[] = [`\n## Slide Content Expertise: ${skill.displayName}`];
+  if (instructions) parts.push(instructions);
+
+  if (orderedSections.length > 0) {
+    const arc = orderedSections
+      .map((s, i) => {
+        const hint = s.promptHint?.trim() ? ` — ${s.promptHint.trim().slice(0, 160)}` : '';
+        return `${i + 1}. ${s.title}${s.required ? ' (required)' : ''}${hint}`;
+      })
+      .join('\n');
+    const lead = skill.structureMode === 'strict'
+      ? "Follow this slide structure. The user's requested slide count still governs — if fewer slides are requested, merge or drop the least critical, but keep the required ones."
+      : "Recommended narrative arc — adapt to the requested slide count, which takes precedence. If fewer slides are requested, prioritise the most important sections and merge related points; do not pad to match this list.";
+    parts.push(`\n### Slide narrative arc\n${lead}\n${arc}`);
+  }
+
+  return parts.join('\n');
+}
+
 // ---------------------------------------------------------------------------
 // Assets
 // ---------------------------------------------------------------------------

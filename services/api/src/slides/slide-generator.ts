@@ -73,6 +73,25 @@ body{overflow-y:auto!important;overflow-x:hidden!important;height:auto!important
   return enforcer + html;
 }
 
+// Determine a deck's true orientation from the LLM-generated HTML by inspecting
+// the aspect-ratio it actually applied to slide elements. The model has full
+// creative freedom and sometimes ignores the requested orientation; trusting
+// what it actually built keeps the stored index metadata, the injected scroll
+// enforcer, and the rendered deck in agreement (no more "indexed landscape but
+// rendered/described portrait" mismatches). Falls back to `requested` when the
+// HTML gives no clear signal. Call this on the RAW LLM html, before the enforcer
+// is injected, so the enforcer's own aspect-ratio is not counted.
+export function resolveSlideOrientation(
+  html: string,
+  requested: SlideOrientation = 'landscape',
+): SlideOrientation {
+  const portrait = (html.match(/aspect-ratio\s*:\s*9\s*\/\s*16/gi) ?? []).length;
+  const landscape = (html.match(/aspect-ratio\s*:\s*16\s*\/\s*9/gi) ?? []).length;
+  if (portrait > landscape) return 'portrait';
+  if (landscape > portrait) return 'landscape';
+  return requested;
+}
+
 // Light validation: ensure output looks like a complete HTML document.
 // Throws with a human-readable message if it looks truncated or non-HTML.
 export function validateSlideHtml(html: string, orientation: SlideOrientation = 'landscape'): string {

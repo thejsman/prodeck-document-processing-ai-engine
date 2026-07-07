@@ -3318,8 +3318,6 @@ export default function SuperClientPage() {
     let docFirstChunk = true;
     let slideCharCount = 0;
     let slideFirstChunk = true;
-    // Keep planning text visible for slides — chunks are raw HTML, not displayable.
-    let suppressChunkContent = false;
 
     const clientLabel = meta?.displayName ?? name;
     let planningContent = "";
@@ -3331,7 +3329,6 @@ export default function SuperClientPage() {
         ? `Building a ${count}-slide presentation for ${clientLabel}…`
         : `Building a presentation for ${clientLabel}…`;
       slideGenId = genId();
-      suppressChunkContent = true;
       generationStore.start({
         id: slideGenId,
         clientSlug: name,
@@ -3357,7 +3354,6 @@ export default function SuperClientPage() {
       const docTypeHint = docTypeMatch ? docTypeMatch[1].toLowerCase() : 'document';
       planningContent = `Creating a ${docTypeHint} for ${clientLabel}…`;
       documentGenId = genId();
-      suppressChunkContent = true;
       generationStore.start({
         id: documentGenId,
         clientSlug: name,
@@ -3400,6 +3396,45 @@ export default function SuperClientPage() {
         name,
         text,
         (evt: SuperClientChatEvent) => {
+          if (evt.type === "planning" && evt.artifactType) {
+            // Server-driven generation card — authoritative over the optimistic
+            // regex path (covers e.g. resume-after-clarify where no regex fired).
+            const t = evt.artifactType;
+            let gid = t === "slide" ? slideGenId : t === "proposal" ? proposalGenId : documentGenId;
+            if (!gid) {
+              gid = genId();
+              generationStore.start({
+                id: gid,
+                clientSlug: name,
+                type: t,
+                title: evt.genTitle ?? evt.skillName ?? (t === "slide" ? "Presentation" : t === "proposal" ? "Proposal" : "Document"),
+                abort: () => abortRef.current?.abort(),
+              });
+              localGenIdsRef.current.add(gid);
+              if (t === "slide") slideGenId = gid;
+              else if (t === "proposal") proposalGenId = gid;
+              else documentGenId = gid;
+            }
+            // Attach the card to the streaming assistant message so it renders
+            // live during generation (previously slide/document cards only
+            // attached retroactively on done).
+            const attach = gid;
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantMsgId ? { ...m, generationId: attach } : m)),
+            );
+          }
+          if (evt.type === "progress" && evt.message) {
+            // Mirror the microsite mapping: server progress → card step.
+            const active = slideGenId ?? proposalGenId ?? documentGenId;
+            if (active) {
+              const gen = generationStore.get(active);
+              // Skip exact-duplicate consecutive steps (regex path may have
+              // already seeded the same first step locally).
+              if (gen?.steps[gen.steps.length - 1] !== evt.message) {
+                generationStore.addStep(active, evt.message);
+              }
+            }
+          }
           if (evt.type === "chunk" && evt.text) {
             setMessages((prev) =>
               prev.map((m) =>

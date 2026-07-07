@@ -7,12 +7,13 @@ import { fetchPexelsImageUrl } from './image-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
 import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
 import { readOrgContextSettings, resolveVoiceBlock, superClientWorkdir, getMimeType } from '@ai-engine/runtime';
-import { findBestDocumentSkill, loadSkill } from './skills/skill.service.js';
+import { findBestDocumentSkill, loadSkill, formatSkillForSlides, listSkills } from './skills/skill.service.js';
 import { saveDocumentDirect, getDocumentContent, getDocumentMeta } from './documents/document-generator.js';
 import { parseRequestedFormat, detectPresentationIntent, detectSlideOrientation } from './documents/format-detector.js';
-import { validateSlideHtml, countSlides, extractTitle } from './slides/slide-generator.js';
+import { validateSlideHtml, countSlides, extractTitle, resolveSlideOrientation } from './slides/slide-generator.js';
 import type { SavedSlide } from './slides/slide-generator.js';
 import { patchHtml } from './html-patch.js';
+import { classifyChatIntent, type IntentDecision, type PendingClarification } from './super-client/intent-gate.js';
 
 // Strip preview-only injections that the UI adds to srcdoc iframes.
 // These must never be saved to disk — if the client sends currentHtml that
@@ -97,6 +98,9 @@ interface HistoryEntry {
   content: string;
   createdAt: string;
   editContext?: 'microsite' | 'proposal' | 'document';
+  // Set on an assistant turn when it asked a clarifying question, so the next
+  // turn can resolve the deferred intent instead of re-classifying from scratch.
+  pendingClarification?: PendingClarification;
 }
 
 interface ScFile {
@@ -170,6 +174,14 @@ async function readHistory(dir: string): Promise<HistoryEntry[]> {
   } catch {
     return [];
   }
+}
+
+/** The pending clarification carried by the most recent assistant turn, if any. */
+function lastAssistantPending(history: HistoryEntry[]): PendingClarification | undefined {
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].role === 'assistant') return history[i].pendingClarification;
+  }
+  return undefined;
 }
 
 async function readContext(dir: string): Promise<string> {
@@ -573,8 +585,22 @@ Return ONLY valid JSON (null for fields not found in the document):
   }
 }
 
-// Fire-and-forget: extract facts from a chat turn and persist to ClientMemoryService.
+// Drop entries below this confidence — anything the model is unsure about is
+// noise, not durable memory.
+const MEMORY_MIN_CONFIDENCE = 0.6;
+// Hedging language is a tell that the "fact" is a guess, not knowledge.
+const HEDGE_PATTERN = /\b(possibly|maybe|perhaps|might be|could be|based on context|presumably|likely|seems? to)\b/i;
+
+export interface MemoryDistillSummary {
+  knowledgeAdded: number;
+  stakeholdersAdded: number;
+  skipped: number;
+}
+
+// Extract NEW facts from a chat turn and persist to ClientMemoryService.
 // Uses llmGenerateFn → Python LLM bridge → respects configured provider/model.
+// Returns a summary of what was learned (or null on failure) so the caller can
+// confirm it to the user. Never throws — memory must never break the chat reply.
 async function distillChatTurn(
   workdir: string,
   clientSlug: string,
@@ -582,11 +608,30 @@ async function distillChatTurn(
   userMessage: string,
   assistantReply: string,
   log: FastifyBaseLogger,
-): Promise<void> {
-  const prompt = `You are a client intelligence extractor.
-Given this chat exchange about a client, extract any facts worth remembering long-term.
+): Promise<MemoryDistillSummary | null> {
+  try {
+    const memService = new ClientMemoryService(workdir);
+    const existing = await memService.get(clientSlug);
+    // Feed the model everything already known so it stops re-extracting and
+    // hedging over facts we already hold (e.g. the company name).
+    const knownFacts = (existing?.knowledge ?? [])
+      .filter((k) => !k.supersededBy)
+      .map((k) => k.content.trim())
+      .filter(Boolean);
+    const knownNorm = new Set(knownFacts.map((c) => c.toLowerCase()));
+    const knownBlock = knownFacts.length
+      ? `\nALREADY KNOWN — do NOT re-extract these or minor rephrasings of them:\n${knownFacts.map((c) => `- ${c}`).join('\n')}\n`
+      : '';
+
+    const prompt = `You are a client intelligence extractor.
+Given this chat exchange about a client, extract ONLY NEW, durable facts worth remembering long-term.
 Focus on: company facts, preferences, constraints, requirements, stakeholders (people + roles), brand traits.
-Skip: conversational filler, questions without answers, project-specific one-off details.
+Skip: conversational filler, questions without answers, project-specific one-off details, and anything already known.
+
+STRICT RULES:
+- Do NOT hedge or speculate. If a fact is not stated clearly, omit it — never write "possibly", "maybe", "likely", or "based on context".
+- Do NOT restate facts already known (see the ALREADY KNOWN list) or facts already obvious from the client profile.
+- Prefer a few high-signal facts over many weak ones. Score confidence honestly (0.0–1.0); if you are not confident, omit the fact rather than giving it a low score.
 
 Categories (use the most specific one that fits):
 - requirement  : A stated must-have or should-have capability or deliverable
@@ -602,7 +647,7 @@ Categories (use the most specific one that fits):
 - context      : Background about the company, people, or situation
 
 CLIENT: ${clientName}
-
+${knownBlock}
 USER: ${userMessage}
 ASSISTANT: ${assistantReply}
 
@@ -616,7 +661,6 @@ Return ONLY valid JSON (empty arrays if nothing notable):
   ]
 }`;
 
-  try {
     const raw = await llmGenerateFn(prompt);
     const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
     const extracted = JSON.parse(json) as {
@@ -624,15 +668,31 @@ Return ONLY valid JSON (empty arrays if nothing notable):
       stakeholders?: { name: string; role: string; email?: string; notes?: string }[];
     };
 
-    const memService = new ClientMemoryService(workdir);
-    if (!(await memService.get(clientSlug))) {
+    if (!existing) {
       await memService.createEmpty(clientName);
     }
+
+    let knowledgeAdded = 0;
+    let skipped = 0;
     for (const k of extracted.knowledge ?? []) {
-      if (k.content?.trim()) {
-        await memService.addKnowledge(clientSlug, k.content, k.category as ClientKnowledgeEntry['category'], k.confidence ?? 0.7);
+      const content = k.content?.trim();
+      if (!content) continue;
+      const confidence = k.confidence ?? 0.7;
+      // Reject low-confidence guesses, hedged phrasing, and anything we already know.
+      if (
+        confidence < MEMORY_MIN_CONFIDENCE ||
+        HEDGE_PATTERN.test(content) ||
+        knownNorm.has(content.toLowerCase())
+      ) {
+        skipped++;
+        continue;
       }
+      await memService.addKnowledge(clientSlug, content, k.category as ClientKnowledgeEntry['category'], confidence);
+      knownNorm.add(content.toLowerCase());
+      knowledgeAdded++;
     }
+
+    let stakeholdersAdded = 0;
     for (const s of extracted.stakeholders ?? []) {
       if (s.name?.trim() && s.role?.trim()) {
         await memService.addStakeholder(clientSlug, {
@@ -641,10 +701,18 @@ Return ONLY valid JSON (empty arrays if nothing notable):
           ...(s.email?.trim() ? { email: s.email } : {}),
           ...(s.notes?.trim() ? { notes: s.notes } : {}),
         });
+        stakeholdersAdded++;
       }
     }
+
+    log.info(
+      { clientSlug, knowledgeAdded, stakeholdersAdded, skipped },
+      '[SuperClient] Memory distillation complete',
+    );
+    return { knowledgeAdded, stakeholdersAdded, skipped };
   } catch (err) {
     log.warn({ err }, '[SuperClient] Memory distillation failed — chat unaffected');
+    return null;
   }
 }
 
@@ -895,27 +963,131 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       const extractedFiles = scFiles.filter((f) => f.status === 'extracted');
 
+      // Stream a plain assistant message word-by-word (matches the generation UX)
+      // and persist the turn — used by the intent-gate terminal branches below.
+      const streamAssistant = async (text: string) => {
+        for (const w of text.split(' ')) {
+          send({ type: 'chunk', text: w + ' ' });
+          await new Promise<void>((r) => setTimeout(r, 12));
+        }
+      };
+      const persistTurn = async (assistantText: string, pending?: PendingClarification) => {
+        const updated: HistoryEntry[] = [
+          ...history,
+          { role: 'user', content: message, createdAt: new Date().toISOString() },
+          {
+            role: 'assistant',
+            content: assistantText,
+            createdAt: new Date(Date.now() + 1).toISOString(),
+            ...(pending ? { pendingClarification: pending } : {}),
+          },
+        ];
+        await writeFile(path.join(dir, 'history.json'), JSON.stringify(updated, null, 2));
+      };
+
       // Resolve skill match BEFORE building the prompt so we can branch the generation rules.
       let matchedDocumentSkill: Awaited<ReturnType<typeof findBestDocumentSkill>> = null;
       let matchedSkillInstructionsMd: string | undefined;
+      let matchedSkillSections: Awaited<ReturnType<typeof loadSkill>>['sections'] | undefined;
       try {
         matchedDocumentSkill = await findBestDocumentSkill(workdir, message);
         if (matchedDocumentSkill) {
           const loaded = await loadSkill(workdir, matchedDocumentSkill.slug);
           matchedSkillInstructionsMd = loaded?.instructionsMd;
+          matchedSkillSections = loaded?.sections;
         }
       } catch {
         // Non-critical — skill matching failure should not block generation
       }
 
-      // Detect presentation intent — shares the slide/deck/pptx vocabulary of the
-      // format detector (single source of truth), so any phrasing that resolves to
-      // the pptx format (e.g. "create three page slides") reliably enters PRESENTATION
-      // MODE. Skill slug match is a secondary signal.
       const msgLower = message.toLowerCase();
-      const isPresentationRequest =
-        matchedDocumentSkill?.slug === 'presentation' ||
-        detectPresentationIntent(message);
+      const isEdit = !!(activeProposalId || activeDocumentId);
+
+      // ── Intent gate ────────────────────────────────────────────────────────
+      // Fresh (non-edit) requests pass through the intelligent gate: it decides
+      // whether to generate, ask a clarifying question, or decline off-topic —
+      // rather than generating immediately on any keyword match. Edits keep their
+      // existing behavior (the gate would only interfere with a live edit).
+      let decision: IntentDecision | null = null;
+      if (!isEdit) {
+        const proposalsList = await readProposals(dir).catch(() => []);
+        const docSkills = await listSkills(workdir, { type: 'document' }).catch(() => []);
+        decision = await classifyChatIntent({
+          message,
+          history,
+          clientName: meta.displayName,
+          skills: docSkills.map((s) => ({
+            slug: s.slug,
+            displayName: s.displayName,
+            description: s.description,
+            triggers: s.triggers,
+            outputFormats: s.outputFormats,
+          })),
+          hasProposals: proposalsList.length > 0,
+          matchedSkillSlug: matchedDocumentSkill?.slug,
+          pendingClarification: lastAssistantPending(history),
+          generateFn: llmGenerateFn,
+        });
+
+        // Terminal intents — respond and stop before any generation.
+        if (decision.intent === 'off_topic') {
+          const text = `I'm focused on ${meta.displayName} — I can help you create proposals, documents, presentations, or microsites for them, or answer questions about their business. What would you like to do for ${meta.displayName}?`;
+          await streamAssistant(text);
+          await persistTurn(text);
+          send({ type: 'done', text });
+          return;
+        }
+        if (decision.intent === 'clarify') {
+          const text = decision.clarifyingQuestion ?? `Just to confirm — what would you like me to do for ${meta.displayName}?`;
+          // Carry the matched skill into the pending marker so a confirmed resume
+          // ("yes go ahead") re-applies it even though the reply text matches no skill.
+          const pendingSkillSlug = decision.skillSlug ?? matchedDocumentSkill?.slug;
+          const pending: PendingClarification | undefined = decision.proposedIntent
+            ? {
+                proposedIntent: decision.proposedIntent,
+                ...(pendingSkillSlug ? { skillSlug: pendingSkillSlug } : {}),
+                ...(decision.format ? { format: decision.format } : {}),
+              }
+            : undefined;
+          await streamAssistant(text);
+          await persistTurn(text, pending);
+          send({ type: 'done', text });
+          return;
+        }
+        if (decision.intent === 'generate_microsite') {
+          const text = proposalsList.length > 0
+            ? 'Pick a proposal below to generate its microsite.'
+            : `You'll need a proposal first — ask me to generate one for ${meta.displayName}, then I can turn it into a microsite.`;
+          await streamAssistant(text);
+          await persistTurn(text);
+          send({ type: 'done', text });
+          return;
+        }
+      }
+
+      // Honor the gate's skill resolution: on a resumed clarification ("yes go
+      // ahead") the reply text matches no skill, but the pending marker carries
+      // the one matched on the original request — load it so the generation is
+      // shaped by the same skill the user was asked about.
+      if (!isEdit && decision?.skillSlug && matchedDocumentSkill?.slug !== decision.skillSlug) {
+        try {
+          const loaded = await loadSkill(workdir, decision.skillSlug);
+          matchedDocumentSkill = loaded.skill;
+          matchedSkillInstructionsMd = loaded.instructionsMd;
+          matchedSkillSections = loaded.sections;
+        } catch {
+          // Non-critical — fall back to whatever the message-text match found
+        }
+      }
+
+      // Presentation mode is now an OUTPUT of the intent gate (not raw regex). For
+      // edits, preserve the historical detection so live edits are unaffected.
+      const isPresentationRequest = isEdit
+        ? (matchedDocumentSkill?.slug === 'presentation' || detectPresentationIntent(message))
+        : decision?.intent === 'generate_presentation';
+      // When the gate resolved to a conversational answer, tell the generator not
+      // to emit an artifact for this turn.
+      const isAnswerIntent = !isEdit && decision?.intent === 'answer';
       // Orientation follows an explicit aspect-ratio mention: 9:16 → portrait,
       // otherwise landscape (the historical default, kept byte-for-byte unchanged).
       const slideOrientation = detectSlideOrientation(message);
@@ -1142,6 +1314,20 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         promptParts.push(`\n## Document Generation Expertise\n${matchedSkillInstructionsMd.trim()}`);
       }
 
+      // For presentation requests, a slide-capable document skill (e.g. pitch-deck)
+      // shapes the deck's narrative + recommended arc. Gated on outputFormats so a
+      // non-slide skill that merely matched cannot pollute a deck. The requested
+      // slide count and the hardcoded HTML/visual rules above stay authoritative.
+      if (
+        matchedDocumentSkill &&
+        isPresentationRequest &&
+        matchedSkillInstructionsMd &&
+        matchedDocumentSkill.outputFormats?.includes('pptx')
+      ) {
+        const block = formatSkillForSlides(matchedDocumentSkill, matchedSkillInstructionsMd, matchedSkillSections ?? []);
+        if (block) promptParts.push(block);
+      }
+
       const recentHistory = history.slice(-20);
       if (recentHistory.length > 0) {
         promptParts.push('\n## Conversation History');
@@ -1163,48 +1349,112 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         if (directive) promptParts.push(`\n${directive}`);
       }
 
+      if (isAnswerIntent) {
+        promptParts.push(`\nThe user is asking a question or making conversation — respond helpfully and concisely about ${meta.displayName}. Do NOT generate a proposal, document, or slides in this reply; just answer.`);
+      }
+
       promptParts.push(`\nUser: ${message}`);
 
       const combinedPrompt = promptParts.join('\n');
 
-      // ── Planning announcement ─────────────────────────────────────────────
-      // Send a brief, deterministic description of what is about to be generated
-      // BEFORE making the LLM call so the user sees context immediately.
-      {
-        const PROPOSAL_KWDS = ['proposal', 'write up a proposal', 'draft a proposal', 'create a proposal', 'generate a proposal'];
-        const isExplicitProposal = PROPOSAL_KWDS.some(kw => msgLower.includes(kw));
-        let planText: string | null = null;
-        let artifactType: 'slide' | 'proposal' | 'document' | undefined;
+      // ── Generation-turn resolution ────────────────────────────────────────
+      // The intent gate's decision (not raw regex) determines whether this turn
+      // produces an artifact, what type it is, and which skill shapes it. Edits
+      // and conversational answers keep the legacy streaming behavior.
+      const isGenerationTurn = !isEdit && (
+        decision?.intent === 'generate_proposal' ||
+        decision?.intent === 'generate_document' ||
+        decision?.intent === 'generate_presentation'
+      );
+      const artifactType: 'slide' | 'proposal' | 'document' | undefined = !isGenerationTurn
+        ? undefined
+        : decision!.intent === 'generate_presentation' ? 'slide'
+        : decision!.intent === 'generate_proposal' ? 'proposal'
+        : 'document';
+      // The skill is only "used" when its guidance is actually injected into the
+      // prompt — mirror the injection gates above (presentation: pptx-capable;
+      // document: standard-mode instructions present; proposal: none).
+      const ackSkill =
+        artifactType === 'slide' && matchedDocumentSkill && matchedSkillInstructionsMd && matchedDocumentSkill.outputFormats?.includes('pptx')
+          ? matchedDocumentSkill
+          : artifactType === 'document' && matchedDocumentSkill && matchedSkillInstructionsMd
+            ? matchedDocumentSkill
+            : null;
+      const artifactLabel = artifactType === 'slide'
+        ? 'presentation'
+        : artifactType === 'proposal'
+          ? 'proposal'
+          : (ackSkill?.displayName ?? matchedDocumentSkill?.displayName ?? 'document').toLowerCase();
 
-        if (isPresentationRequest) {
-          const countMatch = message.match(/\b(\d+)[\s\-]*(page|slide|screen)s?\b/i);
-          const count = countMatch ? countMatch[1] : null;
-          planText = count
-            ? `Building a ${count}-slide presentation for ${meta.displayName}…`
-            : `Building a presentation for ${meta.displayName}…`;
-          artifactType = 'slide';
-        } else if (isExplicitProposal) {
-          planText = `Drafting a proposal for ${meta.displayName}…`;
-          artifactType = 'proposal';
-        } else if (matchedDocumentSkill) {
-          const label = (matchedDocumentSkill.displayName ?? matchedDocumentSkill.slug.replace(/-/g, ' ')).toLowerCase();
-          planText = `Writing a ${label} for ${meta.displayName}…`;
-          artifactType = 'document';
-        }
+      // ── Acknowledgment + planning announcement ───────────────────────────
+      // Acknowledge in chat BEFORE generating — naming the skill in use — so the
+      // turn reads as interactive rather than an abrupt jump into generation.
+      let ackText = '';
+      if (isGenerationTurn) {
+        ackText = ackSkill
+          ? `Using the **${ackSkill.displayName}** skill to create this ${artifactLabel} for ${meta.displayName} — give me a moment…`
+          : `Creating a ${artifactLabel} for ${meta.displayName} — give me a moment…`;
+        await streamAssistant(ackText);
 
-        if (planText) {
-          send({ type: 'planning', text: planText, artifactType });
-        }
+        const countMatch = message.match(/\b(\d+)[\s\-]*(page|slide|screen)s?\b/i);
+        const count = countMatch ? countMatch[1] : null;
+        const planText = artifactType === 'slide'
+          ? (count
+              ? `Building a ${count}-slide presentation for ${meta.displayName}…`
+              : `Building a presentation for ${meta.displayName}…`)
+          : artifactType === 'proposal'
+            ? `Drafting a proposal for ${meta.displayName}…`
+            : `Writing a ${artifactLabel} for ${meta.displayName}…`;
+        send({
+          type: 'planning',
+          text: planText,
+          artifactType,
+          ...(ackSkill ? { skillSlug: ackSkill.slug, skillName: ackSkill.displayName } : {}),
+          genTitle: ackSkill?.displayName
+            ?? (artifactType === 'slide' ? 'Presentation' : artifactType === 'proposal' ? 'Proposal' : 'Document'),
+        });
+      }
+
+      // ── LLM call with heartbeat progress ─────────────────────────────────
+      // The generation is one opaque blocking call, so — exactly like the
+      // microsite generate-v2-stream route — a heartbeat cycles progress steps
+      // to keep the UI's generation card alive while the model works.
+      const HEARTBEAT_STEPS: Record<'slide' | 'proposal' | 'document', string[]> = {
+        slide: ['Reading client context…', 'Analyzing presentation requirements…', 'Structuring slides…', 'Writing slide content…', 'Applying design and layout…', 'Finalizing presentation…'],
+        proposal: ['Reading client context…', 'Analyzing requirements…', 'Drafting proposal sections…', 'Refining content…', 'Finalizing proposal…'],
+        document: ['Reading client context…', 'Researching topic…', 'Structuring document…', 'Writing sections…', 'Reviewing and refining…', 'Preparing document…'],
+      };
+      let hbTimer: ReturnType<typeof setInterval> | null = null;
+      if (isGenerationTurn && artifactType) {
+        const steps = [...HEARTBEAT_STEPS[artifactType]];
+        if (ackSkill) steps.splice(2, 0, `Applying the ${ackSkill.displayName} structure…`);
+        send({ type: 'progress', message: steps[0] });
+        let hbIdx = 1;
+        hbTimer = setInterval(() => {
+          send({ type: 'progress', message: steps[hbIdx % steps.length] });
+          hbIdx++;
+        }, 6000);
       }
 
       // Call provider-agnostic LLM bridge — respects LLM_PROVIDER + model config
-      const fullResponse = await llmGenerateFn(combinedPrompt);
+      let fullResponse: string;
+      try {
+        fullResponse = await llmGenerateFn(combinedPrompt);
+      } finally {
+        if (hbTimer) clearInterval(hbTimer);
+      }
 
-      // Fake-stream word by word for a natural streaming UX
-      const words = fullResponse.split(' ');
-      for (const word of words) {
-        send({ type: 'chunk', text: word + ' ' });
-        await new Promise<void>((r) => setTimeout(r, 12));
+      if (isGenerationTurn) {
+        send({ type: 'progress', message: `Saving ${artifactLabel}…` });
+      } else {
+        // Conversational / edit turns: fake-stream the full reply word by word
+        // as before. Generation turns stream only the stripped confirmation
+        // AFTER parsing, so raw <slides>/<proposal> markup never floods the chat.
+        const words = fullResponse.split(' ');
+        for (const word of words) {
+          send({ type: 'chunk', text: word + ' ' });
+          await new Promise<void>((r) => setTimeout(r, 12));
+        }
       }
 
       // Apply the lightest edit format that fired (proposals and documents share the same 3-tier logic)
@@ -1302,13 +1552,27 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           displayResponse = stripDocumentTag(fullResponse);
         } else if (slidesTagMatch) {
           try {
-            const html = validateSlideHtml(slidesTagMatch.html, slideOrientation);
-            slideSaved = await saveSlide(dir, name, html, slideOrientation);
+            // The requested orientation drove the prompt, but the model may have
+            // designed a different one. Trust the actual HTML so the enforcer,
+            // the stored index, and the rendered deck all agree.
+            const finalOrientation = resolveSlideOrientation(slidesTagMatch.html, slideOrientation);
+            const html = validateSlideHtml(slidesTagMatch.html, finalOrientation);
+            slideSaved = await saveSlide(dir, name, html, finalOrientation);
           } catch (err) {
             app.log.warn({ err }, '[SuperClient] Failed to save slides');
           }
           displayResponse = stripSlidesTag(fullResponse);
         }
+      }
+
+      // Generation turns: the raw response was never fake-streamed (only the ack
+      // was). Stream the stripped confirmation now, then keep the ack at the top
+      // of the persisted/final text so the turn reads as one coherent message.
+      if (isGenerationTurn) {
+        if (displayResponse.trim()) {
+          await streamAssistant(displayResponse.trim());
+        }
+        displayResponse = [ackText, displayResponse.trim()].filter(Boolean).join('\n\n');
       }
 
       // Persist turn to history.
@@ -1336,8 +1600,19 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         ...(slideSaved ? { slideSaved } : {}),
       });
 
-      // Background memory distillation — non-blocking, uses llmGenerateFn
-      void distillChatTurn(workdir, name, meta.displayName, message, displayResponse, app.log);
+      // Memory distillation runs after the answer is delivered (the `done` event
+      // above already carries the reply + any saved artifacts, so the UI renders
+      // immediately). It is awaited only so we can confirm what was learned back
+      // to the client; distillChatTurn has its own try/catch and returns null on
+      // failure, so it can never break the chat response.
+      const learned = await distillChatTurn(workdir, name, meta.displayName, message, displayResponse, app.log);
+      if (learned && (learned.knowledgeAdded > 0 || learned.stakeholdersAdded > 0)) {
+        send({
+          type: 'memory',
+          knowledgeAdded: learned.knowledgeAdded,
+          stakeholdersAdded: learned.stakeholdersAdded,
+        });
+      }
 
     } catch (err) {
       app.log.error(err, 'Super client chat error');

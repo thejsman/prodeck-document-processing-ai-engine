@@ -2669,10 +2669,17 @@ export interface SavedSlide {
 }
 
 export interface SuperClientChatEvent {
-  type: 'chunk' | 'done' | 'error' | 'planning';
+  type: 'chunk' | 'done' | 'error' | 'planning' | 'progress' | 'memory';
   text?: string;
   message?: string;
   artifactType?: 'slide' | 'proposal' | 'document';
+  // planning enrichment — which skill is shaping the generation, and the card title
+  skillSlug?: string;
+  skillName?: string;
+  genTitle?: string;
+  // memory event payload
+  knowledgeAdded?: number;
+  stakeholdersAdded?: number;
   proposalSaved?: SuperClientProposal;
   proposalUpdated?: SuperClientProposal;
   documentSaved?: GeneratedDocument;
