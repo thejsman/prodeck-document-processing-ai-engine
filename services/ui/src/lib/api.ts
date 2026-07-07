@@ -2297,6 +2297,9 @@ export interface SuperClientHistoryEntry {
   content: string;
   createdAt: string;
   editContext?: 'microsite' | 'proposal' | 'document' | 'slide';
+  // Present when this assistant turn asked a clarifying question — used to render
+  // it as a distinct question card on reload.
+  pendingClarification?: { proposedIntent?: string; skillSlug?: string; format?: string };
 }
 
 export interface SuperClientDetail {
@@ -2677,6 +2680,12 @@ export interface SuperClientChatEvent {
   skillSlug?: string;
   skillName?: string;
   genTitle?: string;
+  // clarify (question) enrichment — renders as a distinct question card with chips
+  isClarify?: boolean;
+  clarifyOptions?: string[];
+  // microsite intent — the UI opens the proposal selector in the composer
+  isMicrosite?: boolean;
+  hasProposals?: boolean;
   // memory event payload
   knowledgeAdded?: number;
   stakeholdersAdded?: number;

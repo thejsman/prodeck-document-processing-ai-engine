@@ -25,6 +25,7 @@ import {
   Link2 as LinkIcon,
   Download,
   Presentation,
+  HelpCircle,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
 import { Icon } from "@/components/ui/Icon";
@@ -107,6 +108,9 @@ interface Message {
   createdAt?: string;
   editContext?: "microsite" | "proposal" | "document" | "slide";
   documentType?: string;
+  // Assistant clarifying question — rendered as a distinct question card.
+  isQuestion?: boolean;
+  options?: string[];
 }
 
 function docTypeLabel(t: string) {
@@ -962,7 +966,10 @@ export default function SuperClientPage() {
   );
   const [updateDocBanner, setUpdateDocBanner] = useState("");
 
-  const [composerStage, setComposerStage] = useState<null | 'select-proposal' | 'configure'>(null);
+  const [composerStage, setComposerStage] = useState<null | 'select-proposal' | 'configure' | 'clarify'>(null);
+  // Active clarifying question — rendered in the composer (like the proposal
+  // selector) instead of inline; while set, the text input is hidden.
+  const [activeQuestion, setActiveQuestion] = useState<{ text: string; options: string[] } | null>(null);
   const [composerProposal, setComposerProposal] = useState<{
     proposal: SuperClientProposal;
     markdown: string;
@@ -1069,6 +1076,7 @@ export default function SuperClientPage() {
           content: h.content,
           createdAt: h.createdAt,
           ...(h.editContext ? { editContext: h.editContext } : {}),
+          ...(h.pendingClarification ? { isQuestion: true } : {}),
         }));
         // Fallback: infer editContext from content for messages saved before this field existed.
         // If an assistant message looks like a microsite edit confirmation, tag it and the
@@ -2690,6 +2698,7 @@ export default function SuperClientPage() {
 
   function resetComposer() {
     setComposerStage(null);
+    setActiveQuestion(null);
     setComposerProposal(null);
     setComposerInstructions('');
     setComposerPresentationMode('web');
@@ -3270,15 +3279,15 @@ export default function SuperClientPage() {
     }
   }
 
-  async function sendMessage() {
-    const text = input.trim();
+  async function sendMessage(overrideText?: string) {
+    const text = (overrideText ?? input).trim();
     if (!text || streaming) return;
 
     const isQuestion = /^(how|what|why|when|where|who|is|are|can|could|would|does|do|did|will|should)\b/i.test(text);
     if (!isQuestion && MICROSITE_INTENT_RE.test(text)) {
       const reply =
         proposals.length === 0
-          ? "You'll need a proposal first — ask me to generate one for this client."
+          ? "You'll need a proposal first, ask me to generate one for this client."
           : proposals.length === 1
             ? 'Pick a proposal below to generate its microsite.'
             : 'Pick a proposal below to generate its microsite.';
@@ -3452,6 +3461,39 @@ export default function SuperClientPage() {
             );
           }
           if (evt.type === 'done') {
+            if (evt.isClarify && evt.text) {
+              // Questions take over the composer (like the microsite proposal
+              // selector) instead of appearing inline — drop the placeholder
+              // bubble and surface the question + options in the composer.
+              setMessages((prev) => prev.filter((m) => m.id !== assistantMsgId));
+              setActiveQuestion({ text: evt.text, options: evt.clarifyOptions ?? [] });
+              setComposerStage('clarify');
+              return;
+            }
+            if (evt.isMicrosite) {
+              // Microsite intent detected by the backend (e.g. "landingpage", which
+              // the client-side regex misses): open the proposal selector in the
+              // composer — the same UX as the client-side microsite intercept.
+              setMessages((prev) => prev.filter((m) => m.id !== assistantMsgId));
+              if (proposals.length > 0) {
+                setComposerMessage(evt.text ?? 'Pick a proposal below to generate its microsite.');
+                setComposerStage('select-proposal');
+                setViewingProposal(null);
+                setViewingMicrosite(null);
+              } else {
+                // No proposals yet — show the guidance so the user knows the next step.
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: genId(),
+                    role: 'assistant',
+                    content: evt.text ?? "You'll need a proposal first, ask me to generate one for this client.",
+                    createdAt: new Date().toISOString(),
+                  },
+                ]);
+              }
+              return;
+            }
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantMsgId
@@ -3809,6 +3851,9 @@ export default function SuperClientPage() {
   const proposalEditActive = !!(viewingProposal && proposalStripVisible);
   const documentEditActive = !!(viewingDocument && documentStripVisible);
   const slideEditActive = !!(viewingSlide && slideStripVisible);
+  // Any artifact viewer open — documents and presentations open the same way as
+  // microsites and proposals: full-width viewer, right info panel collapsed.
+  const anyViewerOpen = !!(viewingMicrosite || viewingProposal || viewingDocument || viewingSlide);
 
   return (
     <>
@@ -3819,7 +3864,7 @@ export default function SuperClientPage() {
             flex: 1,
             maxWidth: editModeActive
               ? CHAT_MIN_WIDTH
-              : viewingProposal || viewingMicrosite
+              : anyViewerOpen
                 ? chatPanelWidth
                 : "100%",
             display: "flex",
@@ -3845,10 +3890,11 @@ export default function SuperClientPage() {
                   if (viewingMicrosite) dismissMicrosite();
                   else if (viewingProposal) dismissProposal();
                   else if (viewingDocument) dismissDocument();
+                  else if (viewingSlide) dismissSlide();
                   else setRightPanelOpen((v) => !v);
                 }}
                 title={
-                  viewingMicrosite || viewingProposal
+                  anyViewerOpen
                     ? "Close panel"
                     : rightPanelOpen
                       ? "Hide panel"
@@ -3857,7 +3903,7 @@ export default function SuperClientPage() {
               >
                 <Icon
                   icon={
-                    viewingMicrosite || viewingProposal
+                    anyViewerOpen
                       ? ChevronRight
                       : rightPanelOpen
                         ? ChevronRight
@@ -4088,7 +4134,7 @@ export default function SuperClientPage() {
                                   <div className="prose">
                                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{visibleContent}</ReactMarkdown>
                                   </div>
-                                  {msg.streaming && (
+                                  {msg.streaming && !hasArtifact && (
                                     <span className="chat-cursor" />
                                   )}
                                 </>
@@ -4315,6 +4361,108 @@ export default function SuperClientPage() {
                     </button>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Composer expansion — clarifying question (mirrors the proposal selector) */}
+            {composerStage === 'clarify' && activeQuestion && (
+              <div
+                className="sc-question-overlay"
+                style={{
+                  position: 'relative',
+                  borderRadius: 10,
+                  padding: '12px 12px 10px',
+                  background: 'var(--panel-soft)',
+                }}
+              >
+                {/* X — top right; closing returns the text composer */}
+                <button
+                  onClick={resetComposer}
+                  style={{
+                    position: 'absolute',
+                    top: 10,
+                    right: 10,
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--muted)',
+                    display: 'flex',
+                    padding: 0,
+                    opacity: 0.6,
+                  }}
+                  aria-label="Dismiss question"
+                >
+                  <X size={16} />
+                </button>
+                <div
+                  className="sc-q-stagger"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    marginBottom: 7,
+                    color: 'var(--primary)',
+                    fontSize: 10,
+                    fontWeight: 700,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    animationDelay: '0.05s',
+                  }}
+                >
+                  <HelpCircle size={13} strokeWidth={2} />
+                  <span>Quick question</span>
+                </div>
+                <div
+                  className="sc-q-stagger"
+                  style={{
+                    marginBottom: activeQuestion.options.length ? 11 : 0,
+                    fontSize: 14,
+                    color: 'var(--text)',
+                    lineHeight: 1.5,
+                    paddingRight: 20,
+                    animationDelay: '0.11s',
+                  }}
+                >
+                  {activeQuestion.text}
+                </div>
+                {activeQuestion.options.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {activeQuestion.options.map((opt, i) => (
+                      <button
+                        key={i}
+                        className="sc-q-stagger"
+                        disabled={streaming}
+                        onClick={() => { const t = opt; resetComposer(); void sendMessage(t); }}
+                        style={{
+                          border: '1px solid var(--border)',
+                          background: 'var(--panel)',
+                          color: 'var(--text)',
+                          borderRadius: 999,
+                          padding: '6px 13px',
+                          fontSize: 13,
+                          fontWeight: 500,
+                          cursor: streaming ? 'default' : 'pointer',
+                          opacity: streaming ? 0.5 : 1,
+                          transition: 'background 0.15s, border-color 0.15s',
+                          animationDelay: `${0.17 + i * 0.05}s`,
+                        }}
+                        onMouseEnter={(e) => {
+                          if (streaming) return;
+                          e.currentTarget.style.background = 'var(--primary)';
+                          e.currentTarget.style.color = '#fff';
+                          e.currentTarget.style.borderColor = 'var(--primary)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'var(--panel)';
+                          e.currentTarget.style.color = 'var(--text)';
+                          e.currentTarget.style.borderColor = 'var(--border)';
+                        }}
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -5262,7 +5410,7 @@ export default function SuperClientPage() {
                   style={{
                     position: 'relative',
                     zIndex: 1,
-                    ...(viewingProposal || viewingMicrosite || viewingSlide
+                    ...(anyViewerOpen
                       ? {
                           flexDirection: 'column',
                           alignItems: 'stretch',
@@ -7023,10 +7171,10 @@ export default function SuperClientPage() {
           className="chat-side-panel"
           style={{
             width:
-              viewingProposal || viewingMicrosite || !rightPanelOpen ? 0 : 320,
+              anyViewerOpen || !rightPanelOpen ? 0 : 320,
             minWidth: 0,
             borderLeft:
-              viewingProposal || viewingMicrosite || !rightPanelOpen
+              anyViewerOpen || !rightPanelOpen
                 ? "none"
                 : "1px solid var(--border)",
             display: "flex",

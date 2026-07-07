@@ -184,6 +184,11 @@ function lastAssistantPending(history: HistoryEntry[]): PendingClarification | u
   return undefined;
 }
 
+/** Remove em/en dashes from chat-visible text — replace with a spaced hyphen. */
+function stripDashes(s: string): string {
+  return s.replace(/\s*[—–]\s*/g, ' - ');
+}
+
 async function readContext(dir: string): Promise<string> {
   try {
     return await readFile(path.join(dir, 'context.md'), 'utf-8');
@@ -948,6 +953,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     });
 
     const send = (data: unknown) => {
+      // No em/en dashes in any chat-visible text (Golden UX rule for this surface).
+      if (data && typeof data === 'object') {
+        const d = data as Record<string, unknown>;
+        if (typeof d.text === 'string') d.text = stripDashes(d.text);
+        if (typeof d.message === 'string') d.message = stripDashes(d.message);
+      }
       try { reply.raw.write(`data: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
     };
 
@@ -977,7 +988,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           { role: 'user', content: message, createdAt: new Date().toISOString() },
           {
             role: 'assistant',
-            content: assistantText,
+            content: stripDashes(assistantText),
             createdAt: new Date(Date.now() + 1).toISOString(),
             ...(pending ? { pendingClarification: pending } : {}),
           },
@@ -1038,10 +1049,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           return;
         }
         if (decision.intent === 'clarify') {
-          const text = decision.clarifyingQuestion ?? `Just to confirm — what would you like me to do for ${meta.displayName}?`;
-          // Carry the matched skill into the pending marker so a confirmed resume
-          // ("yes go ahead") re-applies it even though the reply text matches no skill.
-          const pendingSkillSlug = decision.skillSlug ?? matchedDocumentSkill?.slug;
+          const text = decision.clarifyingQuestion ?? `Just to confirm, what would you like me to do for ${meta.displayName}?`;
+          const options = decision.clarifyOptions ?? [];
+          // Carry ONLY a deterministically-matched skill into the pending marker
+          // (never the LLM's guess) so a confirmed resume can't re-apply a skill
+          // the request never actually matched.
+          const pendingSkillSlug = matchedDocumentSkill?.slug;
           const pending: PendingClarification | undefined = decision.proposedIntent
             ? {
                 proposedIntent: decision.proposedIntent,
@@ -1049,27 +1062,37 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
                 ...(decision.format ? { format: decision.format } : {}),
               }
             : undefined;
-          await streamAssistant(text);
+          // A question renders as a distinct card, not streamed text — emit it as a
+          // single `done` so the UI shows it cleanly (isClarify) with any options.
           await persistTurn(text, pending);
-          send({ type: 'done', text });
+          send({
+            type: 'done',
+            text,
+            isClarify: true,
+            ...(options.length ? { clarifyOptions: options } : {}),
+          });
           return;
         }
         if (decision.intent === 'generate_microsite') {
           const text = proposalsList.length > 0
             ? 'Pick a proposal below to generate its microsite.'
-            : `You'll need a proposal first — ask me to generate one for ${meta.displayName}, then I can turn it into a microsite.`;
-          await streamAssistant(text);
+            : `You'll need a proposal first, ask me to generate one for ${meta.displayName}, then I can turn it into a microsite.`;
+          // Microsites are built by selecting a proposal in the composer (backend
+          // can't generate them). Signal the UI to open the proposal selector
+          // instead of leaving a dangling "pick a proposal below" text with no picker.
           await persistTurn(text);
-          send({ type: 'done', text });
+          send({ type: 'done', text, isMicrosite: true, hasProposals: proposalsList.length > 0 });
           return;
         }
       }
 
-      // Honor the gate's skill resolution: on a resumed clarification ("yes go
-      // ahead") the reply text matches no skill, but the pending marker carries
-      // the one matched on the original request — load it so the generation is
-      // shaped by the same skill the user was asked about.
-      if (!isEdit && decision?.skillSlug && matchedDocumentSkill?.slug !== decision.skillSlug) {
+      // The document skill is determined deterministically by findBestDocumentSkill
+      // on the message (matchedDocumentSkill) — the LLM never gets to pick it, or it
+      // hallucinates skills (e.g. "catalogue" -> "Marketing Brief"). The ONLY skill
+      // reload allowed is for a rule-sourced decision: a resumed clarification ("yes
+      // go ahead"), whose reply text matches no skill but whose pending marker
+      // carries the skill that WAS deterministically matched on the original request.
+      if (!isEdit && decision?.source === 'rule' && decision?.skillSlug && matchedDocumentSkill?.slug !== decision.skillSlug) {
         try {
           const loaded = await loadSkill(workdir, decision.skillSlug);
           matchedDocumentSkill = loaded.skill;
@@ -1154,7 +1177,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         `- Slide titles are insights, not labels — "Revenue grew 3× in 12 months" beats "Revenue Growth"`,
         `- Use the slide count the user specified, or 10–12 if not mentioned`,
         ``,
-        `Output: ONLY the <slides>...</slides> tag with the full HTML document inside. After the tag, one sentence confirmation.`,
+        `Output: ONLY the <slides>...</slides> tag with the full HTML document inside. After the tag, write ONE plain sentence (MAX 25 words) describing only WHAT the deck covers — the subject and message — as if telling a colleague over the phone. It must contain NO visual or design detail. BANNED words: slide, deck, 16:9, cover, hero, headline, panel, grid, card, column, CTA, footer, bar, layout, SVG, palette, and every colour name. Example: "A quick overview of your services and why clients trust you, ending with an invitation to book a consultation."`,
       ] : [
         // ── STANDARD MODE — proposal + document rules ────────────────────────
         `You are a senior business development consultant and proposal strategist with 20+ years of experience crafting winning proposals across diverse industries. You are working on behalf of a team that manages the client "${meta.displayName}".`,
@@ -1171,7 +1194,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         `<proposal title="Descriptive Proposal Title Here">`,
         `[full markdown content here]`,
         `</proposal>`,
-        `3. Outside the tag, add only a brief 1-2 sentence confirmation that the proposal was saved.`,
+        `3. Outside the tag, write ONE short, plain-language sentence telling the user what the proposal covers — its focus and the value it offers. Do not describe formatting or structure. Keep it simple and friendly.`,
         `Do NOT put any explanation or preamble inside the tag — only the markdown proposal body.`,
         ``,
         `DOCUMENT GENERATION RULE: When the user asks you to write, create, generate, or draft any document that is NOT a proposal — such as a strategy document, blog post, marketing brief, executive report, press release, competitive analysis, case study, go-to-market plan, one-pager, compliance checklist, or any other standalone document — you MUST:`,
@@ -1183,7 +1206,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         `   - title: a descriptive title for the document`,
         `   - type: a lowercase kebab-case slug inferred from the document's purpose — use any slug that fits (e.g. "blog-post", "press-release", "case-study", "competitive-analysis", "onboarding-guide", "compliance-checklist", "go-to-market-plan") — no fixed list, choose freely`,
         `   - format: ${detectedFormat ?? 'md'} (use exactly this value — detected from the user's request)`,
-        `3. Outside the tag, add only a brief 1-2 sentence confirmation that the document was saved.`,
+        `3. Outside the tag, write ONE short, plain-language sentence telling the user what the document covers — its topic and main takeaway. Do not describe formatting or structure. Keep it simple and friendly.`,
         `Do NOT put any explanation or preamble inside the tag — only the markdown document body.`,
         `IMPORTANT: Use <proposal> for multi-section consulting proposals. Use <document> for text-based documents (blogs, strategy docs, reports, briefs).`,
       ];
@@ -1392,8 +1415,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       let ackText = '';
       if (isGenerationTurn) {
         ackText = ackSkill
-          ? `Using the **${ackSkill.displayName}** skill to create this ${artifactLabel} for ${meta.displayName} — give me a moment…`
-          : `Creating a ${artifactLabel} for ${meta.displayName} — give me a moment…`;
+          ? `Using the **${ackSkill.displayName}** skill to create this ${artifactLabel} for ${meta.displayName}, give me a moment…`
+          : `Creating a ${artifactLabel} for ${meta.displayName}, give me a moment…`;
         await streamAssistant(ackText);
 
         const countMatch = message.match(/\b(\d+)[\s\-]*(page|slide|screen)s?\b/i);
@@ -1586,7 +1609,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const updatedHistory: HistoryEntry[] = [
         ...history,
         { role: 'user',      content: message,         createdAt: userTs,      ...editCtx },
-        { role: 'assistant', content: displayResponse, createdAt: assistantTs, ...editCtx },
+        { role: 'assistant', content: stripDashes(displayResponse), createdAt: assistantTs, ...editCtx },
       ];
       await writeFile(path.join(dir, 'history.json'), JSON.stringify(updatedHistory, null, 2));
 

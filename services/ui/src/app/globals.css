@@ -3203,6 +3203,29 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* Clarifying-question composer overlay — glides up into place, never abrupt. */
+.sc-question-overlay {
+  animation: sc-question-in 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: bottom center;
+  will-change: transform, opacity;
+}
+@keyframes sc-question-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+/* Inner elements settle in with a gentle stagger for a considered, expert feel. */
+.sc-question-overlay .sc-q-stagger {
+  animation: sc-q-rise 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes sc-q-rise {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sc-question-overlay,
+  .sc-question-overlay .sc-q-stagger { animation: none; }
+}
+
 .proposal-inline-heading {
   font-size: 12px;
   font-weight: 600;

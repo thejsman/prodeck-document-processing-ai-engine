@@ -58,16 +58,60 @@ describe('classifyChatIntent — fast-path (no LLM)', () => {
   });
 });
 
-describe('classifyChatIntent — LLM path', () => {
-  it('asks a clarifying question for a bare artifact noun ("pitch deck")', async () => {
-    const generateFn = vi.fn(async () => '{"intent":"clarify","confidence":0.5,"clarifyingQuestion":"Want me to build one?"}');
+describe('classifyChatIntent — deterministic bare-artifact clarify (no LLM)', () => {
+  it('bare "pitch deck" -> clarify (generate_presentation), without the LLM', async () => {
+    const generateFn = noLlm();
     const d = await classifyChatIntent(makeInput({ message: 'pitch deck', matchedSkillSlug: 'pitch-deck', generateFn }));
     expect(d.intent).toBe('clarify');
+    expect(d.proposedIntent).toBe('generate_presentation');
     expect(d.clarifyingQuestion).toBeTruthy();
-    expect(d.proposedIntent).toBe('generate_presentation'); // inferred from vocabulary
+    expect(d.clarifyOptions?.length).toBeGreaterThan(0);
+    expect(d.source).toBe('rule');
+    expect(generateFn).not.toHaveBeenCalled();
+  });
+
+  it('bare "landingpage" -> clarify (generate_microsite), without the LLM', async () => {
+    const generateFn = noLlm();
+    const d = await classifyChatIntent(makeInput({ message: 'landingpage', generateFn }));
+    expect(d.intent).toBe('clarify');
+    expect(d.proposedIntent).toBe('generate_microsite');
+    expect(d.clarifyOptions).toContain('Yes, create a microsite');
+    expect(generateFn).not.toHaveBeenCalled();
+  });
+
+  it('bare "proposal" -> clarify (generate_proposal), without the LLM', async () => {
+    const generateFn = noLlm();
+    const d = await classifyChatIntent(makeInput({ message: 'proposal', generateFn }));
+    expect(d.intent).toBe('clarify');
+    expect(d.proposedIntent).toBe('generate_proposal');
+    expect(generateFn).not.toHaveBeenCalled();
+  });
+
+  it('bare "strategy document" (matched skill) -> clarify (generate_document), without the LLM', async () => {
+    const generateFn = noLlm();
+    const d = await classifyChatIntent(makeInput({ message: 'strategy document', matchedSkillSlug: 'strategy-document', generateFn }));
+    expect(d.intent).toBe('clarify');
+    expect(d.proposedIntent).toBe('generate_document');
+    expect(d.skillSlug).toBe('strategy-document');
+    expect(generateFn).not.toHaveBeenCalled();
+  });
+
+  it('a passing mention ("their landing page is nice") is NOT a deterministic clarify -> LLM', async () => {
+    const generateFn = vi.fn(async () => '{"intent":"answer","confidence":0.9}');
+    const d = await classifyChatIntent(makeInput({ message: 'their landing page is nice', generateFn }));
+    expect(d.intent).toBe('answer');
     expect(generateFn).toHaveBeenCalledOnce();
   });
 
+  it('a clarify option like "Yes, create a microsite" routes to generate_microsite (create-verb fast-path)', async () => {
+    const generateFn = noLlm();
+    const d = await classifyChatIntent(makeInput({ message: 'Yes, create a microsite', generateFn }));
+    expect(d.intent).toBe('generate_microsite');
+    expect(generateFn).not.toHaveBeenCalled();
+  });
+});
+
+describe('classifyChatIntent — LLM path', () => {
   it('treats a passing mention as answer, not generation', async () => {
     const generateFn = vi.fn(async () => '{"intent":"answer","confidence":0.9}');
     const d = await classifyChatIntent(makeInput({ message: 'their strategy document was impressive', generateFn }));

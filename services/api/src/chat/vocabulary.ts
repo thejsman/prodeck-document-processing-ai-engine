@@ -27,6 +27,7 @@ export const MICROSITE_NOUN_TERMS: RegExp[] = [
   /\bmicro[\s-]?site\b/i,
   /\bmini[\s-]?site\b/i,
   /\blanding\s+(page|site)\b/i,
+  /\blanding[\s-]?page\b/i, // "landingpage" / "landing-page" (no space)
   /\bsplash\s+page\b/i,
   /\bone[\s-]?pager\s+(site|page|website)\b/i, // "one pager site", "one-pager page"
   /\bone[\s-]?page\s+(site|website|micro[\s-]?site|presentation)\b/i, // "one page site"
