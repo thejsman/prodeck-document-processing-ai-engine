@@ -30,22 +30,36 @@ const REMOVAL_RE = /\b(remove|delete|hide|take\s+out|get\s+rid\s+of|eliminate|cl
 // rather than the element itself — don't route them to __REMOVE_BY_PATH__.
 const CONTENT_REMOVAL_RE = /\b(video|vimeo|youtube|iframe|background[\s-]video|video[\s-]background|image|logo|text|icon|button|link|badge|overlay)\b/i;
 
+// A second clause (conjunction/second verb) means the sentence has real
+// structure a word-proximity regex can't reliably parse — e.g. "remove this
+// image AND replace it with..." or "remove the badge AND change the heading".
+// Rather than growing REMOVAL_RE/CONTENT_REMOVAL_RE's word lists to cover every
+// new compound phrasing, bail out of the deterministic fast path entirely and
+// let __ELEMENT_EDIT__'s LLM call (which already sees the full sentence + the
+// element's exact HTML) decide. Trivial single-clause commands ("remove this",
+// "delete this section") have no second clause and stay on the fast path.
+const COMPOUND_RE = /\b(and|then|also|but|while|after|before)\b/i;
+
 export function buildInstruction(selected: BridgeMessage | null, userText: string): string {
   if (!selected) return userText;
+
+  const isCompound = COMPOUND_RE.test(userText);
 
   // Background removal: "remove background image", "clear background", "remove bg" etc.
   // Checked BEFORE CONTENT_REMOVAL_RE because "image" would otherwise block the removal route.
   // Uses __REMOVE_BACKGROUND__ which strips both inline style and CSS class rule in the <style> block.
   const isBgRemoval = REMOVAL_RE.test(userText)
     && /\b(?:background|bg)\b/i.test(userText)
-    && !/\b(?:video|vimeo|youtube|iframe)\b/i.test(userText);
+    && !/\b(?:video|vimeo|youtube|iframe)\b/i.test(userText)
+    && !isCompound;
   if (isBgRemoval && selected.path) {
     return `__REMOVE_BACKGROUND__:${selected.path}`;
   }
 
   // Removal → deterministic path, BUT only when the user means "remove this element",
-  // not "remove something inside it" (e.g. "remove video from background" = content edit).
-  if (REMOVAL_RE.test(userText) && !CONTENT_REMOVAL_RE.test(userText)) {
+  // not "remove something inside it" (e.g. "remove video from background" = content edit),
+  // and only when the sentence is a single clause (see COMPOUND_RE above).
+  if (REMOVAL_RE.test(userText) && !CONTENT_REMOVAL_RE.test(userText) && !isCompound) {
     if (selected.path) {
       // "remove this section" → remove the parent <section>, but ONLY when the
       // selected element is structural (div, img, svg, etc.) not text (h1, p, span).

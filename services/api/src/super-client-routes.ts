@@ -12,7 +12,7 @@ import { saveDocumentDirect, getDocumentContent, getDocumentMeta } from './docum
 import { parseRequestedFormat, detectPresentationIntent, detectSlideOrientation } from './documents/format-detector.js';
 import { validateSlideHtml, countSlides, extractTitle } from './slides/slide-generator.js';
 import type { SavedSlide } from './slides/slide-generator.js';
-import { patchHtml } from './html-patch.js';
+import { patchHtml, toVideoEmbedUrl, findByPath, locateElement, hideCoveringImage } from './html-patch.js';
 
 // Strip preview-only injections that the UI adds to srcdoc iframes.
 // These must never be saved to disk — if the client sends currentHtml that
@@ -1756,248 +1756,35 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // Never use (.+)$ or ([\s\S]+)$ for a URL/text group — those eat the hint.
     // ─────────────────────────────────────────────────────────────────────────
 
-    // Shared context flags used by both video removal and video injection below
-    const userPart = instruction.includes('||') ? instruction.slice(instruction.lastIndexOf('||') + 2) : instruction;
-    const isElementEditCtx = instruction.startsWith('__ELEMENT_EDIT__:');
-
-    // ── Deterministic video-background removal ────────────────────────────────
-    // Match only against the user-typed part of the instruction (after last ||)
-    // to avoid false positives from outerHtml content in __ELEMENT_EDIT__ payloads.
-    const isRemoveVideoIntent =
-      /\b(?:remove|delete|clear|hide)\b[\s\S]{0,40}\b(?:video|background[\s-]video|video[\s-]background|vimeo|youtube)\b/i.test(userPart) ||
-      /\b(?:video|background[\s-]video|video[\s-]background|vimeo|youtube)\b[\s\S]{0,40}\b(?:remove|delete|clear|hide)\b/i.test(userPart);
-    if (isRemoveVideoIntent) {
-      // Remove ALL iframe types — Vimeo, YouTube, and any other video embed
-      // [\s\S]*? handles both same-line and multi-line iframes
-      function removeVideoIframes(src: string): string {
-        // Remove Vimeo/YouTube iframes (any format)
-        let out = src.replace(
-          /<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[\s\S]*?<\/iframe>/gi, '',
-        );
-        // Also remove self-closing variant
-        out = out.replace(/<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[^>]*\/>/gi, '');
-        // Also remove any generic video-player iframe (poster frame, etc.) that's position:absolute
-        out = out.replace(
-          /<iframe\b[^>]*style="[^"]*position\s*:\s*absolute[^"]*"[^>]*(?:allow="autoplay|pointer-events:none)[^>]*[\s\S]*?<\/iframe>/gi, '',
-        );
-        return out;
+    // ── Video URL → embed URL normalization (pure format transform, not an intent
+    // guess — used later to hand the global LLM op-picker a ready-made embed URL
+    // instead of letting it invent embed syntax). Kept at handler scope so both
+    // the global augmented-instruction step below and __VIDEO_INJECT__-style
+    // paths can format a watch-page URL the same way.
+    function toEmbedUrl(raw: string): string {
+      const vimeoM = raw.match(/^https?:\/\/(?:www\.)?vimeo\.com\/(\d+)([?&]\S*)?/i);
+      if (vimeoM) {
+        const id     = vimeoM[1];
+        const params = vimeoM[2] ?? '?autoplay=1&loop=1&muted=1&title=0&byline=0&portrait=0';
+        return `https://player.vimeo.com/video/${id}${params}`;
       }
-
-      // If element was selected, scope removal to its parent section for safety
-      const elementEditForRemoval = instruction.match(/^__ELEMENT_EDIT__:([\s\S]*?)\|\|/s);
-      if (elementEditForRemoval) {
-        const cssPath = elementEditForRemoval[1].trim();
-        const elBounds = cssPath ? findByPath(html, cssPath) : null;
-        const sectionBounds = extractAllTopLevelSections(html);
-        const parentSec = elBounds
-          ? sectionBounds.find(s => s.start <= elBounds.start && elBounds.end <= s.end)
-          : null;
-        if (parentSec) {
-          const sectionHtml = html.slice(parentSec.start, parentSec.end);
-          const cleaned = removeVideoIframes(sectionHtml);
-          if (cleaned !== sectionHtml) {
-            const updatedHtml = html.slice(0, parentSec.start) + cleaned + html.slice(parentSec.end);
-            return saveValidatedEdit(updatedHtml, 'Video background removed');
-          }
-        }
-      }
-
-      // If user had an element selected, don't fall back to global removal —
-      // that would remove the wrong section's video. Return a scoped error.
-      if (isElementEditCtx) {
-        return reply.code(422).send({ error: 'No video found in the selected section to remove' });
-      }
-      // No element context — apply globally across the whole microsite
-      const withoutVideo = removeVideoIframes(html);
-      if (withoutVideo !== html) {
-        return saveValidatedEdit(withoutVideo, 'Video background removed');
-      }
-      return reply.code(422).send({
-        error: 'No video iframe found in this microsite to remove',
-      });
-    }
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // ── LLM-placed video embed inside a named section ────────────────────────
-    // Format: __VIDEO_IN_SECTION__:||[sectionKeyword]||[rawVideoUrl]||[userPrompt]
-    // Built by the client only when no element is selected and a named section is given.
-    const videoInSectionMatch = instruction.match(
-      /^__VIDEO_IN_SECTION__:[^|]*\|\|([\s\S]*?)\|\|(https?:\/\/[^|]+)\|\|([\s\S]*)$/s,
-    );
-    if (videoInSectionMatch) {
-      const sectionKw   = videoInSectionMatch[1].trim();
-      const rawVideoUrl = videoInSectionMatch[2].trim();
-      const userPrompt  = videoInSectionMatch[3].trim();
-
-      const toEmbedUrl = (raw: string): string => {
-        const vimeoM = raw.match(/^https?:\/\/(?:www\.)?vimeo\.com\/(\d+)([?&]\S*)?/i);
-        if (vimeoM) {
-          const id     = vimeoM[1];
-          const params = vimeoM[2] ?? '?autoplay=1&loop=1&muted=1&title=0&byline=0&portrait=0';
-          return `https://player.vimeo.com/video/${id}${params}`;
-        }
-        const ytW = raw.match(/youtube\.com\/watch\?.*\bv=([a-zA-Z0-9_-]{11})/i);
-        if (ytW) return `https://www.youtube.com/embed/${ytW[1]}?autoplay=1&loop=1&mute=1&controls=0&playlist=${ytW[1]}`;
-        const ytS = raw.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/i);
-        if (ytS) return `https://www.youtube.com/embed/${ytS[1]}?autoplay=1&loop=1&mute=1&controls=0&playlist=${ytS[1]}`;
-        return raw;
-      };
-      const embedUrl = toEmbedUrl(rawVideoUrl);
-
-      const isBgIntent = /\b(?:background|bg)\b/i.test(userPrompt);
-
-      // Section selection:
-      // - Named section → score by keyword
-      // - Explicit bg intent, no name → use first section (hero/banner is fine for bg)
-      // - No section, no bg intent → skip hero-like first section, prefer first content section
-      let bestSlice: ReturnType<typeof extractBestSection>;
-      if (sectionKw) {
-        bestSlice = extractBestSection(html, sectionKw);
-      } else if (isBgIntent) {
-        bestSlice = extractBestSection(html, 'hero first banner');
-      } else {
-        const allSecs = extractAllTopLevelSections(html);
-        const HERO_LIKE = /\b(?:hero|banner|jumbotron)\b/i;
-        const firstHtml = allSecs[0] ? html.slice(allSecs[0].start, Math.min(allSecs[0].start + 400, allSecs[0].end)) : '';
-        const useSecond = HERO_LIKE.test(firstHtml) && allSecs.length > 1;
-        const targetSec = useSecond ? allSecs[1] : allSecs[0];
-        bestSlice = targetSec
-          ? { before: html.slice(0, targetSec.start), section: html.slice(targetSec.start, targetSec.end), after: html.slice(targetSec.end), tag: 'section' }
-          : null;
-      }
-
-      if (!bestSlice) {
-        return reply.code(422).send({ error: 'No sections found in this microsite' });
-      }
-      const platform   = /vimeo/i.test(rawVideoUrl) ? 'Vimeo' : 'YouTube';
-
-      const embedBlock = isBgIntent
-        ? [
-            `  Modify the opening <section> tag to add style="position:relative;overflow:hidden" (merge with existing styles).`,
-            `  Add this as the very first child inside the section:`,
-            `  <iframe src="${embedUrl}" style="position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100%;min-width:177.78vh;transform:translate(-50%,-50%);border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen" frameborder="0"></iframe>`,
-          ].join('\n')
-        : [
-            `  Wrap the video in a responsive container and insert it at a natural visual break`,
-            `  (after the intro paragraph, before any CTA button, or at the end of main content):`,
-            `  <div class="video-embed" style="position:relative;padding-top:56.25%;margin:2rem 0"><iframe src="${embedUrl}" style="position:absolute;inset:0;width:100%;height:100%;border:none" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>`,
-          ].join('\n');
-
-      const prompt = [
-        `You are editing one HTML section of a microsite. Your job: add a ${platform} video embed.`,
-        ``,
-        `SECTION HTML:`,
-        bestSlice.section.slice(0, 12000),
-        ``,
-        `EMBED URL (use exactly — do NOT change it): ${embedUrl}`,
-        ``,
-        `USER INSTRUCTION: ${userPrompt}`,
-        ``,
-        `WHAT TO DO:`,
-        embedBlock,
-        ``,
-        `STRICT RULES:`,
-        `- Use the EXACT embed URL above — never alter it`,
-        `- Return ONLY the complete modified <section>...</section> element`,
-        `- Do NOT include <!DOCTYPE>, <html>, <head>, or <body>`,
-        `- Preserve all existing text, styles, and children — only ADD the video`,
-        `- Do not remove or reorder any existing content`,
-      ].join('\n');
-
-      console.log('\n┌─ __VIDEO_IN_SECTION__ ──────────────────────────────────────');
-      console.log(`  keyword: "${sectionKw}" | bg: ${isBgIntent} | url: ${embedUrl.slice(0, 80)}`);
-      console.log('└────────────────────────────────────────────────────────────');
-
-      const raw      = await llmGenerateFn(prompt);
-      const modified = extractHtmlFromResponse(raw);
-
-      if (!modified) return reply.code(502).send({ error: 'LLM returned no HTML — try rephrasing' });
-      if (!/^<section[\s>]/i.test(modified.trim())) {
-        return reply.code(422).send({ error: 'LLM returned unexpected structure — try again' });
-      }
-
-      return saveValidatedEdit(
-        bestSlice.before + modified + bestSlice.after,
-        `${platform} video added to ${sectionKw || 'section'}`,
-      );
+      const ytW = raw.match(/youtube\.com\/watch\?.*\bv=([a-zA-Z0-9_-]{11})/i);
+      if (ytW) return `https://www.youtube.com/embed/${ytW[1]}?autoplay=1&loop=1&mute=1&controls=0&playlist=${ytW[1]}`;
+      const ytS = raw.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/i);
+      if (ytS) return `https://www.youtube.com/embed/${ytS[1]}?autoplay=1&loop=1&mute=1&controls=0&playlist=${ytS[1]}`;
+      return raw;
     }
 
-    // ── Deterministic video-background injection (bypasses LLM entirely) ──────
-    const vimeoIdMatch = instruction.match(/vimeo\.com\/(\d+)/i);
-    const youtubeIdMatch = instruction.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
-    // When the user has an element selected (__ELEMENT_EDIT__) and is NOT explicitly asking
-    // for a background video, let the __ELEMENT_EDIT__ handler deal with the URL so the video
-    // is placed where the user intended (below, beside, inside the section) rather than always
-    // being injected as a fullscreen background in the first <section>.
-    const isVideoBgIntent = /\b(?:background|bg)\b/i.test(userPart);
-    if ((vimeoIdMatch ?? youtubeIdMatch) && !(isElementEditCtx && !isVideoBgIntent) && !instruction.startsWith('__VIDEO_INJECT__:') && !instruction.startsWith('__VIDEO_IN_SECTION__:') && !instruction.startsWith('__REMOVE_BY_PATH__:')) {
-      const isVimeo = !!vimeoIdMatch;
-      const videoId = (vimeoIdMatch ?? youtubeIdMatch)![1];
-      const src = isVimeo
-        ? `https://player.vimeo.com/video/${videoId}?background=1&autoplay=1&loop=1&muted=1&byline=0&title=0`
-        : `https://www.youtube.com/embed/${videoId}?autoplay=1&loop=1&mute=1&controls=0&playlist=${videoId}`;
-      // Cover trick: center + oversized so 16:9 video fills any aspect-ratio container
-      const videoIframe = `<iframe src="${src}" style="position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100%;min-width:177.78vh;transform:translate(-50%,-50%);border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen; picture-in-picture" frameborder="0"></iframe>`;
-
-      // Remove any existing video iframes
-      let updatedHtml = html.replace(/<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[^>]*><\/iframe>/gi, '');
-
-      // Strip background-image from photo/background elements so video shows through
-      updatedHtml = updatedHtml.replace(
-        /(\.(?:hero|banner|splash)[-_]?(?:photo|image|img|bg|background)[^{]*\{[^}]*)background-image\s*:[^;]+;?\s*/gi,
-        '$1',
-      );
-
-      // Helper: patch a <section> opening tag to add position:relative;overflow:hidden
-      // then prepend the video iframe as its first child.
-      function injectVideoIntoSection(src: string, secStart: number): string {
-        const tagOpenEnd = src.indexOf('>', secStart);
-        if (tagOpenEnd === -1) return src;
-        const rawAttrs = src.slice(secStart + '<section'.length, tagOpenEnd);
-        const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
-        const styleMatch = styleRx.exec(rawAttrs);
-        let patchedAttrs: string;
-        if (styleMatch) {
-          const cleaned = styleMatch[1]
-            .replace(/\bposition\s*:[^;]+;?\s*/g, '')
-            .replace(/\boverflow\s*:[^;]+;?\s*/g, '')
-            .trim().replace(/;$/, '');
-          patchedAttrs = rawAttrs.replace(styleRx, `style="${cleaned ? cleaned + '; ' : ''}position:relative;overflow:hidden"`);
-        } else {
-          patchedAttrs = `${rawAttrs} style="position:relative;overflow:hidden"`;
-        }
-        return src.slice(0, secStart) +
-          `<section${patchedAttrs}>\n  ${videoIframe}` +
-          src.slice(tagOpenEnd + 1);
-      }
-
-      // When the user selected a specific element, inject into its parent section.
-      // Otherwise fall back to the first <section>.
-      const elementEditForVideo = instruction.match(/^__ELEMENT_EDIT__:([\s\S]*?)\|\|[\s\S]*?\|\|[\s\S]+$/s);
-      let injected = false;
-      if (elementEditForVideo) {
-        const cssPath = elementEditForVideo[1].trim();
-        const elBounds = cssPath ? findByPath(updatedHtml, cssPath) : null;
-        if (elBounds) {
-          const sections = extractAllTopLevelSections(updatedHtml);
-          const parentSec = sections.find(s => s.start <= elBounds.start && elBounds.end <= s.end);
-          if (parentSec) {
-            updatedHtml = injectVideoIntoSection(updatedHtml, parentSec.start);
-            injected = true;
-          }
-        }
-      }
-      if (!injected) {
-        // Default: inject into the first <section>
-        const firstSecIdx = updatedHtml.search(/<section\b/i);
-        if (firstSecIdx !== -1) {
-          updatedHtml = injectVideoIntoSection(updatedHtml, firstSecIdx);
-        }
-      }
-
-      const summary = `Added ${isVimeo ? 'Vimeo' : 'YouTube'} video background`;
-      return saveValidatedEdit(updatedHtml, summary);
-    }
+    // NOTE: global (no-element-selected) video add/remove used to be handled by
+    // three separate free-text intent-guessing branches here (isRemoveVideoIntent,
+    // __VIDEO_IN_SECTION__, and a deterministic "any bare video URL → inject as
+    // hero background" branch). They were removed because each one guessed intent
+    // from an open-ended sentence and they collided on compound instructions (e.g.
+    // "remove background image and add this video ... in background of X section"
+    // was misread as "remove video" before the add-video request ever ran). Global
+    // video add/remove now flows through the unified LLM operation-picker below
+    // (see the video-URL pre-fetch step and the extended opPrompt), which sees the
+    // full instruction and full document instead of a 40-character regex window.
     // ── Video src replacement — replaces the iframe src in a video container ───
     // Format: __VIDEO_INJECT__:[cssPath]||[videoUrl]||[hintHtml?]
     // Converts watch-page URLs to embed format before patching.
@@ -2043,8 +1830,20 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             'Video updated',
           );
         }
+        // Element located but holds no player yet — insert a responsive embed as
+        // its last child instead of patching some OTHER element's iframe (which
+        // would silently edit the wrong section) or erroring out.
+        const closeM = elementHtml.match(/<\/(\w+)>\s*$/);
+        if (closeM) {
+          const closeIdx = elementHtml.lastIndexOf(closeM[0]);
+          const embed = `<div style="position:relative;padding-top:56.25%;width:100%"><iframe src="${newSrc}" style="position:absolute;inset:0;width:100%;height:100%;border:0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>`;
+          return saveValidatedEdit(
+            html.slice(0, bounds.start) + elementHtml.slice(0, closeIdx) + embed + elementHtml.slice(closeIdx) + html.slice(bounds.end),
+            'Video added',
+          );
+        }
       }
-      // Fallback: patch the first video iframe anywhere in the document
+      // Path lookup failed entirely — fall back to the first video iframe in the document
       const globalPatched = patchIframeSrc(html);
       if (globalPatched !== html) {
         return saveValidatedEdit(globalPatched, 'Video updated');
@@ -2263,8 +2062,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
         );
         if (out !== target) return out;
-        // 3. data-bg lazy-load attribute
+        // 3. data-bg / data-src lazy-load attributes (JS copies these into src at
+        // runtime, so the browser DOM shows an <img src> the stored HTML lacks)
         out = target.replace(/\bdata-bg=["'][^'"]*["']/gi, () => `data-bg="${newUrl}"`);
+        if (out !== target) return out;
+        out = target.replace(/(<img\b[^>]*?\bdata-src=["'])([^'"]+)(["'])/i,
+          (_m, pre, _old, post) => `${pre}${newUrl}${post}`);
         return out;
       }
 
@@ -2406,6 +2209,39 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           if (patched !== html) {
             return saveValidatedEdit(patched, 'Image updated');
           }
+        }
+      }
+
+      // ── Graceful fallback: the element was located but holds no replaceable
+      // image reference in the STORED HTML (its visible image may be injected
+      // by JS at runtime, or it never had one). The user still asked to put
+      // this image on the selected element — apply it as a cover background on
+      // the element itself instead of dead-ending with an error. !important
+      // beats any CSS-class background so the change is always visible.
+      if (bounds) {
+        const elementHtml = html.slice(bounds.start, bounds.end);
+        const tagEnd = elementHtml.indexOf('>');
+        if (tagEnd !== -1) {
+          const openTag = elementHtml.slice(0, tagEnd);
+          const rest    = elementHtml.slice(tagEnd);
+          const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+          const sm      = styleRx.exec(openTag);
+          const bgVal   = `background-image:url('${newUrl}') !important;background-size:cover !important;background-position:center !important`;
+          let patchedTag: string;
+          if (sm) {
+            const existing = sm[1]
+              .replace(/\bbackground-image\s*:\s*(?:url\([^)]*\)|[^;]*)\s*;?\s*/gi, '')
+              .replace(/\bbackground-size\s*:[^;]+;?\s*/gi, '')
+              .replace(/\bbackground-position\s*:[^;]+;?\s*/gi, '')
+              .trim().replace(/;$/, '');
+            patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}${bgVal}"`);
+          } else {
+            patchedTag = `${openTag} style="${bgVal}"`;
+          }
+          return saveValidatedEdit(
+            html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end),
+            'Image applied as background',
+          );
         }
       }
 
@@ -2582,144 +2418,19 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       return fullHtml.slice(0, idx) + replacement + fullHtml.slice(idx + elementHtml.length);
     }
 
-    // ── Position-based element finder ─────────────────────────────────────────
-    // Traverses the HTML string using a CSS path with nth-of-type indices.
-    // This is position-based, not content-based, so browser attribute normalization
-    // never causes mismatches. Returns exact { start, end } byte positions.
-    function findByPath(src: string, path: string): { start: number; end: number } | null {
-      const VOID = new Set(['area','base','br','col','embed','hr','img','input',
-                            'link','meta','param','source','track','wbr']);
-      const parts = path.trim().split(/\s*>\s*/);
-      let searchFrom = 0;
-      let searchTo   = src.length;
-
-      for (let i = 0; i < parts.length; i++) {
-        const part   = parts[i].trim();
-        const tag    = part.match(/^(\w+)/)?.[1];
-        if (!tag) return null;
-
-        const idVal  = part.match(/#([\w-]+)/)?.[1] ?? null;
-        const clsVal = part.match(/\.([\w-]+)/)?.[1] ?? null;
-        const nth    = parseInt(part.match(/:nth-of-type\((\d+)\)/)?.[1] ?? '1', 10);
-        const isLast = i === parts.length - 1;
-
-        let count = 0, pos = searchFrom, foundStart = -1, foundEnd = -1;
-
-        while (pos < searchTo) {
-          const ti = src.indexOf(`<${tag}`, pos);
-          if (ti === -1 || ti >= searchTo) break;
-          const te = src.indexOf('>', ti);
-          if (te === -1) break;
-          const opening = src.slice(ti, te + 1);
-
-          const mId  = !idVal  || opening.includes(`id="${idVal}"`);
-          const mCls = !clsVal || (opening.match(/\bclass="([^"]+)"/)?.[1] ?? '')
-                                    .split(/\s+/).includes(clsVal);
-
-          if (mId && mCls) {
-            count++;
-            if (count === nth) {
-              foundStart = ti;
-              if (VOID.has(tag) || opening.trimEnd().endsWith('/>')) {
-                foundEnd = te + 1;
-              } else {
-                const close = `</${tag}>`;
-                let depth = 1, j = te + 1;
-                while (j < src.length && depth > 0) {
-                  const nO = src.indexOf(`<${tag}`, j);
-                  const nC = src.indexOf(close, j);
-                  if (nC === -1) break;
-                  if (nO !== -1 && nO < nC) { depth++; j = nO + tag.length + 1; }
-                  else { depth--; j = nC + close.length; }
-                }
-                foundEnd = j;
-              }
-              break;
-            }
-          }
-          pos = ti + 1;
-        }
-
-        if (foundStart === -1) return null;
-        if (isLast) return { start: foundStart, end: foundEnd };
-
-        // Narrow scope to inside this element for the next path segment
-        const tagEnd = src.indexOf('>', foundStart);
-        searchFrom = tagEnd + 1;
-        searchTo   = foundEnd;
-      }
-
-      return null;
-    }
-
-    // ── Shared multi-strategy element locator ────────────────────────────────
-    // Browsers normalise attribute order and inline styles in outerHTML, so exact
-    // string match often fails. We try five increasingly-fuzzy strategies.
-    function locateElement(src: string, snippet: string): number {
-      const openTag = snippet.match(/^<(\w+)/)?.[1] ?? '';
-
-      // 1. Exact substring (fastest — works when HTML is unmodified)
-      let idx = src.indexOf(snippet.slice(0, 200));
-      if (idx !== -1) return idx;
-
-      // 2. id attribute (globally unique)
-      const idVal = snippet.match(/\bid="([^"]+)"/)?.[1];
-      if (idVal) {
-        idx = src.indexOf(`id="${idVal}"`);
-        if (idx !== -1) { let s = idx; while (s > 0 && src[s] !== '<') s--; return s; }
-      }
-
-      // 3. src URL for media elements (unique per page)
-      // Decode &amp; → & because browser outerHTML encodes & as &amp; but stored HTML has raw &
-      if (['img', 'video', 'source', 'iframe'].includes(openTag)) {
-        const rawSrcVal = snippet.match(/\bsrc="([^"]+)"/)?.[1];
-        const srcVal = rawSrcVal ? rawSrcVal.replace(/&amp;/gi, '&') : undefined;
-        if (srcVal) {
-          idx = src.indexOf(`src="${srcVal}"`);
-          if (idx !== -1) { let s = idx; while (s > 0 && src[s] !== '<') s--; return s; }
-        }
-      }
-
-      // 4. Most-specific class name — find first <openTag with this exact class token
-      const classStr = snippet.match(/\bclass="([^"]+)"/)?.[1] ?? '';
-      const classes  = classStr.trim().split(/\s+/).filter(Boolean);
-      // Prefer longer (more specific) class names, avoid single-letter / generic ones
-      const bestClass = classes.sort((a, b) => b.length - a.length).find(c => c.length > 2);
-      if (bestClass && openTag) {
-        let pos = 0;
-        while (pos < src.length) {
-          const ti = src.indexOf(`<${openTag}`, pos);
-          if (ti === -1) break;
-          const te = src.indexOf('>', ti);
-          if (te === -1) break;
-          const opening = src.slice(ti, te + 1);
-          const elClasses = (opening.match(/\bclass="([^"]+)"/)?.[1] ?? '').split(/\s+/);
-          if (elClasses.includes(bestClass)) return ti;
-          pos = ti + 1;
-        }
-      }
-
-      // 5. Attribute-set match (order-insensitive, ignores style which browsers reformat)
-      if (openTag) {
-        const extractNonStyle = (tag: string) =>
-          [...tag.matchAll(/\b(?!style\b)(\w[\w-]*)="([^"]*)"/g)]
-            .map(m => `${m[1]}="${m[2]}"`)
-            .sort()
-            .join(' ');
-        const snippetAttrs = extractNonStyle(snippet.slice(0, 300));
-        let pos = 0;
-        while (pos < src.length) {
-          const ti = src.indexOf(`<${openTag}`, pos);
-          if (ti === -1) break;
-          const te = src.indexOf('>', ti);
-          if (te === -1) break;
-          if (extractNonStyle(src.slice(ti, te + 1)) === snippetAttrs) return ti;
-          pos = ti + 1;
-        }
-      }
-
-      return -1;
-    }
+    // findByPath / locateElement are imported from ./html-patch.js (single
+    // shared implementation with the slide editor). This route used to carry
+    // its own local copy of findByPath that restricted matching to
+    // direct-children-only starting from the whole document as one flat
+    // level: any id-anchored path (the common case — getCssPath() on the
+    // client stops walking up at the first id it finds, e.g. "section#hero")
+    // always failed unless the id'd element happened to be a literal
+    // top-level sibling of <html>, because the very first mismatched tag
+    // (<html> itself) caused the entire document to be skipped as "one
+    // non-matching child's subtree". The imported version scans for the tag
+    // anywhere within the current search range instead of restricting to
+    // direct children, so id/class anchors resolve correctly regardless of
+    // nesting depth.
 
     // ── HTML extractor — strips LLM preamble/postamble from any response ──────
     // LLMs frequently prepend explanation text ("Looking at the element, I will…")
@@ -2792,21 +2503,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }
 
         // Also hide any <img> that is a DIRECT child of this element (background photo pattern)
-        // by setting display:none on it
-        const inner = result.slice(b.start, b.start + 3000);
-        const imgRe = /(<img\b)([^>]*)(\/?>)/gi;
-        result = result.replace(imgRe, (match, open, attrs, close) => {
-          if (!inner.includes((open + attrs).slice(0, 60))) return match;
-          // Already display:none — skip
-          if (/\bdisplay\s*:\s*none\b/i.test(attrs)) return match;
-          const styleM = attrs.match(/\bstyle="([^"]*)"/i);
-          if (styleM) {
-            return match.replace(/\bstyle="([^"]*)"/i, `style="${styleM[1].trim()};display:none"`);
-          }
-          return `${open}${attrs} style="display:none"${close}`;
-        });
-
-        return result;
+        return hideCoveringImage(result, b.start);
       }
 
       // Apply to the selected element first (clears inline style + CSS class gradient)
@@ -2873,9 +2570,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const rest    = elementHtml.slice(tagEnd);
       const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
       const sm = styleRx.exec(openTag);
-      // When setting background-color, also clear background-image so the color shows
+      // When setting a solid background, also clear background-image so the color shows
       // (bg-image renders on top of bg-color; CSS class bg-image needs !important override)
-      const clearBgImage = prop === 'background-color';
+      const clearBgImage = prop === 'background-color' || prop === 'background';
       let patchedTag: string;
       if (sm) {
         const escaped = prop.replace(/-/g, '\\-');
@@ -2891,7 +2588,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         const extra = clearBgImage ? '; background-image:none !important' : '';
         patchedTag = `${openTag} style="${prop}:${value}${extra}"`;
       }
-      const updatedHtml = html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end);
+      let updatedHtml = html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end);
+      // A covering <img> (photo-as-background pattern) would otherwise hide the new color.
+      if (clearBgImage) updatedHtml = hideCoveringImage(updatedHtml, bounds.start);
       return saveValidatedEdit(updatedHtml, `${prop} set to ${value}`);
     }
 
@@ -2901,12 +2600,36 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // Format: __TEXT_PATCH__:[cssPath]||[newText](||[hint — ignored])
     // Non-greedy group 2 stops before the trailing ||hint so the hint's outerHTML
     // is never concatenated into the visible text content.
-    const textPatchMatch = instruction.match(/^__TEXT_PATCH__:([\s\S]+?)\|\|([\s\S]+?)(?:\|\|[\s\S]*)?$/s);
+    const textPatchMatch = instruction.match(/^__TEXT_PATCH__:([\s\S]+?)\|\|([\s\S]+?)(?:\|\|([\s\S]*))?$/s);
     if (textPatchMatch) {
-      const cssPath = textPatchMatch[1].trim();
-      const newText = textPatchMatch[2].trim().slice(0, 2000);
+      const cssPath  = textPatchMatch[1].trim();
+      const newText  = textPatchMatch[2].trim().slice(0, 2000);
+      const hintHtml = (textPatchMatch[3] ?? '').trim();
 
-      const bounds = findByPath(html, cssPath);
+      let bounds = findByPath(html, cssPath);
+      // Content-based fallback when the path doesn't match (e.g. after an LLM
+      // edit restructured the DOM) — same strategy as the slide-route version.
+      if (!bounds && hintHtml) {
+        const hintStart = locateElement(html, hintHtml);
+        if (hintStart !== -1) {
+          const tagName = hintHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+          if (tagName) {
+            const tagEnd = html.indexOf('>', hintStart);
+            if (tagEnd !== -1) {
+              const close = `</${tagName}>`;
+              let depth = 1, j = tagEnd + 1;
+              while (j < html.length && depth > 0) {
+                const nO = html.indexOf(`<${tagName}`, j);
+                const nC = html.indexOf(close, j);
+                if (nC === -1) break;
+                if (nO !== -1 && nO < nC) { depth++; j = nO + tagName.length + 1; }
+                else { depth--; j = nC + close.length; }
+              }
+              bounds = { start: hintStart, end: j };
+            }
+          }
+        }
+      }
       if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
 
       const elementHtml  = html.slice(bounds.start, bounds.end);
@@ -3040,12 +2763,41 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // ── Icon / SVG replacement (from InlineEditPanel "Replace Icon" input) ─────
     // Format: __ICON_REPLACE__:[cssPath]||[imageUrl]
     // Replaces the selected SVG/icon element with an <img> pointing at the new URL.
-    const iconReplaceMatch = instruction.match(/^__ICON_REPLACE__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|[\s\S]*)?$/s);
+    const iconReplaceMatch = instruction.match(/^__ICON_REPLACE__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|([\s\S]*))?$/s);
     if (iconReplaceMatch) {
-      const cssPath = iconReplaceMatch[1].trim();
-      const imgUrl  = iconReplaceMatch[2].trim().replace(/['"<>]/g, '');
+      const cssPath  = iconReplaceMatch[1].trim();
+      const imgUrl   = iconReplaceMatch[2].trim().replace(/['"<>]/g, '');
+      const hintHtml = (iconReplaceMatch[3] ?? '').trim();
 
-      const bounds = findByPath(html, cssPath);
+      let bounds = findByPath(html, cssPath);
+      // Content-based fallback when the path doesn't match (e.g. after an LLM
+      // edit restructured the DOM around the icon)
+      if (!bounds && hintHtml) {
+        const hintStart = locateElement(html, hintHtml);
+        if (hintStart !== -1) {
+          const tagName = hintHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+          if (tagName) {
+            const tagEnd = html.indexOf('>', hintStart);
+            if (tagEnd !== -1) {
+              const opening = html.slice(hintStart, tagEnd + 1);
+              if (tagName === 'img' || opening.trimEnd().endsWith('/>')) {
+                bounds = { start: hintStart, end: tagEnd + 1 };
+              } else {
+                const close = `</${tagName}>`;
+                let depth = 1, j = tagEnd + 1;
+                while (j < html.length && depth > 0) {
+                  const nO = html.indexOf(`<${tagName}`, j);
+                  const nC = html.indexOf(close, j);
+                  if (nC === -1) break;
+                  if (nO !== -1 && nO < nC) { depth++; j = nO + tagName.length + 1; }
+                  else { depth--; j = nC + close.length; }
+                }
+                bounds = { start: hintStart, end: j };
+              }
+            }
+          }
+        }
+      }
       if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
 
       const elementHtml = html.slice(bounds.start, bounds.end);
@@ -3141,10 +2893,15 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // patch the CSS directly instead of sending to LLM (LLM adds <img> tags
       // instead of setting background-image, which looks like a logo overlay).
       // Skip when the user is doing a full section redesign — let that flow handle it.
+      // Skip video URLs too: CSS background-image cannot render a YouTube/Vimeo
+      // page or a video file — "add this video as the background" must reach the
+      // LLM flow below, which embeds it as an absolutely-positioned <iframe>.
       const bgUrlMatch = editInstruction.match(/(https?:\/\/\S+)/);
+      const isVideoUrlInstruction = !!bgUrlMatch &&
+        /youtube\.com|youtu\.be|vimeo\.com|\.(?:mp4|webm|ogv)(?:[?#]|$)/i.test(bgUrlMatch[1]);
       const isBgImageIntent = /\b(?:background|bg)\b/i.test(editInstruction) &&
         /\b(?:add|set|use|change|put|apply|inject)\b/i.test(editInstruction);
-      if (!isRedesignIntent && bgUrlMatch && isBgImageIntent) {
+      if (!isRedesignIntent && bgUrlMatch && !isVideoUrlInstruction && isBgImageIntent) {
         const rawUrl = bgUrlMatch[1].replace(/['"]/g, '').replace(/[,)]+$/, '');
         // Apply background-image to the first matching element (section, div, header, etc.)
         const tagEnd = storedElementHtml.indexOf('>');
@@ -3191,13 +2948,18 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           const sm = styleRx.exec(openTag);
           let patchedTag: string;
           if (sm) {
-            const existing = sm[1].replace(/\bbackground-color\s*:[^;]+;?\s*/g, '').trim().replace(/;$/, '');
-            patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}background-color:${colorValue}"`);
+            const existing = sm[1]
+              .replace(/\bbackground-color\s*:[^;]+;?\s*/g, '')
+              .replace(/\bbackground-image\s*:[^;]+;?\s*/g, '')
+              .trim().replace(/;$/, '');
+            patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}background-color:${colorValue};background-image:none !important"`);
           } else {
-            patchedTag = `${openTag} style="background-color:${colorValue}"`;
+            patchedTag = `${openTag} style="background-color:${colorValue};background-image:none !important"`;
           }
           const patched     = patchedTag + rest;
-          const updatedHtml = html.slice(0, bounds.start) + patched + html.slice(bounds.end);
+          let updatedHtml   = html.slice(0, bounds.start) + patched + html.slice(bounds.end);
+          // A covering <img> (photo-as-background pattern) would otherwise hide the new color.
+          updatedHtml = hideCoveringImage(updatedHtml, bounds.start);
           return saveValidatedEdit(updatedHtml, `Background color set to ${colorValue}`);
         }
       }
@@ -3334,6 +3096,21 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
 
       // ── Build the LLM prompt (element-edit vs section-redesign) ──────────
+      // Video URL in an element-scoped instruction: hand the LLM a ready-made
+      // embed URL (watch-page URLs are blocked from iframes by X-Frame-Options)
+      // and the two standard placements, so any phrasing — background fill,
+      // inline embed, "choose the best position" — produces a working iframe.
+      const elVideoUrlMatch = editInstruction.match(/https?:\/\/\S*(?:youtube\.com|youtu\.be|vimeo\.com)\S*/i);
+      const videoGuidance = elVideoUrlMatch ? `
+VIDEO-SPECIFIC RULES (the instruction contains a video URL):
+- Use this exact embed URL as the iframe src (do NOT alter it or invent another): ${toEmbedUrl(elVideoUrlMatch[0].replace(/['"<>)\],.]+$/, ''))}
+- Background/full-bleed placement: add position:relative;overflow:hidden to this element's inline style and insert as its FIRST child:
+  <iframe src="[embed URL]" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;border:0;z-index:0" allow="autoplay; fullscreen" frameborder="0"></iframe>
+  (then make sure the element's direct content children have position:relative and a higher z-index so they stay visible above the video)
+- Inline/content placement: insert where it reads naturally:
+  <div style="position:relative;padding-top:56.25%"><iframe src="[embed URL]" style="position:absolute;inset:0;width:100%;height:100%;border:0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>
+- If the instruction asks to replace an existing video, change the existing iframe's src instead of adding a second iframe` : '';
+
       const imageGuidance = hasImg ? `
 IMAGE-SPECIFIC RULES (this element contains an image):
 - Current src: ${currentSrc}
@@ -3370,7 +3147,7 @@ ELEMENT TO EDIT:
 ${targetHtml}
 
 INSTRUCTION: ${editInstruction}
-${imageGuidance}
+${imageGuidance}${videoGuidance}
 Strict rules:
 - Return ONLY this element starting with its opening tag and ending with its closing tag
 - Do NOT include any parent or sibling elements
@@ -3378,7 +3155,19 @@ Strict rules:
 - For style changes: modify inline style properties on this element or its children
 - For image changes: update src or background-image on this element or its children
 - For adding/removing a child: do so while preserving all other children unchanged
-- Never truncate or omit any part of this element`;
+- Never truncate or omit any part of this element
+- COLOR/STYLE TARGETING: identify the exact content the instruction describes
+  (e.g. "light text" = elements whose inline color is a light value, not a
+  background, gradient, or border) and change ONLY that property on ONLY that
+  content. Do not "balance" the change by adjusting an unrelated property
+  (background, gradient, border) instead of the one named.
+- DESCENDANT OVERRIDES: an inline "color"/"background-color" on a child element
+  overrides anything inherited from a parent. If the described text lives on a
+  child (e.g. an <h2> or <p> inside this element) with its own inline color,
+  you MUST update that child's own inline color directly — setting color on
+  this element's own style has no visual effect if every child overrides it.
+  Update every descendant that carries the color being described, not just the
+  outermost element.`;
 
       // ── LLM call with clear logging ──────────────────────────────────────────
       console.log('\n┌─ LLM PROMPT ─────────────────────────────────────────────────');
@@ -3497,6 +3286,24 @@ Strict rules:
       const secs = extractAllTopLevelSections(src);
       if (secs.length === 0) return null;
       const hintLower = hint.toLowerCase();
+
+      // Exact id/data-section match — bypass fuzzy scoring entirely when the hint
+      // IS one of the document's actual section identifiers (e.g. the LLM's own
+      // "anchor" field echoing back a value from the "KNOWN SECTIONS: slide-1,
+      // slide-2, ..." list we gave it). This matters because the fuzzy scorer
+      // below tokenizes on \W+ and drops short/numeric tokens — "slide-3" becomes
+      // just "slide" once "3" is filtered out, which every "slide-N" id also
+      // contains, so every section ties and the tie-break always picks the
+      // first one. An exact match is unambiguous and must win outright.
+      for (let i = 0; i < secs.length; i++) {
+        const text = src.slice(secs[i].start, secs[i].end);
+        const idVal = (/\bid="([^"]+)"/.exec(text)?.[1] ?? '').toLowerCase();
+        const dataSection = (/\bdata-section(?:-id)?="([^"]+)"/.exec(text)?.[1] ?? '').toLowerCase();
+        if (hintLower === idVal || hintLower === dataSection) {
+          return { before: src.slice(0, secs[i].start), section: text, after: src.slice(secs[i].end), tag: 'section' };
+        }
+      }
+
       const words = hintLower.split(/\W+/).filter(w => w.length > 2);
 
       let best = secs[0], bestScore = -1;
@@ -3573,62 +3380,13 @@ Strict rules:
       return null;
     }
 
-    // ── Pexels shortcut for global image-description prompts (no element selected) ──
-    // Fires when the user types "add [image description] to [section] background"
-    // without a URL and without selecting an element.
-    // Handles both "replace existing background image" and "add new background image".
-    if (!instruction.startsWith('__') && !/https?:\/\//.test(instruction)) {
-      const globalBgImgIntent = /\b(?:background|bg)\b/i.test(instruction) &&
-        /\b(?:image|photo|picture|pic)\b/i.test(instruction);
-      if (globalBgImgIntent) {
-        const targetSlice = extractBestSection(html, instruction);
-        if (targetSlice) {
-          let pexelsQuery = '';
-          try {
-            const extractPrompt = `Extract a concise 2-5 keyword image search query from this instruction. Return ONLY the keywords, nothing else.\n\nInstruction: ${instruction}`;
-            pexelsQuery = (await llmGenerateFn(extractPrompt))
-              .trim().replace(/^["'`]|["'`]$/g, '').trim().slice(0, 80);
-            console.log(`🔍 Global bg-image query: "${pexelsQuery}"`);
-          } catch { /* fall through to LLM */ }
-
-          if (pexelsQuery) {
-            const pexelsUrl = await fetchPexelsImageUrl(pexelsQuery);
-            const imageUrl  = pexelsUrl
-              ?? `https://source.unsplash.com/featured/1200x800/?${encodeURIComponent(pexelsQuery)}`;
-
-            // Replace existing background-image url() or add a new one
-            let patched = targetSlice.section.replace(
-              /\bbackground-image\s*:\s*url\(\s*['"]?[^'")\s]+['"]?\s*\)/gi,
-              () => `background-image: url('${imageUrl}')`,
-            );
-            if (patched === targetSlice.section) {
-              // No existing bg-image → inject into opening tag's style
-              const tagEndIdx = targetSlice.section.indexOf('>');
-              if (tagEndIdx !== -1) {
-                const openTag = targetSlice.section.slice(0, tagEndIdx);
-                const rest    = targetSlice.section.slice(tagEndIdx);
-                const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
-                const sm      = styleRx.exec(openTag);
-                const bgStyle = `background-image:url('${imageUrl}');background-size:cover;background-position:center;background-repeat:no-repeat`;
-                if (sm) {
-                  const existing = sm[1].replace(/background-image[^;]+;?\s*/g, '').trim().replace(/;$/, '');
-                  patched = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}${bgStyle}"`) + rest;
-                } else {
-                  patched = `${openTag} style="${bgStyle}"` + rest;
-                }
-              }
-            }
-            if (patched !== targetSlice.section) {
-              console.log(`⚡ Global bg-image shortcut (${pexelsUrl ? 'Pexels' : 'Unsplash'}): "${pexelsQuery}" → ${imageUrl}`);
-              return saveValidatedEdit(
-                targetSlice.before + patched + targetSlice.after,
-                `Background image updated`,
-              );
-            }
-          }
-        }
-      }
-    }
+    // NOTE: a global bg-image shortcut used to live here — it duplicated the
+    // Pexels URL-resolution below AND separately guessed section placement
+    // itself (bypassing the LLM for the "which section, replace vs add" call).
+    // Removed: the URL-resolution half is covered by the pre-fetch step below,
+    // and the placement half is covered by opPrompt's "patches"/"section_replace"
+    // ops, which get the full document and the LLM's own judgment instead of a
+    // second, independent guess.
 
     // Extract CSS :root block so the LLM knows available design tokens
     const cssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
@@ -3681,7 +3439,8 @@ ${ctx.section}`;
       | { op: 'patches'; patches: Array<{ find: string; replace: string }>; summary: string }
       | { op: 'section_replace'; anchor: string; html: string; summary: string }
       | { op: 'section_insert'; anchor: string; position: 'before' | 'after'; html: string; summary: string }
-      | { op: 'section_delete'; anchor: string; summary: string };
+      | { op: 'section_delete'; anchor: string; summary: string }
+      | { op: 'clarify'; question: string };
 
     function parseOp(raw: string): MicrositeOp | null {
       const start = raw.indexOf('{');
@@ -3708,6 +3467,11 @@ ${ctx.section}`;
     // image without providing a URL. This prevents the LLM from hallucinating
     // Unsplash photo IDs and ensures the placed image actually matches the request.
     let augmentedInstruction = instruction;
+    // Tracks a resolved URL (video embed ID, or Pexels image URL) that we told the
+    // LLM to use exactly, so the post-edit verification step can confirm it was
+    // actually applied instead of trusting a structurally-valid but no-op response.
+    let resolvedUrlToVerify: string | null = null;
+    let resolvedUrlKind = '';
     if (!isRegenIntent && !/https?:\/\//.test(instruction) &&
         /\b(?:image|photo|picture|pic)\b/i.test(instruction)) {
       try {
@@ -3718,10 +3482,28 @@ ${ctx.section}`;
           const pexelsUrl = await fetchPexelsImageUrl(pexelsQ);
           if (pexelsUrl) {
             augmentedInstruction = `${instruction}\n\nIMPORTANT — use this exact image URL (do NOT invent or substitute any other URL): ${pexelsUrl}`;
+            resolvedUrlToVerify = pexelsUrl;
+            resolvedUrlKind = 'image';
             console.log(`📸 Pexels pre-fetch for global edit: "${pexelsQ}" → ${pexelsUrl}`);
           }
         }
       } catch { /* fall through — LLM will handle without a real URL */ }
+    }
+
+    // ── Video URL normalization — a pure format transform, not an intent guess.
+    // Fires whenever the instruction contains a recognizable youtube/vimeo URL,
+    // regardless of surrounding words (add, remove, background, compound
+    // sentences, etc.) — it never decides placement or add-vs-remove itself,
+    // it only hands the LLM a ready-made embed URL instead of letting it invent
+    // embed syntax. Placement/removal decisions are entirely the LLM's, made
+    // from the full instruction + full document below.
+    const videoUrlMatch = instruction.match(/https?:\/\/\S*(?:youtube\.com|youtu\.be|vimeo\.com)\S*/i);
+    if (videoUrlMatch) {
+      const embedUrl = toEmbedUrl(videoUrlMatch[0]);
+      augmentedInstruction = `${augmentedInstruction}\n\nIMPORTANT — if the instruction asks to add/embed a video, use this exact embed URL in an <iframe> (do NOT alter it or invent a different one): ${embedUrl}`;
+      resolvedUrlToVerify = embedUrl;
+      resolvedUrlKind = 'video';
+      console.log(`🎬 Video URL pre-normalized for global edit: ${embedUrl.slice(0, 80)}`);
     }
 
     const opPrompt = isRegenIntent ? '' : `You are editing an HTML microsite. Pick the ONE operation that best fits the instruction and respond with a single JSON object — nothing else.
@@ -3745,6 +3527,30 @@ OP section_insert — add a brand-new section before or after an existing one:
 
 OP section_delete — remove an existing section entirely:
 { "op": "section_delete", "anchor": "section-id-or-keyword", "summary": "..." }
+
+OP clarify — the instruction does not say which section/element to target, AND
+nothing in it (no section name, no distinctive quoted text, no ordinal like
+"first"/"last") narrows it down to one clear match among this document's
+${sectionList.split(',').length} sections. Use this instead of guessing:
+{ "op": "clarify", "question": "Which section should this apply to? (e.g. ${sectionList.split(',').slice(0,3).join(', ')}...)" }
+Only use "clarify" when you are genuinely unsure which section is meant — if
+the instruction names a section, quotes/describes distinctive content, uses an
+ordinal, or there is only one section where this change makes sense, proceed
+with the appropriate op instead of asking.
+
+VIDEO EMBEDS: to ADD a video, use "section_replace" (e.g. wrap it as a full-bleed
+background layer with style="position:absolute;inset:0;width:100%;height:100%;
+pointer-events:none;z-index:0" plus position:relative;overflow:hidden on the
+section itself, when the instruction says "background"; otherwise embed it inline
+in the content flow) or "patches" (inserting a self-contained
+<div style="position:relative;padding-top:56.25%"><iframe .../></div> block right
+after a specific line is enough). To REMOVE a video, use "patches" with "find"
+matching the existing <iframe ...>...</iframe> block (or its opening tag) and
+"replace": "". If the instruction has BOTH a remove-X and an add-Y request (e.g.
+"remove the background image and add this video..."), apply both in the SAME
+response — as two entries in "patches", or as one "section_replace" whose "html"
+both drops the old element and adds the new one. Never silently drop half of a
+compound instruction.
 
 KNOWN SECTIONS: ${sectionList}
 ${cssVarsBlock ? `\nCSS DESIGN TOKENS:\n${cssVarsBlock}\n` : ''}
@@ -3804,8 +3610,55 @@ ${html}`;
         updatedHtml = ctx.before + ctx.after;
         summary = op.summary;
 
+      } else if (op.op === 'clarify') {
+        // Refuse to guess which section an ambiguous instruction meant — a wrong
+        // guess silently edits the wrong element and reports success, which is
+        // worse than asking. Select the element directly, or name the section.
+        return reply.code(422).send({
+          error: op.question || 'Which section should this apply to? Select the element directly, or name the section.',
+        });
+
       } else {
         return reply.code(502).send({ error: 'Unknown operation returned by LLM — try rephrasing' });
+      }
+    }
+
+    // ── Content-specific verification ─────────────────────────────────────────
+    // validateHtml() (used inside saveValidatedEdit) only checks structural sanity
+    // (truncation, size ratio, section count, CSS tokens) — it can't tell "the LLM
+    // applied the change" apart from "the LLM returned the section unchanged."
+    // When we told the LLM to use a specific resolved URL (video embed or Pexels
+    // image), confirm it actually landed in the result before reporting success.
+    // No automatic retry: fail loud with an actionable message rather than
+    // silently retrying a stronger prompt, which would just move "patch until it
+    // passes" from regex-space into prompt-space.
+    if (resolvedUrlToVerify) {
+      const idMatch = resolvedUrlToVerify.match(/(?:youtube\.com\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i)
+        ?? resolvedUrlToVerify.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
+      const needle = idMatch ? idMatch[1] : resolvedUrlToVerify;
+      if (!updatedHtml.includes(needle)) {
+        return reply.code(422).send({
+          error: `Edit did not apply — the requested ${resolvedUrlKind} was not found in the result. Try rephrasing or naming the section more specifically.`,
+        });
+      }
+    }
+
+    // Removal sanity check — used ONLY as a post-hoc oracle to confirm what the
+    // LLM claims it did actually happened, never to decide routing (that
+    // distinction matters: a false positive here just asks the user to
+    // rephrase; a false positive as a routing gate silently does the wrong
+    // thing, which is the bug class this whole redesign removes elsewhere).
+    // Catches the LLM (or a stray "find" patch that missed its real target,
+    // e.g. duplicate markup elsewhere in the document) reporting a removal
+    // that didn't actually happen.
+    if (/\b(?:remove|delete|clear|hide)\b/i.test(instruction) &&
+        /\b(?:video|iframe|vimeo|youtube)\b/i.test(instruction)) {
+      const before = (html.match(/<iframe\b/gi) ?? []).length;
+      const after  = (updatedHtml.match(/<iframe\b/gi) ?? []).length;
+      if (after >= before) {
+        return reply.code(422).send({
+          error: 'Edit did not apply — the video/iframe is still present in the result. Try rephrasing or naming the section more specifically.',
+        });
       }
     }
 
@@ -4209,44 +4062,225 @@ ${sectionHtml}`;
     console.log(`║ HTML source: ${body?.currentHtml ? 'client (in-memory)' : 'disk'} — ${html.length} chars`);
     console.log(`╚══════════════════════════════════════════════════════════`);
 
-    const prompt = `You are an expert HTML/CSS presentation editor. Edit the presentation below.
+    // ── Structured-operation edit — mirrors the microsite op-picker ──────────
+    // The LLM sees the FULL document (no truncation — the old full-rewrite path
+    // sliced at 50k chars and silently dropped the tail of larger decks) and
+    // responds with a small typed JSON op, never the whole page back. This
+    // handles any free-text instruction at any document size in one pass.
 
-INSTRUCTION: ${resolvedInstruction}${elementContext}
-
-RULES:
-- Return ONLY the complete, valid HTML — no explanations, no markdown fences
-- Preserve all existing slides, structure, animations, and styles unless the instruction changes them
-- Keep all content that isn't mentioned in the instruction
-- Maintain the same design language and color scheme unless asked to change
-- Return the full document from the first character to the last
-
-CURRENT HTML:
-${html.slice(0, 50000)}`;
-
-    const raw = await llmGenerateFn(prompt);
-    let updatedHtml = (raw ?? '').trim();
-
-    // Strip markdown code fences if LLM wrapped the response
-    const fenceMatch = updatedHtml.match(/^```(?:html)?\n?([\s\S]+?)\n?```$/i);
-    if (fenceMatch) updatedHtml = fenceMatch[1].trim();
-
-    if (!updatedHtml || !/<[a-z]/i.test(updatedHtml)) {
-      return reply.code(502).send({ error: 'LLM returned invalid HTML — try rephrasing' });
+    // Locate each top-level slide container (div whose class list contains the
+    // exact token "slide"). Nested divs are skipped via depth scanning.
+    function extractSlideBounds(src: string): Array<{ start: number; end: number }> {
+      const out: Array<{ start: number; end: number }> = [];
+      const openRe = /<div\b[^>]*\bclass="([^"]*)"[^>]*>/gi;
+      let m: RegExpExecArray | null;
+      while ((m = openRe.exec(src)) !== null) {
+        if (!m[1].split(/\s+/).includes('slide')) continue;
+        let depth = 1, j = m.index + m[0].length;
+        while (j < src.length && depth > 0) {
+          const nO = src.indexOf('<div', j);
+          const nC = src.indexOf('</div>', j);
+          if (nC === -1) { j = src.length; break; }
+          if (nO !== -1 && nO < nC) { depth++; j = nO + 4; }
+          else { depth--; j = nC + 6; }
+        }
+        out.push({ start: m.index, end: j });
+        openRe.lastIndex = j; // skip past this slide — never match nested .slide divs
+      }
+      return out;
     }
 
-    // Guard: result must not be catastrophically shorter (LLM truncation)
-    if (updatedHtml.length < html.length * 0.35 && !html.includes('data:')) {
-      return reply.code(502).send({ error: 'Edit result too short — LLM may have truncated. Try again.' });
+    const slideBounds = extractSlideBounds(html);
+    const slideList = slideBounds.map((b, i) => {
+      const text = html.slice(b.start, b.end);
+      const heading = /<h[1-6][^>]*>\s*([^<]{1,60})/i.exec(text)?.[1]?.trim()
+        ?? />\s*([A-Za-z][^<]{2,60})</.exec(text)?.[1]?.trim()
+        ?? '';
+      return `slide ${i + 1}${heading ? ` — "${heading}"` : ''}`;
+    }).join('\n');
+
+    // ── Pre-resolve real asset URLs so the LLM never invents them ────────────
+    let augmentedInstruction = resolvedInstruction;
+    let resolvedUrlToVerify: string | null = null;
+    let resolvedUrlKind = '';
+
+    // Descriptive image request (no URL given) → fetch a real Pexels URL
+    if (!/https?:\/\//.test(resolvedInstruction) &&
+        /\b(?:image|photo|picture|pic)\b/i.test(resolvedInstruction)) {
+      try {
+        const qPrompt = `Extract a concise 2-5 keyword image search query from this instruction. Return ONLY the keywords, nothing else.\n\nInstruction: ${resolvedInstruction}`;
+        const pexelsQ = (await llmGenerateFn(qPrompt)).trim().replace(/^["'`]|["'`]$/g, '').trim().slice(0, 80);
+        if (pexelsQ) {
+          const pexelsUrl = await fetchPexelsImageUrl(pexelsQ);
+          if (pexelsUrl) {
+            augmentedInstruction = `${resolvedInstruction}\n\nIMPORTANT — use this exact image URL (do NOT invent or substitute any other URL): ${pexelsUrl}`;
+            resolvedUrlToVerify = pexelsUrl;
+            resolvedUrlKind = 'image';
+            console.log(`📸 Pexels pre-fetch for slide edit: "${pexelsQ}" → ${pexelsUrl}`);
+          }
+        }
+      } catch { /* fall through — LLM will handle without a real URL */ }
     }
 
-    // Guard: must contain closing tag (catches mid-document cuts)
+    // Video URL → hand the LLM a ready-made embed URL (watch-page URLs are
+    // blocked from iframes by X-Frame-Options)
+    const slideVideoUrlMatch = resolvedInstruction.match(/https?:\/\/\S*(?:youtube\.com|youtu\.be|vimeo\.com)\S*/i);
+    if (slideVideoUrlMatch) {
+      const embedUrl = toVideoEmbedUrl(slideVideoUrlMatch[0].replace(/['"<>)\],.]+$/, ''));
+      augmentedInstruction = `${augmentedInstruction}\n\nIMPORTANT — if the instruction asks to add/embed a video, use this exact embed URL in an <iframe> (do NOT alter it or invent a different one): ${embedUrl}`;
+      resolvedUrlToVerify = embedUrl;
+      resolvedUrlKind = 'video';
+      console.log(`🎬 Video URL pre-normalized for slide edit: ${embedUrl.slice(0, 80)}`);
+    }
+
+    type SlideOp =
+      | { op: 'patches'; patches: Array<{ find: string; replace: string }>; summary: string }
+      | { op: 'slide_replace'; slide: number; html: string; summary: string }
+      | { op: 'slide_insert'; slide: number; position: 'before' | 'after'; html: string; summary: string }
+      | { op: 'slide_delete'; slide: number; summary: string }
+      | { op: 'clarify'; question: string };
+
+    function parseSlideOp(rawText: string): SlideOp | null {
+      const start = rawText.indexOf('{');
+      if (start === -1) return null;
+      let depth = 0, end = -1, inStr = false, esc = false;
+      for (let i = start; i < rawText.length; i++) {
+        const c = rawText[i];
+        if (esc) { esc = false; continue; }
+        if (c === '\\' && inStr) { esc = true; continue; }
+        if (c === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (c === '{') depth++;
+        else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
+      }
+      if (end === -1) return null;
+      try {
+        const slice = rawText.slice(start, end + 1)
+          .replace(/("(?:[^"\\]|\\.)*")/gs, s => s.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
+        return JSON.parse(slice) as SlideOp;
+      } catch { return null; }
+    }
+
+    function applySlidePatches(base: string, patches: Array<{ find: string; replace: string }>): { html: string; applied: number; missed: number } {
+      let result = base;
+      let applied = 0, missed = 0;
+      for (const p of patches) {
+        if (!p.find || p.replace === undefined) continue;
+        if (!result.includes(p.find)) {
+          console.warn(`⚠️  Slide patch MISS: find="${p.find.slice(0, 80)}"`);
+          missed++;
+          continue;
+        }
+        result = result.split(p.find).join(p.replace);
+        applied++;
+      }
+      return { html: result, applied, missed };
+    }
+
+    const opPrompt = `You are editing an HTML slide presentation — a single scrollable page where each slide is a <div class="slide">. Pick the ONE operation that best fits the instruction and respond with a single JSON object — nothing else.
+
+OPERATION TYPES:
+
+OP patches — targeted changes to existing content (text, values, colors, images, styles, adding or removing an element inside a slide).
+{ "op": "patches", "patches": [{ "find": "exact substring", "replace": "new value" }], "summary": "..." }
+Rules:
+- Copy each "find" string EXACTLY from the HTML — character-for-character, no paraphrasing
+- Include 15–40 chars of surrounding context so each "find" is unique in the document
+- NEVER put newlines inside "find" or "replace" — single-line strings only
+- Up to 12 patches
+
+OP slide_replace — redesign or restructure one slide completely:
+{ "op": "slide_replace", "slide": <1-based slide number>, "html": "<div class=\\"slide\\" ...>...</div>", "summary": "..." }
+
+OP slide_insert — add a brand-new slide before or after an existing one:
+{ "op": "slide_insert", "slide": <anchor slide number>, "position": "before|after", "html": "<div class=\\"slide\\" ...>...</div>", "summary": "..." }
+
+OP slide_delete — remove one slide entirely:
+{ "op": "slide_delete", "slide": <slide number>, "summary": "..." }
+
+OP clarify — a TARGET ELEMENT context section below means the instruction is
+already scoped — never use "clarify" when one is present. Otherwise, if the
+instruction names no slide, quotes no distinctive content, and gives no
+ordinal ("first"/"last"), and more than one slide could plausibly be meant,
+use this instead of guessing which slide to touch:
+{ "op": "clarify", "question": "Which slide should this apply to?" }
+
+VIDEO EMBEDS: to ADD a video, place a self-contained block
+<div style="position:relative;padding-top:56.25%;width:100%"><iframe src="..." style="position:absolute;inset:0;width:100%;height:100%;border:0" allow="autoplay; fullscreen" allowfullscreen></iframe></div>
+at the position inside the slide that the instruction asks for (or the most natural spot if it says to choose) — via "patches" (insert right after an existing line) or "slide_replace". For a full-bleed background video, give the slide position:relative;overflow:hidden and add the iframe as its first child with style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;border:0;z-index:0". To REMOVE a video, use "patches" with "find" matching the existing <iframe ...> block and "replace": "". If the instruction has BOTH a remove-X and an add-Y request, apply both in the SAME response. Never silently drop half of a compound instruction.
+
+SLIDES IN THIS DECK (1-based):
+${slideList || '(no <div class="slide"> containers detected — use "patches" only)'}
+
+INSTRUCTION: ${augmentedInstruction}${elementContext}
+
+FULL HTML:
+${html}`;
+
+    const raw = await llmGenerateFn(opPrompt);
+    console.log(`┌─ SLIDE EDIT LLM raw (first 500): ${(raw ?? '').slice(0, 500)}`);
+
+    const op = parseSlideOp(raw ?? '');
+    if (!op) return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+
+    let updatedHtml = html;
+    let summary = displaySummary;
+
+    if (op.op === 'patches') {
+      const { html: patched, applied, missed } = applySlidePatches(html, op.patches);
+      if (applied === 0) return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
+      updatedHtml = patched;
+      summary = op.summary || summary;
+      if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+    } else if (op.op === 'slide_replace' || op.op === 'slide_insert' || op.op === 'slide_delete') {
+      const idx = Math.trunc(op.slide) - 1;
+      if (idx < 0 || idx >= slideBounds.length) {
+        return reply.code(422).send({ error: `Slide ${op.slide} not found — this deck has ${slideBounds.length} slide${slideBounds.length === 1 ? '' : 's'}` });
+      }
+      const b = slideBounds[idx];
+      if (op.op === 'slide_replace') {
+        updatedHtml = html.slice(0, b.start) + op.html + html.slice(b.end);
+      } else if (op.op === 'slide_insert') {
+        updatedHtml = op.position === 'before'
+          ? html.slice(0, b.start) + op.html + '\n' + html.slice(b.start)
+          : html.slice(0, b.end) + '\n' + op.html + html.slice(b.end);
+      } else {
+        updatedHtml = html.slice(0, b.start) + html.slice(b.end);
+      }
+      summary = op.summary || summary;
+    } else if (op.op === 'clarify') {
+      return reply.code(422).send({
+        error: op.question || 'Which slide should this apply to? Select the element directly, or name the slide.',
+      });
+    } else {
+      return reply.code(502).send({ error: 'Unknown operation returned by LLM — try rephrasing' });
+    }
+
+    // Guard: closing tags must survive (patches can't remove them; slide html splices could)
     if (!/(<\/body>|<\/html>)/i.test(updatedHtml)) {
-      return reply.code(502).send({ error: 'LLM returned incomplete HTML — missing closing tags. Try rephrasing.' });
+      return reply.code(502).send({ error: 'Edit produced incomplete HTML — missing closing tags. Try rephrasing.' });
+    }
+
+    // Content verification: when we told the LLM to use a specific resolved URL,
+    // confirm it actually landed instead of trusting a no-op response.
+    if (resolvedUrlToVerify) {
+      const idMatch = resolvedUrlToVerify.match(/(?:youtube\.com\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i)
+        ?? resolvedUrlToVerify.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
+      const needle = idMatch ? idMatch[1] : resolvedUrlToVerify;
+      if (!updatedHtml.includes(needle)) {
+        return reply.code(422).send({
+          error: `Edit did not apply — the requested ${resolvedUrlKind} was not found in the result. Try rephrasing or naming the slide more specifically.`,
+        });
+      }
+    }
+
+    if (updatedHtml === html) {
+      return reply.code(422).send({ error: 'Edit produced no change — try being more specific' });
     }
 
     await writeFile(htmlPath, updatedHtml);
-    const summary = displaySummary.length > 80 ? displaySummary.slice(0, 77) + '…' : displaySummary;
-    return reply.send({ html: updatedHtml, summary });
+    const finalSummary = summary.length > 80 ? summary.slice(0, 77) + '…' : summary;
+    return reply.send({ html: updatedHtml, summary: finalSummary });
   });
 
   // PATCH /super-clients/:name/slides/:id/html — direct HTML overwrite (undo/redo sync)
