@@ -312,6 +312,21 @@ function isWordSplitSpan(el) {
   return false;
 }
 
+// ── Shared top-level-block boundary check ─────────────────────────────────
+// All current formats (web, 16:9 PDF, 9:16 PDF) wrap each top-level block in
+// a <section>. A future section-less format (e.g. a pptx-style import) might
+// instead mark blocks as <div class="slide"> — the same convention the
+// separate slide-deck editor already uses. Recognizing that shape too here
+// means section-type detection and "fill section" checks degrade gracefully
+// instead of silently finding nothing.
+function isSectionBoundary(node) {
+  var tag = (node.tagName || '').toLowerCase();
+  if (tag === 'section') return true;
+  if (tag !== 'div') return false;
+  var cls = typeof node.className === 'string' ? node.className.trim().split(/\\s+/) : [];
+  return cls.indexOf('slide') !== -1;
+}
+
 // ── Section type detection (reads section[id] directly) ──────────────────
 function getSectionType(el) {
   // Strips a trailing "-N" dedup suffix (e.g. "hero-2" -> "hero") so accidental
@@ -327,7 +342,7 @@ function getSectionType(el) {
   }
   var cur = el;
   while (cur && cur !== document.body) {
-    if ((cur.tagName || '').toLowerCase() === 'section') {
+    if (isSectionBoundary(cur)) {
       if (cur.id) return stripDedupSuffix(cur.id);
       if (cur.dataset && cur.dataset.sectionId) return stripDedupSuffix(cur.dataset.sectionId);
       if (cur.dataset && cur.dataset.type) return cur.dataset.type;
@@ -548,13 +563,14 @@ function sendMsg(msgType, rawEl) {
       computedBgColor = cs.backgroundColor || '';
       computedColor   = cs.color || '';
     } catch(e) {}
-    // Walk up to find the nearest <section> and capture its bounding rect.
-    // This lets the host compare element.rect vs sectionRect to decide whether
-    // the selected element "fills" the section (used for "Remove Section" visibility).
+    // Walk up to find the nearest section boundary and capture its bounding
+    // rect. This lets the host compare element.rect vs sectionRect to decide
+    // whether the selected element "fills" the section (used for "Remove
+    // Section" visibility).
     try {
       var secEl = el;
       while (secEl && secEl !== document.body) {
-        if ((secEl.tagName || '').toLowerCase() === 'section') {
+        if (isSectionBoundary(secEl)) {
           var sr = secEl.getBoundingClientRect();
           if (sr.width > 0 && sr.height > 0) {
             sectionRect = { top: sr.top, left: sr.left, width: sr.width, height: sr.height };

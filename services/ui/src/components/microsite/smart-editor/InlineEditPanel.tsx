@@ -628,7 +628,16 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
   const hasChildElements = /<\w/.test(
     selected.outerHtml.replace(/^<[^>]+>/, '').replace(/<\/[^>]+>$/, ''),
   );
-  const isText = (isTextEl(tag) || (!isImg && !isIcon && !hasChildElements)) && !isBgContainer;
+  // A childless, non-img, non-icon element is only "text" if it actually HAS
+  // text to edit. Without this, an empty decorative div — a gradient/tint
+  // overlay sitting over an image, a spacer, an accent bar — trivially
+  // matches "no children, not an image, not an icon" and gets a useless empty
+  // text-edit box instead of the background/container controls that would
+  // actually do something. A genuine text tag (h1/p/span/etc, via isTextEl)
+  // still counts even when momentarily empty — that's the OTHER branch below,
+  // deliberately not covered by this guard.
+  const hasTextContent = (selected.text ?? '').trim().length > 0;
+  const isText = (isTextEl(tag) || (!isImg && !isIcon && !hasChildElements && hasTextContent)) && !isBgContainer;
   const isLeaf = isText && isLeafEl(selected.outerHtml);
 
   const [localFontSize,   setLocalFontSize]   = useState(16);

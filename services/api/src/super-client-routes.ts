@@ -3541,26 +3541,49 @@ Strict rules:
     // ── Section extraction helpers ────────────────────────────────────────────
     type SectionSlice = { before: string; section: string; after: string; tag: string };
 
-    function extractAllTopLevelSections(src: string): Array<{ start: number; end: number }> {
+    // All three current orientations (web, 16:9 PDF, 9:16 PDF) generate a
+    // <section> per top-level block — only the id-naming convention differs
+    // (semantic names like "hero" vs numbered "slide-1", both handled equally
+    // by every downstream consumer here). A future format (e.g. a pptx-style
+    // import, mirroring the separate slide-deck editor's own <div class="slide">
+    // convention) might not use <section> at all — fall back to scanning for
+    // that shape so section-list/regen/breadcrumb logic degrades gracefully
+    // instead of silently seeing zero sections.
+    function extractTopLevelBlocks(src: string, tag: string, classFilter?: string): Array<{ start: number; end: number }> {
       const out: Array<{ start: number; end: number }> = [];
+      const openTagLen = tag.length + 1; // "<" + tag
+      const closeTag = `</${tag}>`;
       let pos = 0;
       while (pos < src.length) {
-        const openIdx = src.indexOf('<section', pos);
+        const openIdx = src.indexOf(`<${tag}`, pos);
         if (openIdx === -1) break;
         const tagEnd = src.indexOf('>', openIdx);
         if (tagEnd === -1) break;
-        let depth = 1, i = tagEnd + 1, sectionEnd = -1;
-        while (i < src.length && depth > 0) {
-          const nextOpen = src.indexOf('<section', i);
-          const nextClose = src.indexOf('</section>', i);
-          if (nextClose === -1) break;
-          if (nextOpen !== -1 && nextOpen < nextClose) { depth++; i = nextOpen + 8; }
-          else { depth--; i = nextClose + 10; if (depth === 0) sectionEnd = i; }
+        if (classFilter) {
+          const opening = src.slice(openIdx, tagEnd + 1);
+          const classes = (opening.match(/\bclass="([^"]+)"/i)?.[1] ?? '').split(/\s+/);
+          if (!classes.includes(classFilter)) { pos = tagEnd + 1; continue; }
         }
-        if (sectionEnd !== -1) { out.push({ start: openIdx, end: sectionEnd }); pos = sectionEnd; }
+        let depth = 1, i = tagEnd + 1, blockEnd = -1;
+        while (i < src.length && depth > 0) {
+          const nextOpen = src.indexOf(`<${tag}`, i);
+          const nextClose = src.indexOf(closeTag, i);
+          if (nextClose === -1) break;
+          if (nextOpen !== -1 && nextOpen < nextClose) { depth++; i = nextOpen + openTagLen; }
+          else { depth--; i = nextClose + closeTag.length; if (depth === 0) blockEnd = i; }
+        }
+        if (blockEnd !== -1) { out.push({ start: openIdx, end: blockEnd }); pos = blockEnd; }
         else { pos = tagEnd + 1; }
       }
       return out;
+    }
+
+    function extractAllTopLevelSections(src: string): Array<{ start: number; end: number }> {
+      const sections = extractTopLevelBlocks(src, 'section');
+      if (sections.length > 0) return sections;
+      // Fallback for a section-less format — matches the slide-deck editor's
+      // own <div class="slide"> convention.
+      return extractTopLevelBlocks(src, 'div', 'slide');
     }
 
     function extractBestSection(src: string, hint: string): SectionSlice | null {
