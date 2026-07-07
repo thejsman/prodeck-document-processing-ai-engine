@@ -3798,7 +3798,15 @@ Rules:
 - Copy each "find" string EXACTLY from the HTML — character-for-character, no paraphrasing
 - Include 15–40 chars of surrounding context so each "find" is unique in the document
 - NEVER put newlines inside "find" or "replace" — single-line strings only
-- Up to 12 patches
+- Include EVERY patch needed to fully and consistently apply the instruction.
+  If the change affects many repeated values (e.g. recalculating percentages
+  and dollar amounts across an entire pricing/breakdown table when the total
+  changes), include one patch per value — ALL of them, not a representative
+  sample. There is no fixed cap: dropping some patches to stay under an
+  arbitrary count leaves the document internally inconsistent (e.g. a headline
+  total that no longer matches the line items or footer beneath it), which is
+  worse than a longer response. Typically well under 40 for a normal edit, but
+  size the count to what the instruction actually requires.
 
 OP section_replace — redesign or restructure an existing section completely:
 { "op": "section_replace", "anchor": "section-id-or-keyword", "html": "<section>...</section>", "summary": "..." }
@@ -4468,7 +4476,15 @@ Rules:
 - Copy each "find" string EXACTLY from the HTML — character-for-character, no paraphrasing
 - Include 15–40 chars of surrounding context so each "find" is unique in the document
 - NEVER put newlines inside "find" or "replace" — single-line strings only
-- Up to 12 patches
+- Include EVERY patch needed to fully and consistently apply the instruction.
+  If the change affects many repeated values (e.g. recalculating percentages
+  and dollar amounts across an entire pricing/breakdown table when the total
+  changes), include one patch per value — ALL of them, not a representative
+  sample. There is no fixed cap: dropping some patches to stay under an
+  arbitrary count leaves the document internally inconsistent (e.g. a headline
+  total that no longer matches the line items or footer beneath it), which is
+  worse than a longer response. Typically well under 40 for a normal edit, but
+  size the count to what the instruction actually requires.
 
 OP slide_replace — redesign or restructure one slide completely:
 { "op": "slide_replace", "slide": <1-based slide number>, "html": "<div class=\\"slide\\" ...>...</div>", "summary": "..." }

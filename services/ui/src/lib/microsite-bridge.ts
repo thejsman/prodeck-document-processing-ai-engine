@@ -314,11 +314,22 @@ function isWordSplitSpan(el) {
 
 // ── Section type detection (reads section[id] directly) ──────────────────
 function getSectionType(el) {
+  // Strips a trailing "-N" dedup suffix (e.g. "hero-2" -> "hero") so accidental
+  // duplicate section names still categorize together. But when the base word
+  // left over is generic/meaningless on its own (deck ids are literally
+  // "slide-1", "slide-2", ...), stripping the number throws away the only
+  // thing that made the badge distinguish one section from another — keep
+  // the number for those instead.
+  var GENERIC_BASE = { slide:1, section:1, panel:1, screen:1, page:1, step:1 };
+  function stripDedupSuffix(id) {
+    var stripped = id.replace(/-\\d+$/, '');
+    return GENERIC_BASE[stripped] ? id : stripped;
+  }
   var cur = el;
   while (cur && cur !== document.body) {
     if ((cur.tagName || '').toLowerCase() === 'section') {
-      if (cur.id) return cur.id.replace(/-\\d+$/, '');
-      if (cur.dataset && cur.dataset.sectionId) return cur.dataset.sectionId.replace(/-\\d+$/, '');
+      if (cur.id) return stripDedupSuffix(cur.id);
+      if (cur.dataset && cur.dataset.sectionId) return stripDedupSuffix(cur.dataset.sectionId);
       if (cur.dataset && cur.dataset.type) return cur.dataset.type;
       var kws = ['hero','overview','challenge','approach','deliverables','timeline','pricing',
                  'team','testimonial','faq','footer','whyus','nextsteps','stats','benefits',
