@@ -13,6 +13,7 @@ import { parseRequestedFormat, detectPresentationIntent, detectSlideOrientation 
 import { validateSlideHtml, countSlides, extractTitle, resolveSlideOrientation } from './slides/slide-generator.js';
 import type { SavedSlide } from './slides/slide-generator.js';
 import { patchHtml, toVideoEmbedUrl, findByPath, locateElement, hideCoveringImage } from './html-patch.js';
+import { classifyChatIntent, type IntentDecision, type PendingClarification } from './super-client/intent-gate.js';
 
 // Strip preview-only injections that the UI adds to srcdoc iframes.
 // These must never be saved to disk — if the client sends currentHtml that
