@@ -1808,33 +1808,40 @@ export default function SuperClientPage() {
           // "replace logo with [url]" without element selected → targeted logo replacement
           instruction = `__LOGO_REPLACE__:${url}`;
         } else {
-          // Generic image URL, no element → global replacement
-          instruction = `__IMAGE_INJECT__:${url}`;
+          // No element selected. __IMAGE_INJECT__ blindly replaces the FIRST
+          // background-image / <img> in the document, so it is only safe when
+          // the user gave us nothing but the URL itself (a bare paste = "put
+          // this image wherever the main image is"). Any surrounding words
+          // ("add this into the pricing section", "use as the team photo",
+          // "place it below the heading") carry placement/target intent that a
+          // first-match replacement would silently get wrong — those sentences
+          // flow through unchanged to the server's LLM operation-picker, which
+          // sees the full document and decides target + placement itself.
+          const textMinusUrl = micrositeEditInput
+            .replace(url, ' ')
+            .replace(/[\s.,;:!?'"()-]+/g, ' ')
+            .trim();
+          if (!textMinusUrl) {
+            instruction = `__IMAGE_INJECT__:${url}`;
+          }
+          // else: keep the raw sentence → server op-picker decides.
         }
       }
-      if (isVideo) {
-        const STOP_WORDS = /^(this|the|a|an|that|my|our|your|it|its|there|here|any|some|new|old)$/i;
-        const sectionM =
-          micrositeEditInput.match(/\bin\s+(?:the\s+)?(\w[\w-]*)\s+section\b/i) ??
-          micrositeEditInput.match(/\b(\w[\w-]*)\s+section\b/i);
-        const sectionKeyword = sectionM?.[1] && !STOP_WORDS.test(sectionM[1]) ? sectionM[1].toLowerCase() : '';
-        if (!selectedElement?.path) {
-          // No element selected → route through __VIDEO_IN_SECTION__ with the parsed keyword
-          // (prevents automatic hero background injection when no section is named).
-          instruction = `__VIDEO_IN_SECTION__:||${sectionKeyword}||${url}||${micrositeEditInput.trim()}`;
-        } else if (selectedElement.tag?.toLowerCase() === 'section') {
-          // A <section> is selected: use the named keyword from the prompt if given,
-          // otherwise fall back to the selected section's own id/class so the video
-          // lands in the right section with preserved params + class="video-embed".
-          const selectedSectionId =
-            sectionKeyword ||
-            selectedElement.path.match(/section#([\w-]+)/)?.[1] ||
-            selectedElement.path.match(/section\.([\w-]+)/)?.[1] ||
-            '';
-          instruction = `__VIDEO_IN_SECTION__:||${selectedSectionId}||${url}||${micrositeEditInput.trim()}`;
-        }
-        // else: non-section element selected → __ELEMENT_EDIT__ flow handles it
-      }
+      // NOTE: a section-keyword regex used to rewrite video-URL sentences into
+      // __VIDEO_IN_SECTION__ here — for both "no element selected" and "a
+      // <section> is selected" cases. It was removed because guessing the
+      // target section (and whether "background" means hero-fill vs inline)
+      // from a free-text sentence is exactly the fragile pattern this editor
+      // is moving away from, and it collided with unrelated sentence clauses
+      // (e.g. "remove background image and add this video..." was misread by
+      // a *different* server-side regex before this one even ran). With no
+      // element selected, the raw sentence now flows to the server's unified
+      // LLM operation-picker, which normalizes the video URL to an embed URL
+      // itself and decides placement from the full instruction + full
+      // document. With a <section> selected, it falls through to the default
+      // __ELEMENT_EDIT__ instruction built above — the same LLM-driven,
+      // element-scoped path already used for every other free-text edit on a
+      // selected element.
       // Video URL: server's Vimeo/YouTube detection fires on any matching URL.
     }
     // Snapshot label for chat messages before clearing input

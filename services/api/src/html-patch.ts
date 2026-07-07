@@ -10,6 +10,42 @@ export type PatchResult =
   | { html: string; summary: string }
   | { error: string; statusCode: number };
 
+// ── Hide a covering <img> when a solid background color is applied ───────────
+// A background-color set on an element whose visible area is filled by a
+// full-bleed <img> (the standard "photo as section background" pattern) paints
+// underneath that opaque photo and is never visible. Whenever a background
+// color/gradient is applied, hide any <img> starting within the element's
+// first ~3000 chars (mirrors the scope __REMOVE_BACKGROUND__ already uses) so
+// the new color actually shows.
+export function hideCoveringImage(src: string, elementStart: number): string {
+  const inner = src.slice(elementStart, elementStart + 3000);
+  const imgRe = /(<img\b)([^>]*)(\/?>)/gi;
+  return src.replace(imgRe, (match, open, attrs, close) => {
+    if (!inner.includes((open + attrs).slice(0, 60))) return match;
+    if (/\bdisplay\s*:\s*none\b/i.test(attrs)) return match;
+    const styleM = attrs.match(/\bstyle="([^"]*)"/i);
+    if (styleM) return match.replace(/\bstyle="([^"]*)"/i, `style="${styleM[1].trim()};display:none"`);
+    return `${open}${attrs} style="display:none"${close}`;
+  });
+}
+
+// ── Video URL → embed URL normalization ───────────────────────────────────────
+// Watch-page URLs (youtube.com/watch, youtu.be, vimeo.com/ID) refuse to load in
+// iframes (X-Frame-Options) — convert to the embeddable player URL. Non-video or
+// already-embed URLs pass through unchanged.
+export function toVideoEmbedUrl(raw: string): string {
+  const vimeoM = raw.match(/^https?:\/\/(?:www\.)?vimeo\.com\/(\d+)([?&]\S*)?/i);
+  if (vimeoM) {
+    const params = vimeoM[2] ?? '?autoplay=1&loop=1&muted=1&title=0&byline=0&portrait=0';
+    return `https://player.vimeo.com/video/${vimeoM[1]}${params}`;
+  }
+  const ytW = raw.match(/youtube\.com\/watch\?.*\bv=([a-zA-Z0-9_-]{11})/i);
+  if (ytW) return `https://www.youtube.com/embed/${ytW[1]}?autoplay=1&loop=1&mute=1&controls=0&playlist=${ytW[1]}`;
+  const ytS = raw.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/i);
+  if (ytS) return `https://www.youtube.com/embed/${ytS[1]}?autoplay=1&loop=1&mute=1&controls=0&playlist=${ytS[1]}`;
+  return raw;
+}
+
 // ── Position-based element finder ─────────────────────────────────────────────
 // Traverses the HTML string using a CSS path with nth-of-type indices.
 // Position-based so browser attribute normalisation never causes mismatches.
@@ -177,7 +213,7 @@ export function patchHtml(html: string, instruction: string): PatchResult | null
     const rest    = elementHtml.slice(tagEnd);
     const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
     const sm = styleRx.exec(openTag);
-    const clearBgImage = prop === 'background-color';
+    const clearBgImage = prop === 'background-color' || prop === 'background';
     let patchedTag: string;
     if (sm) {
       const escaped = prop.replace(/-/g, '\\-');
@@ -189,7 +225,10 @@ export function patchHtml(html: string, instruction: string): PatchResult | null
       const extra = clearBgImage ? '; background-image:none !important' : '';
       patchedTag = `${openTag} style="${prop}:${value}${extra}"`;
     }
-    return { html: html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end), summary: `${prop} set to ${value}` };
+    let updatedHtml = html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end);
+    // A covering <img> would otherwise hide the new solid color underneath it.
+    if (clearBgImage) updatedHtml = hideCoveringImage(updatedHtml, bounds.start);
+    return { html: updatedHtml, summary: `${prop} set to ${value}` };
   }
 
   // ── __TEXT_PATCH__ ───────────────────────────────────────────────────────────
@@ -307,6 +346,10 @@ export function patchHtml(html: string, instruction: string): PatchResult | null
       out = target.replace(/(<img\b[^>]*?\bsrc=["'])([^'"]+)(["'])/i, (_m, pre, _old, post) => `${pre}${newUrl}${post}`);
       if (out !== target) return out;
       out = target.replace(/\bdata-bg=["'][^'"]*["']/gi, () => `data-bg="${newUrl}"`);
+      if (out !== target) return out;
+      // data-src lazy-load: JS copies it into src at runtime, so the browser DOM
+      // shows an <img src> that the stored HTML doesn't have
+      out = target.replace(/(<img\b[^>]*?\bdata-src=["'])([^'"]+)(["'])/i, (_m, pre, _old, post) => `${pre}${newUrl}${post}`);
       return out;
     };
     const patchSrcOnElement = (target: string): string => {
@@ -366,7 +409,74 @@ export function patchHtml(html: string, instruction: string): PatchResult | null
       }
     }
 
+    // Graceful fallback: element located but holds no replaceable image reference
+    // in the stored HTML (its visible image may be injected by JS at runtime, or
+    // it never had one). Apply the image as a cover background on the element
+    // itself instead of dead-ending with an error.
+    if (bounds) {
+      const elementHtml = html.slice(bounds.start, bounds.end);
+      const tagEnd = elementHtml.indexOf('>');
+      if (tagEnd !== -1) {
+        const openTag = elementHtml.slice(0, tagEnd);
+        const rest    = elementHtml.slice(tagEnd);
+        const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+        const sm      = styleRx.exec(openTag);
+        const bgVal   = `background-image:url('${newUrl}') !important;background-size:cover !important;background-position:center !important`;
+        let patchedTag: string;
+        if (sm) {
+          const existing = sm[1]
+            .replace(/\bbackground-image\s*:\s*(?:url\([^)]*\)|[^;]*)\s*;?\s*/gi, '')
+            .replace(/\bbackground-size\s*:[^;]+;?\s*/gi, '')
+            .replace(/\bbackground-position\s*:[^;]+;?\s*/gi, '')
+            .trim().replace(/;$/, '');
+          patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}${bgVal}"`);
+        } else {
+          patchedTag = `${openTag} style="${bgVal}"`;
+        }
+        return { html: html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end), summary: 'Image applied as background' };
+      }
+    }
+
     return { error: 'Could not locate the selected image — click the image again to re-select it', statusCode: 422 };
+  }
+
+  // ── __VIDEO_INJECT__ ─────────────────────────────────────────────────────────
+  // Replaces the iframe/video src inside the selected container with a new video
+  // URL (normalized to embed format). Returns null when the element contains no
+  // iframe/video — the LLM fallback then handles structural insertion.
+  const videoInjectMatch = instruction.match(/^__VIDEO_INJECT__:([\s\S]+?)\|\|(https?:\/\/[^\|]+)(?:\|\|[\s\S]*)?$/s);
+  if (videoInjectMatch) {
+    const cssPath = videoInjectMatch[1].trim();
+    const newSrc  = toVideoEmbedUrl(videoInjectMatch[2].trim());
+
+    const patchVideoSrc = (target: string): string => {
+      const iframePatched = target.replace(
+        /(<iframe\b[^>]*?\bsrc=["'])([^'"]+)(["'])/i,
+        (_m, pre, _old, post) => `${pre}${newSrc}${post}`,
+      );
+      if (iframePatched !== target) return iframePatched;
+      return target.replace(
+        /(<video\b[^>]*?\bsrc=["'])([^'"]+)(["'])/i,
+        (_m, pre, _old, post) => `${pre}${newSrc}${post}`,
+      );
+    };
+
+    const bounds = findByPath(html, cssPath);
+    if (bounds) {
+      const elementHtml = html.slice(bounds.start, bounds.end);
+      const patched = patchVideoSrc(elementHtml);
+      if (patched !== elementHtml) {
+        return { html: html.slice(0, bounds.start) + patched + html.slice(bounds.end), summary: 'Video updated' };
+      }
+      // Element located but holds no player — let the LLM do the structural
+      // insertion. Patching some OTHER element's iframe would silently edit
+      // the wrong slide.
+      return null;
+    }
+    // Path lookup failed entirely — fall back to the first video iframe in the document
+    const globalPatched = patchVideoSrc(html);
+    if (globalPatched !== html) return { html: globalPatched, summary: 'Video updated' };
+    return null; // no existing player — let the LLM insert one
   }
 
   // ── __REMOVE_BY_PATH__ ───────────────────────────────────────────────────────
@@ -472,16 +582,7 @@ export function patchHtml(html: string, instruction: string): PatchResult | null
           result = result.replace(clsRe, '$1');
         }
       }
-      const inner = result.slice(b.start, b.start + 3000);
-      const imgRe = /(<img\b)([^>]*)(\/?>)/gi;
-      result = result.replace(imgRe, (match, open, attrs, close) => {
-        if (!inner.includes((open + attrs).slice(0, 60))) return match;
-        if (/\bdisplay\s*:\s*none\b/i.test(attrs)) return match;
-        const styleM = attrs.match(/\bstyle="([^"]*)"/i);
-        if (styleM) return match.replace(/\bstyle="([^"]*)"/i, `style="${styleM[1].trim()};display:none"`);
-        return `${open}${attrs} style="display:none"${close}`;
-      });
-      return result;
+      return hideCoveringImage(result, b.start);
     }
 
     let updated = clearBgFromElement(html, bounds);
@@ -512,11 +613,40 @@ export function patchHtml(html: string, instruction: string): PatchResult | null
   }
 
   // ── __ICON_REPLACE__ ─────────────────────────────────────────────────────────
-  const iconReplaceMatch = instruction.match(/^__ICON_REPLACE__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|[\s\S]*)?$/s);
+  const iconReplaceMatch = instruction.match(/^__ICON_REPLACE__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|([\s\S]*))?$/s);
   if (iconReplaceMatch) {
-    const cssPath = iconReplaceMatch[1].trim();
-    const imgUrl  = iconReplaceMatch[2].trim().replace(/['"<>]/g, '');
-    const bounds = findByPath(html, cssPath);
+    const cssPath  = iconReplaceMatch[1].trim();
+    const imgUrl   = iconReplaceMatch[2].trim().replace(/['"<>]/g, '');
+    const hintHtml = (iconReplaceMatch[3] ?? '').trim();
+    let bounds = findByPath(html, cssPath);
+    // Content-based fallback when the path doesn't match (e.g. after an LLM edit
+    // restructured the DOM around the icon)
+    if (!bounds && hintHtml) {
+      const hintStart = locateElement(html, hintHtml);
+      if (hintStart !== -1) {
+        const tagName = hintHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+        if (tagName) {
+          const tagEnd = html.indexOf('>', hintStart);
+          if (tagEnd !== -1) {
+            const opening = html.slice(hintStart, tagEnd + 1);
+            if (tagName === 'img' || opening.trimEnd().endsWith('/>')) {
+              bounds = { start: hintStart, end: tagEnd + 1 };
+            } else {
+              const close = `</${tagName}>`;
+              let depth = 1, j = tagEnd + 1;
+              while (j < html.length && depth > 0) {
+                const nO = html.indexOf(`<${tagName}`, j);
+                const nC = html.indexOf(close, j);
+                if (nC === -1) break;
+                if (nO !== -1 && nO < nC) { depth++; j = nO + tagName.length + 1; }
+                else { depth--; j = nC + close.length; }
+              }
+              bounds = { start: hintStart, end: j };
+            }
+          }
+        }
+      }
+    }
     if (!bounds) return { error: 'Target element not found — click it again to re-select', statusCode: 422 };
     const elementHtml = html.slice(bounds.start, bounds.end);
     const wMatch = elementHtml.match(/\bwidth="([^"]+)"/i) || elementHtml.match(/\bwidth\s*:\s*([^;'"]+)/i);
