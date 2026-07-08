@@ -3025,7 +3025,33 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       if (!svgMarkup.startsWith('<svg'))
         return reply.code(400).send({ error: 'Payload must be an SVG element' });
 
-      const bounds = findByPath(html, cssPath);
+      let bounds = findByPath(html, cssPath);
+      // SVG-specific fallback — browsers normalize SVG attribute order so exact
+      // path match can fail; locate the first <svg> inside the named section instead.
+      if (!bounds) {
+        const sectionIdMatch = cssPath.match(/section#([\w-]+)/);
+        if (sectionIdMatch) {
+          const secBounds = findByPath(html, `section#${sectionIdMatch[1]}`);
+          if (secBounds) {
+            const svgIdx = html.indexOf('<svg', secBounds.start);
+            if (svgIdx !== -1 && svgIdx < secBounds.end) {
+              const svgTagEnd = html.indexOf('>', svgIdx);
+              if (svgTagEnd !== -1) {
+                const svgClose = '</svg>';
+                let depth = 1, j = svgTagEnd + 1;
+                while (j < secBounds.end && depth > 0) {
+                  const nO = html.indexOf('<svg', j);
+                  const nC = html.indexOf(svgClose, j);
+                  if (nC === -1) break;
+                  if (nO !== -1 && nO < nC) { depth++; j = nO + 4; }
+                  else { depth--; j = nC + svgClose.length; }
+                }
+                bounds = { start: svgIdx, end: j };
+              }
+            }
+          }
+        }
+      }
       if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
 
       const originalHtml = html.slice(bounds.start, bounds.end);
@@ -3074,6 +3100,33 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
                   else { depth--; j = nC + close.length; }
                 }
                 bounds = { start: hintStart, end: j };
+              }
+            }
+          }
+        }
+      }
+      // SVG-specific fallback: browsers normalize SVG attribute order in outerHTML,
+      // so locateElement's substring/attribute match fails. When the cssPath names a
+      // section id, find the first <svg> inside that section directly.
+      if (!bounds && /^<svg\b/i.test(hintHtml)) {
+        const sectionIdMatch = cssPath.match(/section#([\w-]+)/);
+        if (sectionIdMatch) {
+          const secBounds = findByPath(html, `section#${sectionIdMatch[1]}`);
+          if (secBounds) {
+            const svgIdx = html.indexOf('<svg', secBounds.start);
+            if (svgIdx !== -1 && svgIdx < secBounds.end) {
+              const svgTagEnd = html.indexOf('>', svgIdx);
+              if (svgTagEnd !== -1) {
+                const svgClose = '</svg>';
+                let depth = 1, j = svgTagEnd + 1;
+                while (j < secBounds.end && depth > 0) {
+                  const nO = html.indexOf('<svg', j);
+                  const nC = html.indexOf(svgClose, j);
+                  if (nC === -1) break;
+                  if (nO !== -1 && nO < nC) { depth++; j = nO + 4; }
+                  else { depth--; j = nC + svgClose.length; }
+                }
+                bounds = { start: svgIdx, end: j };
               }
             }
           }
