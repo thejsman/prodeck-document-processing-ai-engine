@@ -88,6 +88,8 @@ import {
   listSlides,
   getSlideHtmlUrl,
   deleteSlide,
+  fetchClientMemory,
+  updateClientStableField,
   type SuperClientMeta,
   type SuperClientHistoryEntry,
   type SuperClientChatEvent,
@@ -729,6 +731,15 @@ export default function SuperClientPage() {
     orientation?: 'landscape' | 'portrait';
   } | null>(null);
 
+  // True while any artifact panel (proposal, document, microsite, slide) is
+  // open. Generation-complete handlers read this ref — their closures capture
+  // stale state from when the generation started — to decide whether
+  // auto-opening the finished artifact would hijack something the user is
+  // currently viewing or editing. When it would, the artifact only lands in
+  // the artifacts tab + generation card, and the user opens it from there.
+  const artifactOpenRef = useRef(false);
+  artifactOpenRef.current = !!(viewingProposal || viewingDocument || viewingMicrosite || viewingSlide);
+
   // Cache last-seen content so panels render content during close animation (prevents content flash)
   const lastMicrositeRef = useRef(viewingMicrosite);
   if (viewingMicrosite) lastMicrositeRef.current = viewingMicrosite;
@@ -970,6 +981,10 @@ export default function SuperClientPage() {
   // Active clarifying question — rendered in the composer (like the proposal
   // selector) instead of inline; while set, the text input is hidden.
   const [activeQuestion, setActiveQuestion] = useState<{ text: string; options: string[] } | null>(null);
+  // When set, the active clarify question is a local profile-field question
+  // (e.g. Project Type missing after ingestion) — the answer is saved straight
+  // to client memory instead of being sent to the chat backend.
+  const [pendingProfileField, setPendingProfileField] = useState<null | 'projectType'>(null);
   const [composerProposal, setComposerProposal] = useState<{
     proposal: SuperClientProposal;
     markdown: string;
@@ -1272,6 +1287,87 @@ export default function SuperClientPage() {
     };
   }, [docs, loadDocs]);
 
+  // ── Deep link: /super-client/{name}?open={proposal|microsite|document|slide}&id=…
+  // Used by the aggregated /artifacts page so tapping a card there opens the
+  // artifact through the exact same right-panel handlers — identical UI/UX to
+  // opening it from this page's artifacts tab. Waits for the relevant list to
+  // load, then opens the listed item; if the list has loaded and the item is
+  // gone, the handler's own 404 path (toast + prune) takes over.
+  const deepLinkConsumedRef = useRef(false);
+  // Armed when the deep link came from the /artifacts page: closing that
+  // artifact returns the user there (same tab). Cleared as soon as the user
+  // opens anything else in this client — they've started working here.
+  const artifactsReturnRef = useRef<{ type: string; id: string; seen: boolean } | null>(null);
+  useEffect(() => {
+    if (deepLinkConsumedRef.current || typeof window === 'undefined') return;
+    const qs = new URLSearchParams(window.location.search);
+    const open = qs.get('open');
+    const id = qs.get('id');
+    if (!open || !id) {
+      deepLinkConsumedRef.current = true;
+      return;
+    }
+    const consume = () => {
+      deepLinkConsumedRef.current = true;
+      if (qs.get('from') === 'artifacts') {
+        artifactsReturnRef.current = { type: open, id, seen: false };
+      }
+      // Strip the params so back/refresh doesn't re-open the artifact.
+      router.replace(`/super-client/${encodeURIComponent(name)}`, { scroll: false });
+    };
+    if (open === 'proposal') {
+      const found = proposals.find((p) => p.fileName === id);
+      if (found) { consume(); void openProposal(found); }
+      else if (proposals.length > 0) { consume(); void openProposal({ fileName: id, title: id.replace(/\.md$/i, ''), savedAt: '' }); }
+    } else if (open === 'microsite') {
+      const found = microsites.find((m) => m.id === id);
+      if (found) { consume(); void handleOpenMicrosite(found); }
+      else if (microsites.length > 0) { consume(); void handleOpenMicrosite({ id } as SuperClientMicrosite); }
+    } else if (open === 'document') {
+      const found = generatedDocs.find((d) => d.id === id);
+      if (found) { consume(); void openDocument(found); }
+      else if (generatedDocs.length > 0) { consume(); void openDocument({ id, title: '', documentType: '' } as GeneratedDocument); }
+    } else if (open === 'slide') {
+      const found = savedSlides.find((s) => s.id === id);
+      if (found) { consume(); openSlide(found); }
+      else if (savedSlides.length > 0) { consume(); openSlide({ id, title: '', client: name, slideCount: 0, savedAt: '' } as SavedSlide); }
+    } else {
+      deepLinkConsumedRef.current = true;
+    }
+  }, [proposals, microsites, generatedDocs, savedSlides]);
+
+  // Return-to-/artifacts watcher: covers every close path (X button, dismiss,
+  // delete) by observing the viewer states instead of instrumenting each
+  // handler. Waits until the deep-linked artifact has actually opened (`seen`),
+  // then: closed with nothing else open → navigate back to the originating
+  // /artifacts tab; replaced by another artifact → disarm and stay.
+  useEffect(() => {
+    const r = artifactsReturnRef.current;
+    if (!r) return;
+    const ownId =
+      r.type === 'proposal' ? viewingProposal?.fileName
+      : r.type === 'microsite' ? viewingMicrosite?.id
+      : r.type === 'document' ? viewingDocument?.id
+      : r.type === 'slide' ? viewingSlide?.id
+      : undefined;
+    const anyOpen = !!(viewingProposal || viewingMicrosite || viewingDocument || viewingSlide);
+    if (!r.seen) {
+      if (ownId === r.id) r.seen = true;
+      else if (anyOpen) artifactsReturnRef.current = null; // opened something else before ours loaded
+      return;
+    }
+    if (ownId === r.id) return; // still open
+    artifactsReturnRef.current = null;
+    if (!anyOpen) {
+      const tab =
+        r.type === 'proposal' ? 'proposals'
+        : r.type === 'microsite' ? 'microsites'
+        : r.type === 'document' ? 'documents'
+        : 'presentations';
+      router.push(`/artifacts?tab=${tab}`);
+    }
+  }, [viewingProposal, viewingMicrosite, viewingDocument, viewingSlide]);
+
   // When a document transitions from processing → extracted, add an assistant summary message
   const prevDocsRef = useRef<SuperClientFile[]>([]);
   useEffect(() => {
@@ -1300,6 +1396,28 @@ export default function SuperClientPage() {
       },
     ]);
     void appendSuperClientHistory(apiKey, name, [{ role: 'assistant', content: indexedContent }]);
+
+    // Extraction has already written stable fields (industry, project type) to
+    // client memory. If the ingested documents did not yield a Project Type,
+    // ask for it with the composer question card — unless the composer is
+    // already occupied (proposal selector, another question, …).
+    if (composerStage === null) {
+      void (async () => {
+        try {
+          const mem = await fetchClientMemory(apiKey, name);
+          const projectType = String(mem?.stableFields?.projectType?.value ?? '').trim();
+          if (projectType) return;
+          setActiveQuestion({
+            text: `The ingested document${names.length > 1 ? 's' : ''} didn't mention a project type. What kind of project is this engagement for ${meta?.displayName ?? name}?`,
+            options: ['Proposal', 'Microsite / Proposal', 'Presentation / Pitch Deck', 'Website / Landing Page', 'Other…'],
+          });
+          setPendingProfileField('projectType');
+          setComposerStage('clarify');
+        } catch {
+          // Non-critical — the field stays editable in the Context tab.
+        }
+      })();
+    }
   }, [docs]);
 
   // Ctrl+Z = undo, Ctrl+Y / Ctrl+Shift+Z = redo for microsite & slide editors
@@ -2699,6 +2817,7 @@ export default function SuperClientPage() {
   function resetComposer() {
     setComposerStage(null);
     setActiveQuestion(null);
+    setPendingProfileField(null);
     setComposerProposal(null);
     setComposerInstructions('');
     setComposerPresentationMode('web');
@@ -3198,22 +3317,27 @@ export default function SuperClientPage() {
                 };
               }
             }
-            // Open panel immediately with the stream AST — don't block on save
             if (isPdfMode) ast = { ...ast, pdfPresentation: true, pdfOrientation };
             const tempId = `preview-${msGenId}`;
-            const genHtml = buildHtml(ast);
-            setActiveSrcDoc(computeSrcDoc(genHtml, false));
-            setViewingMicrosite({
-              id: tempId,
-              ast,
-              renderKey: `${tempId}-${Date.now()}`,
-            });
-            seedHistory(genHtml); // seed undo history with initial generated state
-            setViewingProposal(null);
-            setChangedSections(new Set());
-            setUpdateBanner('');
-            setActiveRightTab('artifacts');
-            collapseForPanel();
+            // Open the panel immediately with the stream AST (don't block on
+            // save) — but never hijack an artifact the user is viewing or
+            // editing; then the microsite stays reachable via the generation
+            // card and the artifacts tab instead.
+            if (!artifactOpenRef.current) {
+              const genHtml = buildHtml(ast);
+              setActiveSrcDoc(computeSrcDoc(genHtml, false));
+              setViewingMicrosite({
+                id: tempId,
+                ast,
+                renderKey: `${tempId}-${Date.now()}`,
+              });
+              seedHistory(genHtml); // seed undo history with initial generated state
+              setViewingProposal(null);
+              setChangedSections(new Set());
+              setUpdateBanner('');
+              setActiveRightTab('artifacts');
+              collapseForPanel();
+            }
             // Mark complete immediately so the progress card snaps to 100% without waiting for save
             generationStore.complete(msGenId, { ast });
             void (async () => {
@@ -3282,6 +3406,41 @@ export default function SuperClientPage() {
   async function sendMessage(overrideText?: string) {
     const text = (overrideText ?? input).trim();
     if (!text || streaming) return;
+
+    // Answer to a local profile-field question (e.g. Project Type missing after
+    // ingestion): save straight to client memory — never send to the chat
+    // backend. Must run before intent detection so an answer like
+    // "Microsite / Proposal" is not hijacked by the microsite intercept.
+    if (pendingProfileField) {
+      const field = pendingProfileField;
+      setPendingProfileField(null);
+      resetComposer();
+      setInput('');
+      const answerTs = new Date().toISOString();
+      const confirmTs = new Date(Date.now() + 1).toISOString();
+      setMessages((prev) => [...prev, { id: genId(), role: 'user', content: text, createdAt: answerTs }]);
+      try {
+        await updateClientStableField(apiKey, name, field, text);
+        setMemoryKey((k) => k + 1);
+        const confirmMsg = `Got it — Project Type set to **${text}**. You can edit it anytime in the Context tab.`;
+        setMessages((prev) => [...prev, { id: genId(), role: 'assistant', content: confirmMsg, createdAt: confirmTs }]);
+        void appendSuperClientHistory(apiKey, name, [
+          { role: 'user', content: text, createdAt: answerTs },
+          { role: 'assistant', content: confirmMsg, createdAt: confirmTs },
+        ]);
+      } catch {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: genId(),
+            role: 'assistant',
+            content: 'Could not save the project type — you can set it manually in the Context tab.',
+            createdAt: confirmTs,
+          },
+        ]);
+      }
+      return;
+    }
 
     const isQuestion = /^(how|what|why|when|where|who|is|are|can|could|would|does|do|did|will|should)\b/i.test(text);
     if (!isQuestion && MICROSITE_INTENT_RE.test(text)) {
@@ -3529,7 +3688,6 @@ export default function SuperClientPage() {
                 { fileName: evt.proposalSaved.fileName },
                 evt.proposalSaved.title,
               );
-              setActiveRightTab("artifacts");
               // Optimistic update so the artifacts tab is populated immediately
               setProposals((prev) => {
                 if (
@@ -3539,7 +3697,12 @@ export default function SuperClientPage() {
                 return [evt.proposalSaved!, ...prev];
               });
               loadProposals();
-              void openProposal(evt.proposalSaved!);
+              // Never slide the new proposal in over an artifact the user is
+              // viewing/editing — it stays reachable via the generation card.
+              if (!artifactOpenRef.current) {
+                setActiveRightTab("artifacts");
+                void openProposal(evt.proposalSaved!);
+              }
             } else if (evt.proposalSaved && evt.slideSaved) {
               // Slides take the card — update proposals list silently, dismiss any early card
               setProposals((prev) => {
@@ -3620,7 +3783,9 @@ export default function SuperClientPage() {
                   : [evt.documentSaved!, ...prev],
               );
               loadGeneratedDocs();
-              void openDocument(evt.documentSaved);
+              // Never slide the new document in over an artifact the user is
+              // viewing/editing — it stays reachable via the generation card.
+              if (!artifactOpenRef.current) void openDocument(evt.documentSaved);
             } else if (documentGenId) {
               generationStore.dismiss(documentGenId);
               setMessages((prev) =>
@@ -3654,13 +3819,17 @@ export default function SuperClientPage() {
                 { slideId: evt.slideSaved.id },
                 evt.slideSaved.title,
               );
-              setActiveRightTab("artifacts");
               setSavedSlides((prev) =>
                 prev.some((s) => s.id === evt.slideSaved!.id)
                   ? prev
                   : [evt.slideSaved!, ...prev],
               );
-              openSlide(evt.slideSaved);
+              // Never slide the new presentation in over an artifact the user
+              // is viewing/editing — it stays reachable via the generation card.
+              if (!artifactOpenRef.current) {
+                setActiveRightTab("artifacts");
+                openSlide(evt.slideSaved);
+              }
             } else if (slideGenId) {
               // Intent matched but LLM didn't generate a presentation — remove the capsule
               generationStore.dismiss(slideGenId);
@@ -4432,7 +4601,18 @@ export default function SuperClientPage() {
                         key={i}
                         className="sc-q-stagger"
                         disabled={streaming}
-                        onClick={() => { const t = opt; resetComposer(); void sendMessage(t); }}
+                        onClick={() => {
+                          // "Other…" on a profile-field question: return the text
+                          // composer for a custom answer, keeping the question
+                          // pending so the typed reply is saved to the field.
+                          // Deliberately NOT resetComposer() — that clears the flag.
+                          if (pendingProfileField && opt === 'Other…') {
+                            setComposerStage(null);
+                            setActiveQuestion(null);
+                            return;
+                          }
+                          const t = opt; resetComposer(); void sendMessage(t);
+                        }}
                         style={{
                           border: '1px solid var(--border)',
                           background: 'var(--panel)',
@@ -5473,7 +5653,9 @@ export default function SuperClientPage() {
                           : handleKeyDown
                     }
                     placeholder={
-                      micrositeEditActive && editModeActive && selectedElement
+                      pendingProfileField
+                        ? `Type the project type for ${meta.displayName}…`
+                        : micrositeEditActive && editModeActive && selectedElement
                         ? selectedElement.tag === 'img'
                           ? 'Paste URL or describe the change…'
                           : `Describe the edit…`
@@ -7420,7 +7602,7 @@ export default function SuperClientPage() {
                     />
                   )}
 
-                  <ClientProfileFields namespace={name} />
+                  <ClientProfileFields key={`profile-${memoryKey}`} namespace={name} />
 
                   {/* Documents */}
                   <div className="client-panel-list" style={{ paddingTop: 8, paddingLeft: 12, paddingRight: 12 }}>
@@ -8616,6 +8798,7 @@ export default function SuperClientPage() {
               setUpdateBanner('');
             }
             collapseForPanel();
+            setActiveRightTab('artifacts');
             try {
               const saved = await saveSuperClientMicrosite(apiKey, name, ast, proposalTitle);
               setViewingMicrosite((prev) =>
@@ -8627,6 +8810,8 @@ export default function SuperClientPage() {
                     }
                   : prev,
               );
+              // Optimistic insert so the artifacts panel lists it immediately
+              setMicrosites((prev) => (prev.some((m) => m.id === saved.id) ? prev : [saved, ...prev]));
               loadMicrosites();
               showToast('Microsite generated and saved');
             } catch (err) {

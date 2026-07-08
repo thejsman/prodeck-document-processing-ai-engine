@@ -79,6 +79,7 @@ interface ArtifactSlide {
   slideCount: number;
   clientName: string;
   clientSlug: string;
+  id: string;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -393,7 +394,9 @@ export function ArtifactsPage() {
               rawDate: p.savedAt,
               clientName: slugToDisplayName(clientName),
               clientSlug: clientName,
-              navUrl: `/proposal?artifact=${encodeURIComponent(p.fileName)}&namespace=${encodeURIComponent('sc-' + clientName)}&from=chat`,
+              // Deep link into the super client page so the proposal opens in the
+              // same right-panel viewer as the client's own artifacts tab.
+              navUrl: `/super-client/${encodeURIComponent(clientName)}?open=proposal&id=${encodeURIComponent(p.fileName)}&from=artifacts`,
               deleteInfo: { kind: 'sc', client: clientName, fileName: p.fileName },
             });
           });
@@ -441,7 +444,9 @@ export function ArtifactsPage() {
               rawDate: m.savedAt,
               clientSlug: clientName,
               type: m.pdfPresentation ? (m.pdfOrientation === 'portrait' ? 'PDF 9:16' : 'PDF 16:9') : undefined,
-              navUrl: `/microsite-view/${encodeURIComponent('sc-' + clientName)}/${encodeURIComponent(m.id)}?scClient=${encodeURIComponent(clientName)}&scId=${encodeURIComponent(m.id)}`,
+              // Deep link into the super client page so the microsite opens in the
+              // same right-panel viewer as the client's own artifacts tab.
+              navUrl: `/super-client/${encodeURIComponent(clientName)}?open=microsite&id=${encodeURIComponent(m.id)}&from=artifacts`,
               deleteInfo: { kind: 'sc', client: clientName, id: m.id },
             });
           });
@@ -498,6 +503,7 @@ export function ArtifactsPage() {
             slideCount: s.slideCount,
             clientName: displayName,
             clientSlug: clientName,
+            id: s.id,
           })),
         );
       allSlides.sort((a, b) => new Date(b.rawDate).getTime() - new Date(a.rawDate).getTime());
@@ -711,8 +717,10 @@ export function ArtifactsPage() {
                       date={d.date}
                       clientLabel={d.clientName}
                       onView={() =>
+                        // Deep link into the super client page — opens in the same
+                        // right-panel viewer as the client's own artifacts tab.
                         router.push(
-                          `/document?artifact=${encodeURIComponent(d.id)}&client=${encodeURIComponent(d.clientSlug)}`,
+                          `/super-client/${encodeURIComponent(d.clientSlug)}?open=document&id=${encodeURIComponent(d.id)}&from=artifacts`,
                         )
                       }
                     />
@@ -745,7 +753,14 @@ export function ArtifactsPage() {
                       title={s.title}
                       date={s.date}
                       clientLabel={s.clientName}
-                      onView={() => router.push(`/super-client/${encodeURIComponent(s.clientSlug)}`)}
+                      onView={() =>
+                        // Deep link into the super client page — opens the slide deck
+                        // in the same right-panel viewer as the client's artifacts tab
+                        // (previously this only navigated to the client page).
+                        router.push(
+                          `/super-client/${encodeURIComponent(s.clientSlug)}?open=slide&id=${encodeURIComponent(s.id)}&from=artifacts`,
+                        )
+                      }
                     />
                   ))
                 )}
