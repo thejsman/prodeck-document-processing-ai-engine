@@ -43,23 +43,18 @@ export function extractTitle(html: string): string {
   return 'Presentation';
 }
 
-// Inject a layout enforcer so slides are always vertically scrollable with 12px gaps,
-// regardless of how the LLM structured its HTML. The per-slide aspect ratio follows
-// the deck orientation — 16/9 landscape (default) or 9/16 portrait.
+// Inject a layout enforcer so slides are always vertically scrollable with 8px gaps,
+// regardless of how the LLM structured its HTML. This enforces ONLY the technical
+// frame (scroll layout, slide box + aspect ratio, gap, no word-breaking, no JS nav);
+// all VISUALS — background, colour, shadows, typography — are the LLM's to control,
+// so nothing here forces a page background or slide shadow. The per-slide aspect
+// ratio follows the deck orientation — 16/9 landscape (default) or 9/16 portrait.
 function injectScrollEnforcer(html: string, orientation: SlideOrientation = 'landscape'): string {
   const aspectRatio = orientation === 'portrait' ? '9/16' : '16/9';
-  const enforcer = `<script id="prodeck-theme-apply">
-(function(){
-  var p = new URLSearchParams(location.search).get('bg');
-  if (p) document.documentElement.style.setProperty('--prodeck-bg', decodeURIComponent(p));
-})();
-</script>
-<style id="prodeck-scroll-enforcer">
-:root{--prodeck-bg:#0b0f17;}
-html{background:var(--prodeck-bg)!important;}
-body{overflow-y:auto!important;overflow-x:hidden!important;height:auto!important;min-height:unset!important;margin:0!important;padding:20px 0!important;background:var(--prodeck-bg)!important;}
-.deck,.slides,.slide-container,.presentation-container,.slideshow{display:flex!important;flex-direction:column!important;gap:12px!important;height:auto!important;min-height:unset!important;overflow:visible!important;position:static!important;background:transparent!important;}
-.slide,.page,.slide-page{position:relative!important;width:100%!important;aspect-ratio:${aspectRatio}!important;height:auto!important;min-height:unset!important;overflow:hidden!important;opacity:1!important;transform:none!important;pointer-events:all!important;flex-shrink:0!important;inset:unset!important;box-shadow:0 8px 32px rgba(0,0,0,0.45),0 2px 8px rgba(0,0,0,0.3)!important;}
+  const enforcer = `<style id="prodeck-scroll-enforcer">
+body{overflow-y:auto!important;overflow-x:hidden!important;height:auto!important;min-height:unset!important;margin:0!important;}
+.deck,.slides,.slide-container,.presentation-container,.slideshow{display:flex!important;flex-direction:column!important;gap:8px!important;height:auto!important;min-height:unset!important;overflow:visible!important;position:static!important;}
+.slide,.page,.slide-page{position:relative!important;width:100%!important;aspect-ratio:${aspectRatio}!important;height:auto!important;min-height:unset!important;overflow:hidden!important;opacity:1!important;transform:none!important;pointer-events:all!important;flex-shrink:0!important;inset:unset!important;}
 /* Never break a word across two lines — wrap only at spaces (overrides any break-all/break-word/hyphens the LLM may emit) */
 .slide *,.page *,.slide-page *{word-break:normal!important;overflow-wrap:normal!important;hyphens:none!important;}
 .slide+.slide,.page+.page{margin-top:0!important;}

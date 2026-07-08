@@ -33,6 +33,13 @@ export const MICROSITE_NOUN_TERMS: RegExp[] = [
   /\bone[\s-]?page\s+(site|website|micro[\s-]?site|presentation)\b/i, // "one page site"
   /\bsingle[\s-]?page\s+(site|website)\b/i,
   /\bpresentation\s+(site|micro[\s-]?site|page)\b/i,
+  // Clearly-web page synonyms. Deliberately compound ("web page", "sales page")
+  // — bare "website"/"page"/"brochure" are too broad (a print brochure, "check
+  // their website") and are left to the LLM classifier to route.
+  /\bweb\s*page\b/i,
+  /\bsales\s+page\b/i,
+  /\bproduct\s+page\b/i,
+  /\bexplainer\s+page\b/i,
   /\bpresentation\b/i, // pre-existing behaviour: "create a presentation" → microsite
 ];
 
