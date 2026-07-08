@@ -52,6 +52,7 @@ import {
   buildInstruction,
 } from '@/lib/microsite-bridge';
 import { generationStore, type Generation } from '@/lib/generation-store';
+import { transitionOverlay } from '@/components/system/TransitionOverlay';
 import { uploadStore, type UploadEntry } from '@/lib/upload-store';
 // UploadEntry is used inside UploadMessageCard only
 import {
@@ -1338,25 +1339,39 @@ export default function SuperClientPage() {
   // Full-page loader label shown while a deep-linked artifact is loading —
   // covers the chat/list UI so the transition from /artifacts goes straight
   // from loader to open artifact instead of flashing the intermediate page.
-  const [deepLinkOpening, setDeepLinkOpening] = useState<string | null>(null);
-  const deepLinkTargetRef = useRef<{ type: string; id: string } | null>(null);
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+  // Initialized synchronously from the URL so the very first client render
+  // already shows the right label — setting it in an effect flashed
+  // "Loading…" for a frame first.
+  const [deepLinkOpening, setDeepLinkOpening] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
     const qs = new URLSearchParams(window.location.search);
     const open = qs.get('open');
-    if (!open || !qs.get('id')) return;
-    const label =
-      open === 'proposal' ? 'Opening proposal…'
+    if (!open || !qs.get('id')) return null;
+    return open === 'proposal' ? 'Opening proposal…'
       : open === 'microsite' ? 'Opening microsite…'
       : open === 'document' ? 'Opening document…'
       : open === 'slide' ? 'Opening presentation…'
       : null;
-    if (!label) return;
-    setDeepLinkOpening(label);
+  });
+  const deepLinkTargetRef = useRef<{ type: string; id: string } | null>(null);
+  useEffect(() => {
+    if (!deepLinkOpening) return;
+    // Claim the shell-level persistent overlay (already visible if the user
+    // came from /artifacts; shows it for direct URL entries). Being mounted in
+    // the layout it survived the route swap — one continuous loader.
+    transitionOverlay.show(deepLinkOpening);
     // Safety: never strand the overlay if the artifact fails to load (404 etc.)
-    const t = setTimeout(() => setDeepLinkOpening(null), 10_000);
+    const t = setTimeout(() => {
+      setDeepLinkOpening(null);
+      transitionOverlay.hide();
+    }, 10_000);
     return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // A load error must release the overlay so the error screen is visible.
+  useEffect(() => {
+    if (error) transitionOverlay.hide();
+  }, [error]);
   // Drop the overlay the moment the deep-linked artifact is actually open.
   useEffect(() => {
     const t = deepLinkTargetRef.current;
@@ -1369,6 +1384,7 @@ export default function SuperClientPage() {
     if (opened) {
       deepLinkTargetRef.current = null;
       setDeepLinkOpening(null);
+      transitionOverlay.hide();
       // Opening the panel collapses the chat column — it rewraps taller, so
       // re-arm the instant pin-to-bottom window over the reflow.
       chatPinnedUntilRef.current = Date.now() + 800;
@@ -1412,6 +1428,7 @@ export default function SuperClientPage() {
     } else {
       deepLinkConsumedRef.current = true;
       setDeepLinkOpening(null);
+      transitionOverlay.hide();
     }
   }, [proposals, microsites, generatedDocs, savedSlides]);
 
@@ -3993,21 +4010,34 @@ export default function SuperClientPage() {
   }
 
   if (loading) {
+    // Fixed full-viewport overlay (covers the sidebar too) so the loading
+    // state is visually identical to the /artifacts tap overlay and the
+    // deep-link overlay — one continuous loader, not a sequence of layouts.
     return (
       <div
         style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 3000,
+          background: 'var(--bg)',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
           gap: 12,
-          height: '100%',
           color: 'var(--muted)',
           fontSize: 13,
         }}
       >
-        <Loader size={22} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
-        {deepLinkOpening ?? 'Loading…'}
+        {/* animationDelay locks the rotation phase to the wall clock so the
+            spinner doesn't visibly restart when one loading overlay hands
+            off to the next (artifacts tap → page load → deep-link open). */}
+        <Loader
+          suppressHydrationWarning
+          size={22}
+          style={{ animation: 'spin 1s linear infinite', animationDelay: `-${Date.now() % 1000}ms`, color: 'var(--primary)' }}
+        />
+        <span suppressHydrationWarning>{deepLinkOpening ?? 'Loading…'}</span>
       </div>
     );
   }
@@ -8856,26 +8886,6 @@ export default function SuperClientPage() {
               ))}
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Full-page loader while a deep-linked artifact (from /artifacts) loads */}
-      {deepLinkOpening && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 3000,
-            background: 'var(--bg)',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 12,
-          }}
-        >
-          <Loader size={22} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
-          <span style={{ fontSize: 13, color: 'var(--muted)' }}>{deepLinkOpening}</span>
         </div>
       )}
 

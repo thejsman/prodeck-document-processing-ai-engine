@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { FileText, Globe, FolderOpen, Presentation, ChevronDown, MoreHorizontal, Trash2, Loader } from 'lucide-react';
+import { FileText, Globe, FolderOpen, Presentation, ChevronDown, MoreHorizontal, Trash2 } from 'lucide-react';
+import { transitionOverlay } from '@/components/system/TransitionOverlay';
 import { Icon } from '@/components/ui/Icon';
 import { useAuth } from '@/lib/auth-context';
 import { ThemeToggle } from '@/components/system/ThemeToggle';
@@ -362,13 +363,13 @@ export function ArtifactsPage() {
   const [slides, setSlides] = useState<ArtifactSlide[]>([]);
 
   const [filterClient, setFilterClient] = useState('');
-  // Full-page overlay shown from the moment a card is tapped until the target
-  // route renders (this component unmounts) — covers the route compile/load
-  // gap so the transition never flashes the intermediate page.
-  const [opening, setOpening] = useState<string | null>(null);
 
+  // Shows the shell-level persistent overlay from the moment a card is tapped;
+  // the destination page hides it once the artifact is actually open. Living
+  // in the layout, the overlay survives the route swap — no flicker between
+  // this page, the route loading fallback, and the destination's own loading.
   function openArtifact(label: string, url: string) {
-    setOpening(label);
+    transitionOverlay.show(label);
     router.push(url);
   }
 
@@ -580,26 +581,6 @@ export function ArtifactsPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Full-page loader while navigating to an artifact */}
-      {opening && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 3000,
-            background: 'var(--bg)',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 12,
-          }}
-        >
-          <Loader size={22} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
-          <span style={{ fontSize: 13, color: 'var(--muted)' }}>{opening}</span>
-        </div>
-      )}
-
       {/* Slim top bar with title + theme toggle */}
       <div
         style={{
