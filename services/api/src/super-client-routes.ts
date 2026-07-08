@@ -3784,10 +3784,10 @@ ${ctx.section}`;
     if (!isRegenIntent && !/https?:\/\//.test(instruction) &&
         /\b(?:image|photo|picture|pic)\b/i.test(instruction)) {
       try {
-        const qPrompt = `Extract a concise 2-5 keyword image search query from this instruction. Return ONLY the keywords, nothing else.\n\nInstruction: ${instruction}`;
+        const qPrompt = `Does this instruction require adding or replacing an image with a new one fetched from the web? Answer "no" if the instruction is about removing, hiding, or deleting an image, or if no new image is needed. Otherwise answer with a concise 2-5 keyword image search query (keywords only, nothing else).\n\nInstruction: ${instruction}`;
         const pexelsQ = (await llmGenerateFn(qPrompt))
           .trim().replace(/^["'`]|["'`]$/g, '').trim().slice(0, 80);
-        if (pexelsQ) {
+        if (pexelsQ && !/^no\b/i.test(pexelsQ)) {
           const pexelsUrl = await fetchPexelsImageUrl(pexelsQ);
           if (pexelsUrl) {
             augmentedInstruction = `${instruction}\n\nIMPORTANT — use this exact image URL (do NOT invent or substitute any other URL): ${pexelsUrl}`;
@@ -4425,9 +4425,9 @@ ${sectionHtml}`;
     if (!/https?:\/\//.test(resolvedInstruction) &&
         /\b(?:image|photo|picture|pic)\b/i.test(resolvedInstruction)) {
       try {
-        const qPrompt = `Extract a concise 2-5 keyword image search query from this instruction. Return ONLY the keywords, nothing else.\n\nInstruction: ${resolvedInstruction}`;
+        const qPrompt = `Does this instruction require adding or replacing an image with a new one fetched from the web? Answer "no" if the instruction is about removing, hiding, or deleting an image, or if no new image is needed. Otherwise answer with a concise 2-5 keyword image search query (keywords only, nothing else).\n\nInstruction: ${resolvedInstruction}`;
         const pexelsQ = (await llmGenerateFn(qPrompt)).trim().replace(/^["'`]|["'`]$/g, '').trim().slice(0, 80);
-        if (pexelsQ) {
+        if (pexelsQ && !/^no\b/i.test(pexelsQ)) {
           const pexelsUrl = await fetchPexelsImageUrl(pexelsQ);
           if (pexelsUrl) {
             augmentedInstruction = `${resolvedInstruction}\n\nIMPORTANT — use this exact image URL (do NOT invent or substitute any other URL): ${pexelsUrl}`;
