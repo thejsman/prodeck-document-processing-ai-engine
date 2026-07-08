@@ -12,6 +12,7 @@ import {
   nativeQdrantDeleteNamespace,
 } from '@ai-engine/runtime';
 import { appendEpisodicEntry, truncate } from './memory-util.js';
+import { logError } from './error-log.js';
 import { appendChatTurn, hashApiKey } from './chat/chat-history.service.js';
 import { filterByAccess, type AuthContext } from './auth.js';
 import { processDocument } from './ingestion/ingest-orchestrator.js';
@@ -298,6 +299,7 @@ export function registerRoutes(
         reply.raw.write(`event: done\ndata: ${JSON.stringify({ answer: result.answer })}\n\n`);
         reply.raw.end();
       } catch (err) {
+        await logError({ process: 'query', error: err, namespace, userInput: body?.question ?? null });
         const message = err instanceof Error ? err.message : String(err);
         reply.raw.write(`event: error\ndata: ${JSON.stringify({ error: message })}\n\n`);
         reply.raw.end();

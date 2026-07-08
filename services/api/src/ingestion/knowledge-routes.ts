@@ -9,10 +9,11 @@
  */
 
 import { writeFile, mkdir, unlink, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ConfigResolver } from '@ai-engine/core';
-import { createNodeConfigLoader, getStorageProvider } from '@ai-engine/runtime';
+import { createNodeConfigLoader, getStorageProvider, getMimeType } from '@ai-engine/runtime';
 import { type AuthContext, isWildcard } from '../auth.js';
 import {
   loadFilesIndex,
@@ -74,7 +75,7 @@ export function registerKnowledgeRoutes(
 
     let namespace = 'default';
     let classification: import('../chat/context.types.js').DocumentClassification | undefined;
-    const accepted: { fileName: string; buffer: Buffer; size: number }[] = [];
+    const accepted: { fileName: string; originalName: string; buffer: Buffer; size: number }[] = [];
     const rejected: string[] = [];
 
     for await (const part of parts) {
@@ -89,9 +90,9 @@ export function registerKnowledgeRoutes(
       }
 
       const rawName = part.filename ?? 'unnamed';
-      const safeName = sanitizeFileName(rawName);
+      const sanitizedName = sanitizeFileName(rawName);
 
-      if (!safeName || safeName === '_' || !isAllowedExtension(safeName)) {
+      if (!sanitizedName || sanitizedName === '_' || !isAllowedExtension(sanitizedName)) {
         rejected.push(rawName);
         await part.toBuffer();
         continue;
@@ -105,7 +106,10 @@ export function registerKnowledgeRoutes(
         });
       }
 
-      accepted.push({ fileName: safeName, buffer, size: buffer.length });
+      const ext = path.extname(sanitizedName);
+      const sanitizedBase = sanitizedName.slice(0, sanitizedName.length - ext.length);
+      const fileName = `${sanitizedBase}-${Date.now()}${ext}`;
+      accepted.push({ fileName, originalName: rawName, buffer, size: buffer.length });
     }
 
     if (rejected.length > 0 && accepted.length === 0) {
@@ -152,6 +156,7 @@ export function registerKnowledgeRoutes(
       // Add/update entry in files.json
       const entry: IngestionFile = {
         fileName: file.fileName,
+        originalName: file.originalName,
         size: file.size,
         uploadedAt: now,
         indexingStatus: 'pending',
@@ -230,6 +235,50 @@ export function registerKnowledgeRoutes(
     await removeFileEntry(workdir, namespace, sanitized);
 
     return reply.send({ ok: true });
+  });
+
+  // GET /knowledge/files/:fileName/download?namespace=<ns>
+  app.get('/knowledge/files/:fileName/download', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { fileName } = req.params as { fileName: string };
+    const { namespace } = req.query as { namespace?: string };
+
+    if (!namespace) {
+      return reply.code(400).send({ error: 'Missing required query param: namespace' });
+    }
+
+    const auth = getAuth(req);
+    if (!checkNamespaceAccess(auth, namespace, reply)) return;
+
+    const sanitized = sanitizeFileName(fileName);
+    if (!sanitized || sanitized === '_') {
+      return reply.code(400).send({ error: 'Invalid file name' });
+    }
+
+    const uploadsDir = path.join(workdir, 'namespaces', namespace, 'uploads');
+    const filePath = path.join(uploadsDir, fileName);
+    const resolved = path.resolve(filePath);
+
+    if (!resolved.startsWith(path.resolve(uploadsDir))) {
+      return reply.code(400).send({ error: 'Invalid file name' });
+    }
+
+    try {
+      const fileStat = await stat(resolved);
+      if (!fileStat.isFile()) {
+        return reply.code(404).send({ error: `File not found: ${fileName}` });
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return reply.code(404).send({ error: `File not found: ${fileName}` });
+      }
+      throw err;
+    }
+
+    const mimeType = getMimeType(fileName);
+    const encodedName = encodeURIComponent(fileName);
+    reply.header('Content-Type', mimeType);
+    reply.header('Content-Disposition', `inline; filename="${encodedName}"; filename*=UTF-8''${encodedName}`);
+    return reply.send(createReadStream(resolved));
   });
 
   // POST /knowledge/reindex

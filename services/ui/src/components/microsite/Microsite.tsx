@@ -1180,20 +1180,33 @@ ${el.innerHTML}
     });
 
     try {
-      const { generateCapturePDF } = await import('../../lib/pdfCaptureRenderer');
+      const [{ default: h2c }, { default: JsPDF }] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf'),
+      ]);
       const title = ast.meta?.title || ast.brand.companyName || 'Microsite';
-      const result = await generateCapturePDF(content, root, {
-        title,
-        quality: 0.9,
-        onProgress: ({ pct, message }) => {
-          setPdfProgress(pct);
-          setPdfProgressMsg(message);
-        },
+
+      setPdfProgressMsg('Capturing…');
+      await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+
+      const canvas = await h2c(content, {
+        foreignObjectRendering: true,
+        scale: 2,
+        useCORS: true,
+        logging: false,
       });
-      if (!result.success) {
-        console.error('PDF download failed:', result.error);
-        setPdfProgressMsg(`Error: ${result.error ?? 'Download failed'}`);
-      }
+      setPdfProgress(80);
+      setPdfProgressMsg('Building PDF…');
+
+      const W = canvas.width;
+      const H = canvas.height;
+      const pdf = new JsPDF({ orientation: W > H ? 'landscape' : 'portrait', unit: 'px', format: [W / 2, H / 2] });
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.9), 'JPEG', 0, 0, W / 2, H / 2);
+
+      const safe = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      pdf.save(`${safe}.pdf`);
+      setPdfProgress(100);
+      setPdfProgressMsg('Done');
     } catch (err) {
       console.error('PDF download failed:', err);
       setPdfProgressMsg('Download failed');

@@ -1,11 +1,12 @@
 import { mkdir, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply, FastifyBaseLogger } from 'fastify';
 import { llmGenerateFn } from './agent-routes.js';
 import { fetchPexelsImageUrl } from './image-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
 import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
-import { readOrgContextSettings, resolveVoiceBlock, superClientWorkdir } from '@ai-engine/runtime';
+import { readOrgContextSettings, resolveVoiceBlock, superClientWorkdir, getMimeType } from '@ai-engine/runtime';
 
 // Strip preview-only injections that the UI adds to srcdoc iframes.
 // These must never be saved to disk — if the client sends currentHtml that
@@ -64,6 +65,7 @@ interface HistoryEntry {
 
 interface ScFile {
   fileName: string;
+  originalName?: string;
   size: number;
   uploadedAt: string;
   status: 'processing' | 'extracted' | 'failed';
@@ -1047,12 +1049,16 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         continue;
       }
 
-      const safeName = rawName.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const sanitizedName = rawName.replace(/[^a-zA-Z0-9._-]/g, '_');
       const buffer = await part.toBuffer();
 
       if (buffer.length > MAX_SIZE) {
         return reply.code(400).send({ error: `File "${rawName}" exceeds the 50 MB limit` });
       }
+
+      const sanitizedExt = path.extname(sanitizedName);
+      const sanitizedBase = sanitizedName.slice(0, sanitizedName.length - sanitizedExt.length);
+      const safeName = `${sanitizedBase}-${Date.now()}${sanitizedExt}`;
 
       const destPath = path.join(uploadsDir, safeName);
       const resolved = path.resolve(destPath);
@@ -1062,7 +1068,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       await writeFile(destPath, buffer);
 
-      const entry: ScFile = { fileName: safeName, size: buffer.length, uploadedAt: new Date().toISOString(), status: 'processing' };
+      const entry: ScFile = { fileName: safeName, originalName: rawName, size: buffer.length, uploadedAt: new Date().toISOString(), status: 'processing' };
       const existing = await readScFiles(dir);
       const idx = existing.findIndex((f) => f.fileName === safeName);
       if (idx !== -1) existing[idx] = entry; else existing.push(entry);
@@ -1111,6 +1117,43 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     await memService.removeKnowledgeByDocument(name, fileName);
 
     return reply.send({ ok: true });
+  });
+
+  // GET /super-clients/:name/documents/:fileName/download
+  app.get('/super-clients/:name/documents/:fileName/download', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, fileName } = req.params as { name: string; fileName: string };
+    const dir = path.join(superClientsRoot, name);
+
+    try {
+      await readMeta(dir);
+    } catch {
+      return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
+
+    const uploadsDir = path.join(dir, 'uploads');
+    const filePath = path.join(uploadsDir, fileName);
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(uploadsDir))) {
+      return reply.code(400).send({ error: 'Invalid file name' });
+    }
+
+    try {
+      const fileStat = await stat(resolved);
+      if (!fileStat.isFile()) {
+        return reply.code(404).send({ error: `File not found: ${fileName}` });
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return reply.code(404).send({ error: `File not found: ${fileName}` });
+      }
+      throw err;
+    }
+
+    const mimeType = getMimeType(fileName);
+    const encodedName = encodeURIComponent(fileName);
+    reply.header('Content-Type', mimeType);
+    reply.header('Content-Disposition', `inline; filename="${encodedName}"; filename*=UTF-8''${encodedName}`);
+    return reply.send(createReadStream(resolved));
   });
 
   // GET /super-clients/:name/proposals
@@ -2830,6 +2873,15 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const isImgEl   = elTag === 'img';
       const hasImgChild = !isImgEl && /<img\b/i.test(targetHtml);
       const hasImg    = isImgEl || hasImgChild;
+      // Also detect elements whose background IS an image via CSS (no <img> child needed)
+      const hasBgImage = /background-image\s*:\s*url\(/i.test(targetHtml);
+      // Pre-strip instruction prefix so we can use it in the shortcut gate below
+      const strippedEdit = editInstruction
+        .replace(/^\[[^\]]+\]\s*/, '')
+        .replace(/^<[^>]+>:\s*/, '')
+        .trim();
+      const isBgImgDescIntent = /\b(?:background|bg)\b/i.test(strippedEdit) &&
+        /\b(?:image|photo|picture|pic|img)\b/i.test(strippedEdit);
       const currentSrc = hasImg
         ? (targetHtml.match(/\bsrc="([^"]+)"/)?.[1] ?? '')
         : '';
@@ -2842,16 +2894,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // search Pexels for a contextually matching photo and inject it directly.
       // This avoids asking the LLM to recall a valid Unsplash photo ID from
       // training memory, which reliably produces wrong or stale URLs.
-      if (!isRedesignIntent && hasImg && !(/https?:\/\//.test(editInstruction))) {
-        // Strip "[sectionType] <Element Label>: " prefixes to get raw user text.
-        const stripped = editInstruction
-          .replace(/^\[[^\]]+\]\s*/, '')
-          .replace(/^<[^>]+>:\s*/, '')
-          .trim();
+      // Fire for: existing <img>, CSS background-image, OR explicit "background image" desc intent
+      if (!isRedesignIntent && (hasImg || hasBgImage || isBgImgDescIntent) && !(/https?:\/\//.test(editInstruction))) {
+        const stripped = strippedEdit; // already computed above
 
-        // Gate: does the instruction mention an image noun at all?
-        // Avoids calling LLM+Pexels for non-image edits (text changes, color tweaks, etc.)
-        const mentionsImage = /\b(?:image|photo|picture|pic|img)\b/i.test(stripped);
+        // Gate: must mention an image noun or have explicit bg+image intent
+        const mentionsImage = /\b(?:image|photo|picture|pic|img)\b/i.test(stripped) || isBgImgDescIntent;
 
         if (mentionsImage) {
           // Ask the LLM to extract a clean search query — this handles any verb or
@@ -2874,15 +2922,34 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             const imageUrl = pexelsUrl
               ?? `https://source.unsplash.com/featured/1200x800/?${encodeURIComponent(pexelsQuery)}`;
             const injectUrl = (target: string, url: string): string => {
+              // 1. Replace existing background-image url()
               let out = target.replace(
                 /\bbackground-image\s*:\s*url\(\s*['"]?[^'")\s]+['"]?\s*\)/gi,
                 () => `background-image: url('${url}')`,
               );
               if (out !== target) return out;
+              // 2. Replace existing <img> src
               out = target.replace(
                 /(<img\b[^>]*?\bsrc=["'])([^'"]+)(["'])/i,
                 (_m, pre, _old, post) => `${pre}${url}${post}`,
               );
+              if (out !== target) return out;
+              // 3. ADD background-image to section/div/header that has neither
+              if (isBgImgDescIntent) {
+                const tagEndIdx = target.indexOf('>');
+                if (tagEndIdx !== -1) {
+                  const openTag = target.slice(0, tagEndIdx);
+                  const rest    = target.slice(tagEndIdx);
+                  const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+                  const sm      = styleRx.exec(openTag);
+                  const bgStyle = `background-image:url('${url}');background-size:cover;background-position:center;background-repeat:no-repeat`;
+                  if (sm) {
+                    const existing = sm[1].replace(/background-image[^;]+;?\s*/g, '').trim().replace(/;$/, '');
+                    return openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}${bgStyle}"`) + rest;
+                  }
+                  return `${openTag} style="${bgStyle}"` + rest;
+                }
+              }
               return out;
             };
             const patched = injectUrl(targetHtml, imageUrl);
@@ -3137,6 +3204,63 @@ Strict rules:
       return null;
     }
 
+    // ── Pexels shortcut for global image-description prompts (no element selected) ──
+    // Fires when the user types "add [image description] to [section] background"
+    // without a URL and without selecting an element.
+    // Handles both "replace existing background image" and "add new background image".
+    if (!instruction.startsWith('__') && !/https?:\/\//.test(instruction)) {
+      const globalBgImgIntent = /\b(?:background|bg)\b/i.test(instruction) &&
+        /\b(?:image|photo|picture|pic)\b/i.test(instruction);
+      if (globalBgImgIntent) {
+        const targetSlice = extractBestSection(html, instruction);
+        if (targetSlice) {
+          let pexelsQuery = '';
+          try {
+            const extractPrompt = `Extract a concise 2-5 keyword image search query from this instruction. Return ONLY the keywords, nothing else.\n\nInstruction: ${instruction}`;
+            pexelsQuery = (await llmGenerateFn(extractPrompt))
+              .trim().replace(/^["'`]|["'`]$/g, '').trim().slice(0, 80);
+            console.log(`🔍 Global bg-image query: "${pexelsQuery}"`);
+          } catch { /* fall through to LLM */ }
+
+          if (pexelsQuery) {
+            const pexelsUrl = await fetchPexelsImageUrl(pexelsQuery);
+            const imageUrl  = pexelsUrl
+              ?? `https://source.unsplash.com/featured/1200x800/?${encodeURIComponent(pexelsQuery)}`;
+
+            // Replace existing background-image url() or add a new one
+            let patched = targetSlice.section.replace(
+              /\bbackground-image\s*:\s*url\(\s*['"]?[^'")\s]+['"]?\s*\)/gi,
+              () => `background-image: url('${imageUrl}')`,
+            );
+            if (patched === targetSlice.section) {
+              // No existing bg-image → inject into opening tag's style
+              const tagEndIdx = targetSlice.section.indexOf('>');
+              if (tagEndIdx !== -1) {
+                const openTag = targetSlice.section.slice(0, tagEndIdx);
+                const rest    = targetSlice.section.slice(tagEndIdx);
+                const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+                const sm      = styleRx.exec(openTag);
+                const bgStyle = `background-image:url('${imageUrl}');background-size:cover;background-position:center;background-repeat:no-repeat`;
+                if (sm) {
+                  const existing = sm[1].replace(/background-image[^;]+;?\s*/g, '').trim().replace(/;$/, '');
+                  patched = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}${bgStyle}"`) + rest;
+                } else {
+                  patched = `${openTag} style="${bgStyle}"` + rest;
+                }
+              }
+            }
+            if (patched !== targetSlice.section) {
+              console.log(`⚡ Global bg-image shortcut (${pexelsUrl ? 'Pexels' : 'Unsplash'}): "${pexelsQuery}" → ${imageUrl}`);
+              return saveValidatedEdit(
+                targetSlice.before + patched + targetSlice.after,
+                `Background image updated`,
+              );
+            }
+          }
+        }
+      }
+    }
+
     // Extract CSS :root block so the LLM knows available design tokens
     const cssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
 
@@ -3211,6 +3335,26 @@ ${ctx.section}`;
       } catch { return null; }
     }
 
+    // ── Pre-fetch a real image URL from Pexels when the instruction describes an
+    // image without providing a URL. This prevents the LLM from hallucinating
+    // Unsplash photo IDs and ensures the placed image actually matches the request.
+    let augmentedInstruction = instruction;
+    if (!isRegenIntent && !/https?:\/\//.test(instruction) &&
+        /\b(?:image|photo|picture|pic)\b/i.test(instruction)) {
+      try {
+        const qPrompt = `Extract a concise 2-5 keyword image search query from this instruction. Return ONLY the keywords, nothing else.\n\nInstruction: ${instruction}`;
+        const pexelsQ = (await llmGenerateFn(qPrompt))
+          .trim().replace(/^["'`]|["'`]$/g, '').trim().slice(0, 80);
+        if (pexelsQ) {
+          const pexelsUrl = await fetchPexelsImageUrl(pexelsQ);
+          if (pexelsUrl) {
+            augmentedInstruction = `${instruction}\n\nIMPORTANT — use this exact image URL (do NOT invent or substitute any other URL): ${pexelsUrl}`;
+            console.log(`📸 Pexels pre-fetch for global edit: "${pexelsQ}" → ${pexelsUrl}`);
+          }
+        }
+      } catch { /* fall through — LLM will handle without a real URL */ }
+    }
+
     const opPrompt = isRegenIntent ? '' : `You are editing an HTML microsite. Pick the ONE operation that best fits the instruction and respond with a single JSON object — nothing else.
 
 OPERATION TYPES:
@@ -3235,7 +3379,7 @@ OP section_delete — remove an existing section entirely:
 
 KNOWN SECTIONS: ${sectionList}
 ${cssVarsBlock ? `\nCSS DESIGN TOKENS:\n${cssVarsBlock}\n` : ''}
-INSTRUCTION: ${instruction}
+INSTRUCTION: ${augmentedInstruction}
 
 FULL HTML:
 ${html}`;

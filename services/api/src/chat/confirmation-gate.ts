@@ -59,10 +59,23 @@ export interface ApproveGeneratedTemplateRequest {
   viewLink: string;
 }
 
+/** Raised when a big-generation intent (proposal / microsite) was recognised
+ *  with low confidence and the system wants to confirm before generating. */
+export interface ConfirmGenerationRequest {
+  kind: 'confirm_generation';
+  targetIntent: Intent;
+}
+
 export type ConfirmationRequest =
   | ConfirmEntitiesRequest
   | ConfirmTemplateRequest
-  | ApproveGeneratedTemplateRequest;
+  | ApproveGeneratedTemplateRequest
+  | ConfirmGenerationRequest;
+
+/** Build a confirm-generation request for an uncertain big-generation intent. */
+export function buildGenerationConfirmation(targetIntent: Intent): ConfirmGenerationRequest {
+  return { kind: 'confirm_generation', targetIntent };
+}
 
 export type ConfirmationGateResult =
   | { confirmed: true }

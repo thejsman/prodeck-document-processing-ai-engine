@@ -102,14 +102,6 @@ script,style,noscript,template{display:none!important;visibility:hidden!importan
 .cursor,.cursor-dot,.cursor-ring,.cursor-follower,.cursor-blob,
 .custom-cursor,.mouse-cursor,.pointer-cursor,.cursor-inner,.cursor-outer,
 [class*="cursor-"],[id*="cursor"],[class*="custom-cursor"]{display:none!important}
-/* PDF slide preview — let sections expand to their content height.
-   Removes the fixed 720px/aspect-ratio constraint so content never clips or
-   overflows into the next slide. flex:none stops flex:1 children collapsing
-   when the parent loses its fixed height. No scrollbars — height:auto expands
-   the element rather than adding a scroll track. */
-[data-section-id]{height:auto!important;max-height:none!important;min-height:0!important;overflow:visible!important;aspect-ratio:auto!important;}
-[data-section-id]>div:not([data-pdf-hide]){flex:none!important;height:auto!important;overflow:visible!important;}
-[data-ls-content],[data-portrait-body]{flex:none!important;height:auto!important;overflow:visible!important;}
 /* Layer 1 — disable CSS keyframe animations (the usual way LLMs hide content
    until scroll/reveal). Transitions are kept so interactive elements like
    hamburger menus, hover effects, and accordions still work. */
@@ -126,6 +118,12 @@ script,style,noscript,template{display:none!important;visibility:hidden!importan
   opacity:1!important;transform:none!important;
   visibility:visible!important;clip-path:none!important
 }
+/* Thin modern scrollbar — replaces the OS-default chunky scrollbar that appears
+   in the portrait preview iframe (the iframe scrolls its content, not the page). */
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:rgba(140,140,140,0.55);border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:rgba(140,140,140,0.85);}
 </style>`;
 
 // Layer 3 — JS fallback for future microsites with unknown class names.
