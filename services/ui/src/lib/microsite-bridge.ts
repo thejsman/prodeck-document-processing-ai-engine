@@ -312,13 +312,39 @@ function isWordSplitSpan(el) {
   return false;
 }
 
+// ── Shared top-level-block boundary check ─────────────────────────────────
+// All current formats (web, 16:9 PDF, 9:16 PDF) wrap each top-level block in
+// a <section>. A future section-less format (e.g. a pptx-style import) might
+// instead mark blocks as <div class="slide"> — the same convention the
+// separate slide-deck editor already uses. Recognizing that shape too here
+// means section-type detection and "fill section" checks degrade gracefully
+// instead of silently finding nothing.
+function isSectionBoundary(node) {
+  var tag = (node.tagName || '').toLowerCase();
+  if (tag === 'section') return true;
+  if (tag !== 'div') return false;
+  var cls = typeof node.className === 'string' ? node.className.trim().split(/\\s+/) : [];
+  return cls.indexOf('slide') !== -1;
+}
+
 // ── Section type detection (reads section[id] directly) ──────────────────
 function getSectionType(el) {
+  // Strips a trailing "-N" dedup suffix (e.g. "hero-2" -> "hero") so accidental
+  // duplicate section names still categorize together. But when the base word
+  // left over is generic/meaningless on its own (deck ids are literally
+  // "slide-1", "slide-2", ...), stripping the number throws away the only
+  // thing that made the badge distinguish one section from another — keep
+  // the number for those instead.
+  var GENERIC_BASE = { slide:1, section:1, panel:1, screen:1, page:1, step:1 };
+  function stripDedupSuffix(id) {
+    var stripped = id.replace(/-\\d+$/, '');
+    return GENERIC_BASE[stripped] ? id : stripped;
+  }
   var cur = el;
   while (cur && cur !== document.body) {
-    if ((cur.tagName || '').toLowerCase() === 'section') {
-      if (cur.id) return cur.id.replace(/-\\d+$/, '');
-      if (cur.dataset && cur.dataset.sectionId) return cur.dataset.sectionId.replace(/-\\d+$/, '');
+    if (isSectionBoundary(cur)) {
+      if (cur.id) return stripDedupSuffix(cur.id);
+      if (cur.dataset && cur.dataset.sectionId) return stripDedupSuffix(cur.dataset.sectionId);
       if (cur.dataset && cur.dataset.type) return cur.dataset.type;
       var kws = ['hero','overview','challenge','approach','deliverables','timeline','pricing',
                  'team','testimonial','faq','footer','whyus','nextsteps','stats','benefits',
@@ -537,13 +563,14 @@ function sendMsg(msgType, rawEl) {
       computedBgColor = cs.backgroundColor || '';
       computedColor   = cs.color || '';
     } catch(e) {}
-    // Walk up to find the nearest <section> and capture its bounding rect.
-    // This lets the host compare element.rect vs sectionRect to decide whether
-    // the selected element "fills" the section (used for "Remove Section" visibility).
+    // Walk up to find the nearest section boundary and capture its bounding
+    // rect. This lets the host compare element.rect vs sectionRect to decide
+    // whether the selected element "fills" the section (used for "Remove
+    // Section" visibility).
     try {
       var secEl = el;
       while (secEl && secEl !== document.body) {
-        if ((secEl.tagName || '').toLowerCase() === 'section') {
+        if (isSectionBoundary(secEl)) {
           var sr = secEl.getBoundingClientRect();
           if (sr.width > 0 && sr.height > 0) {
             sectionRect = { top: sr.top, left: sr.left, width: sr.width, height: sr.height };

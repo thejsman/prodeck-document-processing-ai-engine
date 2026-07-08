@@ -2941,8 +2941,14 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const innerHtml = elementHtml.slice(openTag.length, elementHtml.lastIndexOf(closeTag));
       const hasChildren = /<\w/.test(innerHtml);
 
+      // Replace only the leading text run (the part with no element wrapper of
+      // its own — the only part a plain text-edit input can ever mean). Leave
+      // every child element and its own text content completely untouched:
+      // stripping "inter-tag" text globally here used to wipe out sibling
+      // elements' text too (e.g. a <span> holding a second line of a two-line
+      // headline), silently destroying content the user never asked to change.
       const newInner = hasChildren
-        ? newText + innerHtml.replace(/^[^<]+/, '').replace(/>[^<]+</g, '><').replace(/[^>]+$/, '')
+        ? newText + innerHtml.replace(/^[^<]+/, '')
         : newText;
 
       const updatedHtml = html.slice(0, bounds.start) + openTag + newInner + closeTag + html.slice(bounds.end);
@@ -3558,26 +3564,49 @@ Strict rules:
     // ── Section extraction helpers ────────────────────────────────────────────
     type SectionSlice = { before: string; section: string; after: string; tag: string };
 
-    function extractAllTopLevelSections(src: string): Array<{ start: number; end: number }> {
+    // All three current orientations (web, 16:9 PDF, 9:16 PDF) generate a
+    // <section> per top-level block — only the id-naming convention differs
+    // (semantic names like "hero" vs numbered "slide-1", both handled equally
+    // by every downstream consumer here). A future format (e.g. a pptx-style
+    // import, mirroring the separate slide-deck editor's own <div class="slide">
+    // convention) might not use <section> at all — fall back to scanning for
+    // that shape so section-list/regen/breadcrumb logic degrades gracefully
+    // instead of silently seeing zero sections.
+    function extractTopLevelBlocks(src: string, tag: string, classFilter?: string): Array<{ start: number; end: number }> {
       const out: Array<{ start: number; end: number }> = [];
+      const openTagLen = tag.length + 1; // "<" + tag
+      const closeTag = `</${tag}>`;
       let pos = 0;
       while (pos < src.length) {
-        const openIdx = src.indexOf('<section', pos);
+        const openIdx = src.indexOf(`<${tag}`, pos);
         if (openIdx === -1) break;
         const tagEnd = src.indexOf('>', openIdx);
         if (tagEnd === -1) break;
-        let depth = 1, i = tagEnd + 1, sectionEnd = -1;
-        while (i < src.length && depth > 0) {
-          const nextOpen = src.indexOf('<section', i);
-          const nextClose = src.indexOf('</section>', i);
-          if (nextClose === -1) break;
-          if (nextOpen !== -1 && nextOpen < nextClose) { depth++; i = nextOpen + 8; }
-          else { depth--; i = nextClose + 10; if (depth === 0) sectionEnd = i; }
+        if (classFilter) {
+          const opening = src.slice(openIdx, tagEnd + 1);
+          const classes = (opening.match(/\bclass="([^"]+)"/i)?.[1] ?? '').split(/\s+/);
+          if (!classes.includes(classFilter)) { pos = tagEnd + 1; continue; }
         }
-        if (sectionEnd !== -1) { out.push({ start: openIdx, end: sectionEnd }); pos = sectionEnd; }
+        let depth = 1, i = tagEnd + 1, blockEnd = -1;
+        while (i < src.length && depth > 0) {
+          const nextOpen = src.indexOf(`<${tag}`, i);
+          const nextClose = src.indexOf(closeTag, i);
+          if (nextClose === -1) break;
+          if (nextOpen !== -1 && nextOpen < nextClose) { depth++; i = nextOpen + openTagLen; }
+          else { depth--; i = nextClose + closeTag.length; if (depth === 0) blockEnd = i; }
+        }
+        if (blockEnd !== -1) { out.push({ start: openIdx, end: blockEnd }); pos = blockEnd; }
         else { pos = tagEnd + 1; }
       }
       return out;
+    }
+
+    function extractAllTopLevelSections(src: string): Array<{ start: number; end: number }> {
+      const sections = extractTopLevelBlocks(src, 'section');
+      if (sections.length > 0) return sections;
+      // Fallback for a section-less format — matches the slide-deck editor's
+      // own <div class="slide"> convention.
+      return extractTopLevelBlocks(src, 'div', 'slide');
     }
 
     function extractBestSection(src: string, hint: string): SectionSlice | null {
@@ -3815,7 +3844,15 @@ Rules:
 - Copy each "find" string EXACTLY from the HTML — character-for-character, no paraphrasing
 - Include 15–40 chars of surrounding context so each "find" is unique in the document
 - NEVER put newlines inside "find" or "replace" — single-line strings only
-- Up to 12 patches
+- Include EVERY patch needed to fully and consistently apply the instruction.
+  If the change affects many repeated values (e.g. recalculating percentages
+  and dollar amounts across an entire pricing/breakdown table when the total
+  changes), include one patch per value — ALL of them, not a representative
+  sample. There is no fixed cap: dropping some patches to stay under an
+  arbitrary count leaves the document internally inconsistent (e.g. a headline
+  total that no longer matches the line items or footer beneath it), which is
+  worse than a longer response. Typically well under 40 for a normal edit, but
+  size the count to what the instruction actually requires.
 
 OP section_replace — redesign or restructure an existing section completely:
 { "op": "section_replace", "anchor": "section-id-or-keyword", "html": "<section>...</section>", "summary": "..." }
@@ -4485,7 +4522,15 @@ Rules:
 - Copy each "find" string EXACTLY from the HTML — character-for-character, no paraphrasing
 - Include 15–40 chars of surrounding context so each "find" is unique in the document
 - NEVER put newlines inside "find" or "replace" — single-line strings only
-- Up to 12 patches
+- Include EVERY patch needed to fully and consistently apply the instruction.
+  If the change affects many repeated values (e.g. recalculating percentages
+  and dollar amounts across an entire pricing/breakdown table when the total
+  changes), include one patch per value — ALL of them, not a representative
+  sample. There is no fixed cap: dropping some patches to stay under an
+  arbitrary count leaves the document internally inconsistent (e.g. a headline
+  total that no longer matches the line items or footer beneath it), which is
+  worse than a longer response. Typically well under 40 for a normal edit, but
+  size the count to what the instruction actually requires.
 
 OP slide_replace — redesign or restructure one slide completely:
 { "op": "slide_replace", "slide": <1-based slide number>, "html": "<div class=\\"slide\\" ...>...</div>", "summary": "..." }
