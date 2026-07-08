@@ -273,8 +273,14 @@ export function patchHtml(html: string, instruction: string): PatchResult | null
     const closeTag = `</${closeTagMatch[1]}>`;
     const innerHtml = elementHtml.slice(openTag.length, elementHtml.lastIndexOf(closeTag));
     const hasChildren = /<\w/.test(innerHtml);
+    // Replace only the leading text run (the part with no element wrapper of its
+    // own — the only part a plain text-edit input can ever mean). Leave every
+    // child element and its own text content completely untouched: stripping
+    // "inter-tag" text globally here used to wipe out sibling elements' text too
+    // (e.g. a <span> holding a second line of a two-line headline), silently
+    // destroying content the user never asked to change.
     const newInner = hasChildren
-      ? newText + innerHtml.replace(/^[^<]+/, '').replace(/>[^<]+</g, '><').replace(/[^>]+$/, '')
+      ? newText + innerHtml.replace(/^[^<]+/, '')
       : newText;
 
     return { html: html.slice(0, bounds.start) + openTag + newInner + closeTag + html.slice(bounds.end), summary: 'Text updated' };
