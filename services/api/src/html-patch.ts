@@ -56,6 +56,21 @@ export function findByPath(src: string, path: string): { start: number; end: num
   let searchFrom = 0;
   let searchTo   = src.length;
 
+  // Advance pos past an element's closing tag, respecting nesting depth.
+  const skipPast = (tagName: string, opening: string, tagEnd: number): number => {
+    if (VOID.has(tagName) || opening.trimEnd().endsWith('/>')) return tagEnd + 1;
+    const close = `</${tagName}>`;
+    let d = 1, j = tagEnd + 1;
+    while (j < src.length && d > 0) {
+      const nO = src.indexOf(`<${tagName}`, j);
+      const nC = src.indexOf(close, j);
+      if (nC === -1) break;
+      if (nO !== -1 && nO < nC) { d++; j = nO + tagName.length + 1; }
+      else { d--; j = nC + close.length; }
+    }
+    return j;
+  };
+
   for (let i = 0; i < parts.length; i++) {
     const part   = parts[i].trim();
     const tag    = part.match(/^(\w+)/)?.[1];
@@ -68,39 +83,40 @@ export function findByPath(src: string, path: string): { start: number; end: num
 
     let count = 0, pos = searchFrom, foundStart = -1, foundEnd = -1;
 
+    // Walk direct children only: skip over entire sibling elements so nested
+    // occurrences of `tag` are never counted as if they were direct children.
     while (pos < searchTo) {
-      const ti = src.indexOf(`<${tag}`, pos);
-      if (ti === -1 || ti >= searchTo) break;
-      const te = src.indexOf('>', ti);
+      const lt = src.indexOf('<', pos);
+      if (lt === -1 || lt >= searchTo) break;
+
+      // Closing tag at depth 0 — stop (malformed HTML guard)
+      if (src[lt + 1] === '/') { pos = lt + 1; continue; }
+
+      const te = src.indexOf('>', lt);
       if (te === -1) break;
-      const opening = src.slice(ti, te + 1);
+      const opening = src.slice(lt, te + 1);
+      const curTag  = opening.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+      if (!curTag) { pos = lt + 1; continue; }
 
-      const mId  = !idVal  || opening.includes(`id="${idVal}"`);
-      const mCls = !clsVal || (opening.match(/\bclass="([^"]+)"/)?.[1] ?? '')
-                                .split(/\s+/).includes(clsVal);
-
-      if (mId && mCls) {
-        count++;
-        if (count === nth) {
-          foundStart = ti;
-          if (VOID.has(tag) || opening.trimEnd().endsWith('/>')) {
-            foundEnd = te + 1;
-          } else {
-            const close = `</${tag}>`;
-            let depth = 1, j = te + 1;
-            while (j < src.length && depth > 0) {
-              const nO = src.indexOf(`<${tag}`, j);
-              const nC = src.indexOf(close, j);
-              if (nC === -1) break;
-              if (nO !== -1 && nO < nC) { depth++; j = nO + tag.length + 1; }
-              else { depth--; j = nC + close.length; }
-            }
-            foundEnd = j;
+      if (curTag === tag) {
+        const mId  = !idVal  || opening.includes(`id="${idVal}"`);
+        const mCls = !clsVal || (opening.match(/\bclass="([^"]+)"/)?.[1] ?? '')
+                                  .split(/\s+/).includes(clsVal);
+        if (mId && mCls) {
+          count++;
+          if (count === nth) {
+            foundStart = lt;
+            foundEnd   = skipPast(tag, opening, te);
+            break;
           }
-          break;
         }
+        // Skip past this element (match or not) so nested same-tag siblings
+        // inside it are not counted as direct children.
+        pos = skipPast(curTag, opening, te);
+      } else {
+        // Different element — skip entirely to avoid counting target tags nested inside it.
+        pos = skipPast(curTag, opening, te);
       }
-      pos = ti + 1;
     }
 
     if (foundStart === -1) return null;
