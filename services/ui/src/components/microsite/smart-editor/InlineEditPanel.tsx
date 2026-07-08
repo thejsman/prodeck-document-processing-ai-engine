@@ -89,8 +89,9 @@ const ICON_LIST: Array<{ name: string; C: LucideComp }> = [
 ];
 
 // ── Lucide icon picker popup ────────────────────────────────────────────────
-function LucideIconPicker({ disabled, onSelect, onClose }: {
+function LucideIconPicker({ disabled, openBelow, onSelect, onClose }: {
   disabled: boolean;
+  openBelow?: boolean;
   onSelect: (svgHtml: string) => void;
   onClose: () => void;
 }) {
@@ -103,7 +104,7 @@ function LucideIconPicker({ disabled, onSelect, onClose }: {
     <div
       style={{
         position: 'absolute',
-        bottom: 'calc(100% + 10px)',
+        ...(openBelow ? { top: 'calc(100% + 10px)' } : { bottom: 'calc(100% + 10px)' }),
         left: '50%',
         transform: 'translateX(-50%)',
         width: 336,
@@ -758,10 +759,11 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
         userSelect: 'none',
       }}
     >
-      {/* Lucide icon picker — floats above toolbar when toggled */}
+      {/* Lucide icon picker — floats above toolbar, or below when toolbar is near the top */}
       {isIcon && showIconPicker && (
         <LucideIconPicker
           disabled={dis}
+          openBelow={floatTop < 300}
           onSelect={(svgHtml) => {
             setShowIconPicker(false);
             void onSvgReplace(svgHtml);
