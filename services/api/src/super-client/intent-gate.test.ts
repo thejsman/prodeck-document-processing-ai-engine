@@ -56,6 +56,42 @@ describe('classifyChatIntent — fast-path (no LLM)', () => {
     expect(d.intent).toBe('off_topic');
     expect(generateFn).not.toHaveBeenCalled();
   });
+
+  it('routes an informal "whip up a proposal" to generate_proposal without the LLM', async () => {
+    const generateFn = noLlm();
+    const d = await classifyChatIntent(makeInput({ message: 'whip up a proposal for them', generateFn }));
+    expect(d.intent).toBe('generate_proposal');
+    expect(d.source).toBe('rule');
+    expect(generateFn).not.toHaveBeenCalled();
+  });
+
+  it('routes an informal "spin up a landing page" to generate_microsite without the LLM', async () => {
+    const generateFn = noLlm();
+    const d = await classifyChatIntent(makeInput({ message: 'spin up a landing page', generateFn }));
+    expect(d.intent).toBe('generate_microsite');
+    expect(generateFn).not.toHaveBeenCalled();
+  });
+
+  it('routes a transform "turn this into a microsite" to generate_microsite without the LLM', async () => {
+    const generateFn = noLlm();
+    const d = await classifyChatIntent(makeInput({ message: 'turn this into a microsite', generateFn }));
+    expect(d.intent).toBe('generate_microsite');
+    expect(generateFn).not.toHaveBeenCalled();
+  });
+
+  it('scopes a transform to the target: "turn our proposal into a landing page" -> generate_microsite (not proposal)', async () => {
+    const generateFn = noLlm();
+    const d = await classifyChatIntent(makeInput({ message: 'turn our proposal into a landing page', generateFn }));
+    expect(d.intent).toBe('generate_microsite');
+    expect(generateFn).not.toHaveBeenCalled();
+  });
+
+  it('scopes a transform to the target: "turn our proposal into a deck" -> generate_presentation', async () => {
+    const generateFn = noLlm();
+    const d = await classifyChatIntent(makeInput({ message: 'turn our proposal into a deck', generateFn }));
+    expect(d.intent).toBe('generate_presentation');
+    expect(generateFn).not.toHaveBeenCalled();
+  });
 });
 
 describe('classifyChatIntent — deterministic bare-artifact clarify (no LLM)', () => {

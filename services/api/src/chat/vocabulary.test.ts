@@ -25,6 +25,10 @@ describe('isMicrositeRequest', () => {
     'single page site',
     'single-page website',
     'presentation site',
+    'build a web page for them',
+    'spin up a sales page',
+    'a product page for the launch',
+    'explainer page please',
     'create a presentation for the client', // pre-existing behaviour
     'convert to presentation slides', // pre-existing behaviour
     'convert this to a presentation',
@@ -43,6 +47,8 @@ describe('isMicrositeRequest', () => {
     'what are the requirements',
     'the budget is $50,000',
     'upload the RFP',
+    'check their website', // bare "website" is intentionally left to the LLM
+    'their brochure looks nice', // print brochure, not a web artifact
   ];
 
   for (const msg of NO) {

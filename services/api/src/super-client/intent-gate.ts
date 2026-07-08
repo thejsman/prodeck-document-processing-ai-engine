@@ -43,8 +43,35 @@ const KNOWN_FORMATS: ReadonlySet<string> = new Set<OutputFormat>([
   'md', 'txt', 'pdf', 'docx', 'rtf', 'pptx', 'notion',
 ]);
 
-/** A create/produce verb — the primary signal that a message is a generation request. */
-const CREATE_VERB = /\b(generate|create|make|build|write|draft|produce|prepare|design|compose|put\s+together)\b/i;
+/**
+ * A create/produce verb — the primary signal that a message is a generation
+ * request. Includes informal synonyms ("whip up", "spin up") and transform
+ * leads ("turn/convert ... into ...") so common phrasings keep the fast,
+ * free, high-confidence path instead of falling through to the LLM.
+ *
+ * A bare transform verb without an artifact ("turn left", "we should convert
+ * more leads") is harmless: `explicitGenerationIntent` only generates when it
+ * also finds an artifact, otherwise it returns null and the message goes to the
+ * LLM. Typos are NOT handled here on purpose — fuzzy/deterministic matching is
+ * brittle and prone to false positives. Mis-typed requests ("propsal") are
+ * absorbed by the LLM classifier, which is naturally typo-robust.
+ */
+const CREATE_VERB = /\b(generate|create|make|build|write|draft|produce|prepare|design|compose|put\s+together|whip\s+(?:up|together)|throw\s+together|knock\s+out|spin\s+up|mock\s+up|cook\s+up|work\s+up|pull\s+together|draw\s+up|turn|convert|transform|repurpose|rework)\b/i;
+
+/** Transform lead ("turn X into Y") — the target artifact is the noun AFTER "into". */
+const TRANSFORM_INTO = /\b(?:turn|convert|transform|repurpose|rework|make)\b.*?\binto\b\s*(.+)$/i;
+
+/**
+ * For a "turn/convert X into Y" message, return just the target segment (the text
+ * after "into") so artifact detection matches the intended OUTPUT, not the source.
+ * Without this, "turn our proposal into a landing page" would match `proposal`
+ * first (checked before microsite) and mis-route. For non-transform messages the
+ * whole message is returned unchanged.
+ */
+function artifactScope(message: string): string {
+  const m = message.match(TRANSFORM_INTO);
+  return m && m[1].trim() ? m[1] : message;
+}
 
 /** Presentation/deck nouns — used for "bare artifact" detection (mirrors the pptx vocabulary). */
 const PRESENTATION_ARTIFACT = /\b(pitch\s+decks?|slide\s*decks?|presentations?|keynote|decks?|slides?|pptx?)\b/i;
@@ -186,7 +213,11 @@ function bareArtifactClarify(input: IntentGateInput): IntentDecision | null {
 function explicitGenerationIntent(input: IntentGateInput): IntentDecision | null {
   const { message, matchedSkillSlug } = input;
 
-  if (detectPresentationIntent(message)) {
+  // For "turn X into Y", detect the artifact on the target segment (after "into")
+  // so the OUTPUT wins over the source. Non-transform messages use the whole text.
+  const scope = artifactScope(message);
+
+  if (detectPresentationIntent(scope)) {
     return {
       intent: 'generate_presentation',
       confidence: 0.95,
@@ -196,10 +227,10 @@ function explicitGenerationIntent(input: IntentGateInput): IntentDecision | null
       reason: 'explicit create + presentation vocabulary',
     };
   }
-  if (PROPOSAL_ARTIFACT.test(message)) {
+  if (PROPOSAL_ARTIFACT.test(scope)) {
     return { intent: 'generate_proposal', confidence: 0.95, source: 'rule', reason: 'explicit create + proposal' };
   }
-  if (isMicrositeRequest(message)) {
+  if (isMicrositeRequest(scope)) {
     return { intent: 'generate_microsite', confidence: 0.9, source: 'rule', reason: 'explicit create + microsite' };
   }
   if (matchedSkillSlug) {
@@ -359,6 +390,18 @@ CRITICAL RULES:
 WHEN intent is "clarify":
 - "clarifyingQuestion": ONE short, friendly sentence. Be specific about the ambiguity. Do NOT list the options inside the sentence (they are shown separately as buttons). Never use em-dashes; use commas.
 - "clarifyOptions": an array of 2-4 SHORT tappable answers (max ~4 words each) the user can click, e.g. ["Create a document","Create a presentation"] or ["Yes, create it","Just discussing"]. Each option must be a complete instruction the user could send as their next message.
+
+EXAMPLES (varied phrasing — generalize from these, do not match them literally):
+- "whip up a one pager site for the acme deal" -> {"intent":"generate_microsite","confidence":0.9}
+- "can you throw together a deck for tomorrow" -> {"intent":"generate_presentation","confidence":0.9}
+- "turn our last proposal into a website" -> {"intent":"generate_microsite","confidence":0.88}
+- "draft a propsal for them" (typo) -> {"intent":"generate_proposal","confidence":0.9}
+- "I need something to show investors by friday" -> {"intent":"generate_presentation","confidence":0.75}
+- "i want a doc covering the rollout plan" -> {"intent":"generate_document","confidence":0.8}
+- "their pitch deck looked great" (passing mention) -> {"intent":"answer","confidence":0.9}
+- "what's the capital of france" (unrelated) -> {"intent":"off_topic","confidence":0.95}
+- "proposal?" (bare, no clear intent) -> {"intent":"clarify","confidence":0.4}
+- "hey" (greeting) -> {"intent":"answer","confidence":0.9}
 
 Available document skills (slug: name - description):
 ${skillCatalog}
