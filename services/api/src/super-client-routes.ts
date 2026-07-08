@@ -48,6 +48,20 @@ function sanitizeHtmlOutput(html: string): string {
     );
 }
 
+// Strip markdown fences and leading/trailing prose from an LLM HTML response.
+// Used in multiple handler scopes — defined at module level so all can share it.
+function extractHtmlFromResponseGlobal(raw: string): string {
+  const s = raw.trim();
+  const fenceMatch = s.match(/```(?:html)?\r?\n?([\s\S]+?)\r?\n?```/);
+  if (fenceMatch) return sanitizeHtmlOutput(fenceMatch[1].trim());
+  const firstTag = s.indexOf('<');
+  if (firstTag === -1) return s;
+  let result = s.slice(firstTag);
+  const lastTag = result.lastIndexOf('>');
+  if (lastTag !== -1) result = result.slice(0, lastTag + 1);
+  return sanitizeHtmlOutput(result.trim());
+}
+
 function slugify(input: string): string {
   return input
     .toLowerCase()
@@ -3225,7 +3239,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // deterministic BG shortcuts below so a prompt that mentions "background"
       // or a hex colour (e.g. "Background: #020509") doesn't get intercepted
       // by the colour-patch shortcut instead of reaching the redesign flow.
-      const isRedesignIntent = /\b(regenerat|redesign|completely new|redo|rebuild|restyle|overhaul)\b/i.test(editInstruction);
+      // Also covers structural fix requests ("fix overlapping strip", "repair broken layout")
+      // which need a full section rewrite, not a targeted element patch.
+      const isStructuralFix = /\b(?:fix|repair|correct|resolve)\b/i.test(editInstruction)
+        && /\b(?:overlap|overlapping|bleed(?:ing)?|overflow(?:ing)?|strip|stripe|z.?index|misalign|broken|cut.?off|clip(?:ped)?|spacing|layout|position|visual|design|gap|layer)\b/i.test(editInstruction);
+      const isRedesignIntent = isStructuralFix
+        || /\b(regenerat|redesign|completely new|redo|rebuild|restyle|overhaul|rewrite|remake|recreate)\b/i.test(editInstruction);
 
       // ── Deterministic background-image injection for element edits ──────────
       // When the instruction contains an image URL AND "background" intent,
@@ -3460,22 +3479,26 @@ IMAGE-SPECIFIC RULES (this element contains an image):
   • Replace ONLY the src attribute value — keep all other attributes unchanged
 - If the instruction provides a specific URL, use that URL exactly` : '';
 
+      const regenRootTag = targetHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? 'section';
+      const regenModeNote = isStructuralFix
+        ? `\nFIX MODE: Correct the described layout/design problem only. Do NOT change any colors, text content, branding, or visual style — only fix the structural issue described.`
+        : '';
       const elementPrompt = isRedesignIntent
-        ? `You are regenerating a complete HTML section. Return ONLY the <section> element — nothing before or after it.
+        ? `You are regenerating a complete HTML section/slide. Return ONLY the root element — nothing before or after it.
 
-SECTION TO REDESIGN:
+SECTION TO REGENERATE:
 ${targetHtml}
 
 INSTRUCTION: ${editInstruction}
-
+${regenModeNote}
 Output rules (strictly enforced):
-- Start your output with the section's opening tag and end with </section>
+- Start your output with the opening tag (<${regenRootTag}...) and end with </${regenRootTag}>
 - Do NOT output <!DOCTYPE>, <html>, <head>, or <body>
-- All CSS MUST be inside a single <style> tag placed as the LAST child of <section>, before </section>
+- All CSS MUST be inside a single <style> tag placed as the LAST child, before </${regenRootTag}>
 - All CSS selectors MUST be scoped with a unique prefix (e.g. .regen-${Date.now().toString(36)}-) — zero style leakage to other sections
-- All JS MUST be inside a single <script> tag placed as the LAST child of <section>, just before </section>
+- All JS MUST be inside a single <script> tag placed as the LAST child, just before </${regenRootTag}>
 - All JS MUST be wrapped in an IIFE: (function(){ ... })(); — no global variable declarations
-- Keep ALL existing text content exactly as-is — only visual/structural design changes
+- Keep ALL existing text content exactly as-is unless the instruction explicitly changes it
 - No external libraries except Google Fonts (loaded via @import inside the <style> tag)`
         : `You are making a precise edit to one HTML element. Return ONLY the modified element — same root tag, same nesting. Do not return any surrounding HTML, parent elements, or the full section.
 
@@ -3666,6 +3689,17 @@ Strict rules:
         }
       }
 
+      // Numbered ordinal: "slide 2", "section 3", "slide #2", "2nd slide"
+      const numMatch = hintLower.match(/\b(?:slide|section)\s+#?(\d+)\b/)
+        ?? hintLower.match(/\b(\d+)(?:st|nd|rd|th)\s+(?:slide|section)\b/);
+      if (numMatch) {
+        const idx = parseInt(numMatch[1] ?? '0', 10) - 1;
+        if (idx >= 0 && idx < secs.length) {
+          const s = secs[idx];
+          return { before: src.slice(0, s.start), section: src.slice(s.start, s.end), after: src.slice(s.end), tag: 'section' };
+        }
+      }
+
       const words = hintLower.split(/\W+/).filter(w => w.length > 2);
 
       let best = secs[0], bestScore = -1;
@@ -3753,8 +3787,14 @@ Strict rules:
     // Extract CSS :root block so the LLM knows available design tokens
     const cssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
 
-    // "regenerate/redesign" with explicit intent → still uses single-section regen
-    const isRegenIntent = /\b(?:regenerate|rewrite|rebuild|redesign|redo|remake|recreate)\b/i.test(instruction);
+    // Explicit regen/redesign intent → single-section rewrite path
+    const isPureRegenIntent = /\b(?:regenerate|rewrite|rebuild|redesign|redo|remake|recreate)\b/i.test(instruction);
+    // Structural fix intent — "fix overlapping strip", "repair broken layout", etc.
+    // These need a full section rewrite rather than a targeted text patch.
+    const isStructuralFixIntent = !isPureRegenIntent
+      && /\b(?:fix|repair|correct|resolve)\b/i.test(instruction)
+      && /\b(?:overlap|overlapping|bleed(?:ing)?|overflow(?:ing)?|strip|stripe|z.?index|misalign|broken|cut.?off|clip(?:ped)?|spacing|layout|position|visual|design|gap|layer)\b/i.test(instruction);
+    const isRegenIntent = isPureRegenIntent || isStructuralFixIntent;
     const isHeaderInstruction = /\b(?:logo|brand|icon|favicon|header|nav(?:bar)?)\b/i.test(instruction);
 
     let sectionCtx: SectionSlice | null = null;
@@ -3762,13 +3802,28 @@ Strict rules:
       sectionCtx = (isHeaderInstruction ? extractHeaderBlock(html) : null) ?? extractBestSection(html, instruction);
     }
 
-    // ── Section regeneration helper (explicit regen intent only) ─────────────
+    // ── Section regeneration helper (regen intent + structural fix) ──────────
     async function regenSection(ctx: SectionSlice): Promise<string> {
+      // For pure regeneration with no design-change words, lock down all visual aspects.
+      const designChangeWords = /\b(?:dark|light|color|colour|font|size|background|theme|style|palette|weight|spacing|layout|gradient|border|shadow)\b/i;
+      const isDesignChangeInstruction = designChangeWords.test(instruction ?? '');
+
+      // Extract inline color values from the section so we can explicitly list them
+      const inlineColors = [...new Set(
+        ctx.section.match(/#[0-9a-fA-F]{3,8}\b|rgb\([^)]+\)|rgba\([^)]+\)/g) ?? []
+      )].slice(0, 12).join(', ');
+
+      const modeNote = isStructuralFixIntent
+        ? `\nFIX MODE: Fix the described design issue only. Do NOT change any colors, text content, branding, or visual style — only correct the structural/layout problem described.`
+        : isPureRegenIntent && !isDesignChangeInstruction
+        ? `\nREGENERATION MODE: Refresh the content but preserve ALL visual design exactly — same colors${inlineColors ? ` (${inlineColors})` : ''}, fonts, font sizes, spacing, layout, and visual hierarchy. Do not change any design characteristics.`
+        : '';
+
       const regenPrompt = `You are rewriting one section of an HTML microsite.
 
 Apply the instruction exactly. You may change: text content, headings, body copy, colors, backgrounds, fonts, font sizes, font weights, spacing, layout, images, icons, buttons, links — whatever the instruction requires.
 Preserve: overall section structure unless told otherwise, CSS class names, responsive/grid patterns, and references to CSS design tokens below.
-
+${modeNote}
 Output ONLY the replacement HTML block — start with the opening tag (<section, <header, <nav, or <div), end with its closing tag. No preamble, no explanation, no markdown fences.
 ${cssVarsBlock ? `\nCSS DESIGN TOKENS (use var(--name) for colors/fonts/spacing where applicable):\n${cssVarsBlock}\n` : ''}
 INSTRUCTION: ${instruction}
@@ -3944,13 +3999,40 @@ ${html}`;
     if (isRegenIntent && sectionCtx) {
       try {
         updatedHtml = await regenSection(sectionCtx);
-        summary = 'Section regenerated';
+        summary = isStructuralFixIntent ? 'Section fixed' : 'Section regenerated';
       } catch {
         return reply.code(502).send({ error: 'Could not regenerate section — try providing more detail in your instruction' });
       }
     } else {
       const op = parseOp(raw);
-      if (!op) return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+      if (!op) {
+        // LLM returned raw HTML instead of JSON (common for section rewrites) — treat as section_replace.
+        const fallbackBlock = extractBlockFromResponse(raw);
+        if (fallbackBlock) {
+          const ctx = extractBestSection(html, instruction);
+          if (ctx) {
+            updatedHtml = ctx.before + fallbackBlock.block + ctx.after;
+            summary = 'Section updated';
+            console.log('↩️  parseOp null — used raw HTML block fallback');
+          } else {
+            return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+          }
+        } else {
+          // Last resort: if it looks like a fix/regen ask, rewrite the section directly.
+          const ctx = extractBestSection(html, instruction);
+          if (ctx && /\b(?:fix|repair|regenerate|redesign|rewrite|rebuild|redo|correct)\b/i.test(instruction)) {
+            try {
+              updatedHtml = await regenSection(ctx);
+              summary = 'Section updated';
+              console.log('↩️  parseOp null — fell through to regenSection');
+            } catch {
+              return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+            }
+          } else {
+            return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+          }
+        }
+      } else {
 
       if (op.op === 'patches') {
         const { html: patched, applied, missed } = applyPatches(html, op.patches);
@@ -3991,6 +4073,7 @@ ${html}`;
       } else {
         return reply.code(502).send({ error: 'Unknown operation returned by LLM — try rephrasing' });
       }
+      } // close: else (op !== null)
     }
 
     // ── Content-specific verification ─────────────────────────────────────────
@@ -4360,6 +4443,7 @@ ${sectionHtml}`;
     let resolvedInstruction = instruction;
     let elementContext = '';
     let displaySummary = instruction;
+    let selectedElementCssPath = ''; // captured from __ELEMENT_EDIT__ for slide targeting
 
     if (instruction.startsWith('__ELEMENT_EDIT__:')) {
       const payload = instruction.slice('__ELEMENT_EDIT__:'.length);
@@ -4368,6 +4452,7 @@ ${sectionHtml}`;
       const outerHtml = parts[1] ?? '';
       const userText = parts.slice(2).join('||');
       resolvedInstruction = userText;
+      selectedElementCssPath = cssPath;
       elementContext = `\nTARGET ELEMENT (CSS path: ${cssPath}):\n${outerHtml.slice(0, 4000)}\nEdit only this element unless the instruction requires broader changes.`;
       displaySummary = userText;
     } else if (instruction.startsWith('__REMOVE_BY_PATH__:')) {
@@ -4468,6 +4553,73 @@ ${sectionHtml}`;
         ?? '';
       return `slide ${i + 1}${heading ? ` — "${heading}"` : ''}`;
     }).join('\n');
+
+    // CSS :root token block (for design-preserving regen)
+    const slideCssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
+
+    // Detect regen/fix intent from the resolved (user-typed) instruction.
+    // Works for both free-text and element-selected cases — resolvedInstruction
+    // is always the user's actual text (stripped of __ELEMENT_EDIT__ prefix).
+    const isSlideRegenIntent = (
+      /\b(?:regenerate|rewrite|rebuild|redesign|redo|remake|recreate)\b/i.test(resolvedInstruction)
+      || (/\b(?:fix|repair|correct|resolve)\b/i.test(resolvedInstruction)
+          && /\b(?:overlap|overlapping|bleed(?:ing)?|overflow(?:ing)?|strip|stripe|z.?index|misalign|broken|cut.?off|clip(?:ped)?|spacing|layout|position|visual|design|gap|layer)\b/i.test(resolvedInstruction))
+    );
+    const isSlideStructuralFix = isSlideRegenIntent
+      && /\b(?:fix|repair|correct|resolve)\b/i.test(resolvedInstruction);
+    const isPureSlideRegen = isSlideRegenIntent && !isSlideStructuralFix;
+
+    // Determine which slide to target for regen.
+    // Priority: (1) enclosing slide of the selected element, (2) "slide N" in text, (3) first slide.
+    function targetSlideIdx(instr: string): number {
+      // When an element was selected, find its enclosing slide by CSS path bounds
+      if (selectedElementCssPath && slideBounds.length > 0) {
+        const elBounds = findByPath(html, selectedElementCssPath);
+        if (elBounds) {
+          const idx = slideBounds.findIndex(b => b.start <= elBounds.start && elBounds.end <= b.end);
+          if (idx !== -1) return idx;
+        }
+      }
+      // Fall back to ordinal in text: "slide 2", "2nd slide"
+      const m = instr.toLowerCase().match(/\bslide\s+#?(\d+)\b/)
+        ?? instr.toLowerCase().match(/\b(\d+)(?:st|nd|rd|th)\s+slide\b/);
+      if (m) {
+        const idx = parseInt(m[1] ?? '0', 10) - 1;
+        if (idx >= 0 && idx < slideBounds.length) return idx;
+      }
+      return 0;
+    }
+
+    // Slide regeneration helper — rewrites one slide, optionally locking design
+    async function regenSlide(idx: number): Promise<string> {
+      const b = slideBounds[idx];
+      const slideHtml = html.slice(b.start, b.end);
+      const designChangeWords = /\b(?:dark|light|color|colour|font|size|background|theme|style|palette|weight|spacing|layout|gradient|border|shadow)\b/i;
+      const inlineColors = [...new Set(slideHtml.match(/#[0-9a-fA-F]{3,8}\b|rgb\([^)]+\)|rgba\([^)]+\)/g) ?? [])].slice(0, 12).join(', ');
+      const modeNote = isSlideStructuralFix
+        ? '\nFIX MODE: Fix the described design issue only. Do NOT change colors, text content, branding, or visual style — only correct the structural/layout problem.'
+        : isPureSlideRegen && !designChangeWords.test(resolvedInstruction)
+        ? `\nREGENERATION MODE: Preserve ALL visual design — same colors${inlineColors ? ` (${inlineColors})` : ''}, fonts, sizes, spacing, and layout. Only refresh content.`
+        : '';
+      const prompt = `You are rewriting one slide of an HTML slide presentation.
+
+Apply the instruction exactly. You may change: text content, headings, colors, backgrounds, fonts, spacing, layout, images, icons, buttons — whatever the instruction requires.
+Preserve: the outer <div class="slide"> wrapper and its id/data attributes, CSS class names, responsive patterns, and design token references.
+${modeNote}
+Output ONLY the replacement slide HTML — starting with <div class="slide"..., ending with </div>. No preamble, no markdown fences.
+${slideCssVarsBlock ? `\nCSS DESIGN TOKENS:\n${slideCssVarsBlock}\n` : ''}
+INSTRUCTION: ${resolvedInstruction}
+
+CURRENT SLIDE (slide ${idx + 1}):
+${slideHtml}`;
+      const raw = await llmGenerateFn(prompt);
+      const stripped = extractHtmlFromResponseGlobal(raw);
+      const startIdx = stripped.search(/<div\b/i);
+      const endIdx = stripped.lastIndexOf('</div>');
+      if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) throw new Error('LLM did not return a valid slide block');
+      const newSlide = stripped.slice(startIdx, endIdx + 6);
+      return html.slice(0, b.start) + newSlide + html.slice(b.end);
+    }
 
     // ── Pre-resolve real asset URLs so the LLM never invents them ────────────
     let augmentedInstruction = resolvedInstruction;
@@ -4595,14 +4747,48 @@ INSTRUCTION: ${augmentedInstruction}${elementContext}
 FULL HTML:
 ${html}`;
 
+    // For regen/fix intents, skip the JSON op path entirely and go straight to slide rewrite.
+    let updatedHtml = html;
+    let summary = displaySummary;
+
+    if (isSlideRegenIntent && slideBounds.length > 0) {
+      const idx = targetSlideIdx(resolvedInstruction);
+      try {
+        updatedHtml = await regenSlide(idx);
+        summary = isSlideStructuralFix ? `Slide ${idx + 1} fixed` : `Slide ${idx + 1} regenerated`;
+        console.log(`↩️  isSlideRegenIntent — rewrote slide ${idx + 1} directly`);
+      } catch {
+        return reply.code(502).send({ error: 'Could not regenerate slide — try providing more detail' });
+      }
+    } else {
     const raw = await llmGenerateFn(opPrompt);
     console.log(`┌─ SLIDE EDIT LLM raw (first 500): ${(raw ?? '').slice(0, 500)}`);
 
     const op = parseSlideOp(raw ?? '');
-    if (!op) return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
-
-    let updatedHtml = html;
-    let summary = displaySummary;
+    if (!op) {
+      // Fallback: LLM returned raw HTML instead of JSON
+      const stripped = extractHtmlFromResponseGlobal(raw ?? '');
+      const startIdx = stripped.search(/<div\b/i);
+      const endIdx = stripped.lastIndexOf('</div>');
+      if (startIdx !== -1 && endIdx > startIdx && slideBounds.length > 0) {
+        const idx = targetSlideIdx(resolvedInstruction);
+        const b = slideBounds[idx];
+        updatedHtml = html.slice(0, b.start) + stripped.slice(startIdx, endIdx + 6) + html.slice(b.end);
+        summary = displaySummary;
+        console.log('↩️  parseSlideOp null — used raw HTML block fallback');
+      } else if (/\b(?:fix|repair|regenerate|redesign|rewrite|rebuild|redo|correct)\b/i.test(resolvedInstruction) && slideBounds.length > 0) {
+        const idx = targetSlideIdx(resolvedInstruction);
+        try {
+          updatedHtml = await regenSlide(idx);
+          summary = `Slide ${idx + 1} updated`;
+          console.log('↩️  parseSlideOp null — fell through to regenSlide');
+        } catch {
+          return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+        }
+      } else {
+        return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+      }
+    } else {
 
     if (op.op === 'patches') {
       const { html: patched, applied, missed } = applySlidePatches(html, op.patches);
@@ -4633,6 +4819,8 @@ ${html}`;
     } else {
       return reply.code(502).send({ error: 'Unknown operation returned by LLM — try rephrasing' });
     }
+    } // close: else (op !== null)
+    } // close: outer else (not isSlideRegenIntent)
 
     // Guard: closing tags must survive (patches can't remove them; slide html splices could)
     if (!/(<\/body>|<\/html>)/i.test(updatedHtml)) {
