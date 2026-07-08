@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useRouter } from 'next/navigation';
 import {
@@ -1063,8 +1063,18 @@ export default function SuperClientPage() {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // Until the user actively sends something in this session, every chat
+  // scroll is instant — opening the page must show the thread already resting
+  // at the last bubble, never scrolling to it (late-loading cards and images
+  // keep nudging the height well after mount). Smooth scrolling is reserved
+  // for live conversation, and even then only for short hops.
+  const userInteractedRef = useRef(false);
   const scrollToBottom = useCallback(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = bottomRef.current;
+    if (!el) return;
+    const dist = el.getBoundingClientRect().top - window.innerHeight;
+    const smooth = userInteractedRef.current && dist <= 300;
+    el.scrollIntoView({ behavior: smooth ? 'smooth' : ('instant' as ScrollBehavior) });
   }, []);
 
   // Sync generation store → local state (runs even when component is unmounted via subscription)
@@ -1214,7 +1224,34 @@ export default function SuperClientPage() {
     return () => clearInterval(intervalId);
   }, [generations, apiKey, name]);
 
+  // On page load the chat must simply appear at the bottom — never animate
+  // down to it. One instant scroll isn't enough: cards, markdown, and images
+  // keep growing the chat height for a moment after mount, and any later
+  // smooth scroll then animates over the remaining distance. So for a short
+  // settling window after the chat mounts, keep re-pinning to the bottom
+  // instantly (behavior:auto); only after the window do new messages
+  // smooth-scroll.
+  const chatPinnedUntilRef = useRef(0);
   useEffect(() => {
+    if (loading) return; // chat isn't mounted until the initial load finishes
+    chatPinnedUntilRef.current = Date.now() + 1500;
+    const pin = () => bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
+    pin();
+    const t = setInterval(() => {
+      if (Date.now() > chatPinnedUntilRef.current) {
+        clearInterval(t);
+        return;
+      }
+      pin();
+    }, 100);
+    return () => clearInterval(t);
+  }, [loading]);
+  useLayoutEffect(() => {
+    if (messages.length === 0) return;
+    if (Date.now() < chatPinnedUntilRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
+      return;
+    }
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
@@ -1298,6 +1335,46 @@ export default function SuperClientPage() {
   // artifact returns the user there (same tab). Cleared as soon as the user
   // opens anything else in this client — they've started working here.
   const artifactsReturnRef = useRef<{ type: string; id: string; seen: boolean } | null>(null);
+  // Full-page loader label shown while a deep-linked artifact is loading —
+  // covers the chat/list UI so the transition from /artifacts goes straight
+  // from loader to open artifact instead of flashing the intermediate page.
+  const [deepLinkOpening, setDeepLinkOpening] = useState<string | null>(null);
+  const deepLinkTargetRef = useRef<{ type: string; id: string } | null>(null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const qs = new URLSearchParams(window.location.search);
+    const open = qs.get('open');
+    if (!open || !qs.get('id')) return;
+    const label =
+      open === 'proposal' ? 'Opening proposal…'
+      : open === 'microsite' ? 'Opening microsite…'
+      : open === 'document' ? 'Opening document…'
+      : open === 'slide' ? 'Opening presentation…'
+      : null;
+    if (!label) return;
+    setDeepLinkOpening(label);
+    // Safety: never strand the overlay if the artifact fails to load (404 etc.)
+    const t = setTimeout(() => setDeepLinkOpening(null), 10_000);
+    return () => clearTimeout(t);
+  }, []);
+  // Drop the overlay the moment the deep-linked artifact is actually open.
+  useEffect(() => {
+    const t = deepLinkTargetRef.current;
+    if (!t) return;
+    const opened =
+      (t.type === 'proposal' && viewingProposal?.fileName === t.id) ||
+      (t.type === 'microsite' && viewingMicrosite?.id === t.id) ||
+      (t.type === 'document' && viewingDocument?.id === t.id) ||
+      (t.type === 'slide' && viewingSlide?.id === t.id);
+    if (opened) {
+      deepLinkTargetRef.current = null;
+      setDeepLinkOpening(null);
+      // Opening the panel collapses the chat column — it rewraps taller, so
+      // re-arm the instant pin-to-bottom window over the reflow.
+      chatPinnedUntilRef.current = Date.now() + 800;
+      bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
+    }
+  }, [viewingProposal, viewingMicrosite, viewingDocument, viewingSlide]);
   useEffect(() => {
     if (deepLinkConsumedRef.current || typeof window === 'undefined') return;
     const qs = new URLSearchParams(window.location.search);
@@ -1309,6 +1386,7 @@ export default function SuperClientPage() {
     }
     const consume = () => {
       deepLinkConsumedRef.current = true;
+      deepLinkTargetRef.current = { type: open, id };
       if (qs.get('from') === 'artifacts') {
         artifactsReturnRef.current = { type: open, id, seen: false };
       }
@@ -1333,6 +1411,7 @@ export default function SuperClientPage() {
       else if (savedSlides.length > 0) { consume(); openSlide({ id, title: '', client: name, slideCount: 0, savedAt: '' } as SavedSlide); }
     } else {
       deepLinkConsumedRef.current = true;
+      setDeepLinkOpening(null);
     }
   }, [proposals, microsites, generatedDocs, savedSlides]);
 
@@ -3406,6 +3485,9 @@ export default function SuperClientPage() {
   async function sendMessage(overrideText?: string) {
     const text = (overrideText ?? input).trim();
     if (!text || streaming) return;
+    // From the first user-sent message on, chat scrolls may animate (live
+    // conversation); everything before that stays instant.
+    userInteractedRef.current = true;
 
     // Answer to a local profile-field question (e.g. Project Type missing after
     // ingestion): save straight to client memory — never send to the chat
@@ -3915,14 +3997,17 @@ export default function SuperClientPage() {
       <div
         style={{
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
+          gap: 12,
           height: '100%',
           color: 'var(--muted)',
-          fontSize: 14,
+          fontSize: 13,
         }}
       >
-        Loading…
+        <Loader size={22} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
+        {deepLinkOpening ?? 'Loading…'}
       </div>
     );
   }
@@ -8771,6 +8856,26 @@ export default function SuperClientPage() {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Full-page loader while a deep-linked artifact (from /artifacts) loads */}
+      {deepLinkOpening && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 3000,
+            background: 'var(--bg)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 12,
+          }}
+        >
+          <Loader size={22} style={{ animation: 'spin 1s linear infinite', color: 'var(--primary)' }} />
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>{deepLinkOpening}</span>
         </div>
       )}
 
