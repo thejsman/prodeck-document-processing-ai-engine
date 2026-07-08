@@ -1,0 +1,57 @@
+{
+  "slug": "case-study",
+  "displayName": "Case Study",
+  "description": "For generating client case studies, success stories, and project showcases that highlight problem, solution, and measurable outcomes.",
+  "type": "document",
+  "structureMode": "free",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["case study", "client story", "success story", "portfolio", "results"],
+  "toneDescription": "Narrative and evidence-driven. Lead with the client's challenge, build through the solution journey, and close with quantified impact.",
+  "triggers": [
+    "case study",
+    "write a case study",
+    "create a case study",
+    "draft a case study",
+    "client story",
+    "client case study",
+    "customer story",
+    "customer success story",
+    "success story",
+    "project showcase",
+    "portfolio piece",
+    "client spotlight",
+    "client win",
+    "showcase our work",
+    "how we helped",
+    "document this project",
+    "tell our story with",
+    "write up this project",
+    "project write-up",
+    "we helped a client"
+  ],
+  "outputFormats": ["md", "pdf", "docx"],
+  "clarifyingQuestions": [
+    {
+      "id": "client_problem",
+      "question": "What was the client's core problem or challenge before working with you?",
+      "required": false
+    },
+    {
+      "id": "solution",
+      "question": "What did you build or deliver to solve that problem?",
+      "required": false
+    },
+    {
+      "id": "outcomes",
+      "question": "What were the measurable outcomes or results? (e.g. 40% cost reduction, 3x faster processing)",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z"
+}

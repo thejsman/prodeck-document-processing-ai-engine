@@ -1,0 +1,72 @@
+{
+  "sections": [
+    {
+      "id": "executive-summary",
+      "title": "Executive Summary",
+      "order": 1,
+      "required": true,
+      "promptHint": "3–5 sentences: the decision needed, the recommended action, and the financial case in one or two key numbers (e.g. 'projected 3-year ROI of 240%, payback in 14 months'). Executives read this first — make the recommendation clear.",
+      "maxWords": 200,
+      "useRagContext": true,
+      "ragQuery": "initiative decision recommendation investment return outcome"
+    },
+    {
+      "id": "problem-statement",
+      "title": "Problem Statement",
+      "order": 2,
+      "required": true,
+      "promptHint": "Describe the business problem or opportunity in concrete terms. Include: the current state, the cost of inaction (quantified where possible), and why this needs to be addressed now.",
+      "maxWords": 300,
+      "useRagContext": true,
+      "ragQuery": "problem challenge current state pain cost of inaction"
+    },
+    {
+      "id": "proposed-solution",
+      "title": "Proposed Solution",
+      "order": 3,
+      "required": true,
+      "promptHint": "Describe what is being invested in and how it addresses the problem. Be specific about scope, timeline, and key implementation steps. Do not over-engineer the description — focus on what, not how.",
+      "maxWords": 400,
+      "useRagContext": true,
+      "ragQuery": "solution approach implementation scope timeline deliverables"
+    },
+    {
+      "id": "financial-analysis",
+      "title": "Financial Analysis",
+      "order": 4,
+      "required": true,
+      "promptHint": "Include in table format: Total Cost (one-time + ongoing by category), Expected Return (revenue gained, cost avoided, or time saved in $ value), ROI ((Return - Cost) / Cost), Payback Period, and 3-year NPV if multi-year. State all assumptions explicitly.",
+      "maxWords": 500,
+      "useRagContext": true,
+      "ragQuery": "cost budget investment return ROI savings financial projections"
+    },
+    {
+      "id": "risk-assessment",
+      "title": "Risk Assessment",
+      "order": 5,
+      "required": true,
+      "promptHint": "List the top 3–5 risks. For each: description, probability (High/Med/Low), impact (High/Med/Low), and mitigation plan. Use a table. Include the risk of doing nothing as the first row.",
+      "maxWords": 400,
+      "useRagContext": true,
+      "ragQuery": "risks challenges concerns failure modes mitigation"
+    },
+    {
+      "id": "alternatives-considered",
+      "title": "Alternatives Considered",
+      "order": 6,
+      "required": true,
+      "promptHint": "List 2–3 alternatives that were evaluated. For each: brief description, key advantages, and why it was not recommended. This demonstrates the recommendation was reached through analysis, not assumption.",
+      "maxWords": 300,
+      "useRagContext": false
+    },
+    {
+      "id": "recommendation",
+      "title": "Recommendation",
+      "order": 7,
+      "required": true,
+      "promptHint": "State the clear decision recommendation. If conditional (e.g. proceed only if X), state the conditions. Include: next steps, who needs to approve, and the cost of delay if the decision is deferred.",
+      "maxWords": 200,
+      "useRagContext": false
+    }
+  ]
+}

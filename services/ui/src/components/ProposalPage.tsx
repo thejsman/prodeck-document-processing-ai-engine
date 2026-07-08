@@ -356,6 +356,19 @@ export function ProposalPage() {
     if (found) finishPending();
   }, [allProposals, pending, fromChat, finishPending]);
 
+  // Poll for completion when a generating state was restored from localStorage on refresh
+  useEffect(() => {
+    if (fromChat || !pending || pending.status !== 'generating') return;
+    const isRestored = Date.now() - pending.startedAt > 5_000;
+    if (!isRestored) return;
+    const iv = setInterval(() => {
+      fetchProposals(apiKey)
+        .then(setAllProposals)
+        .catch(() => {});
+    }, 5_000);
+    return () => clearInterval(iv);
+  }, [pending, fromChat, apiKey]);
+
   useEffect(() => {
     if (!nsDropOpen) return;
     function handle(e: MouseEvent) {

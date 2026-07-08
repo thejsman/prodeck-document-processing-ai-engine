@@ -7,6 +7,13 @@ import { fetchPexelsImageUrl } from './image-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
 import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
 import { readOrgContextSettings, resolveVoiceBlock, superClientWorkdir, getMimeType } from '@ai-engine/runtime';
+import { findBestDocumentSkill, loadSkill, formatSkillForSlides, listSkills } from './skills/skill.service.js';
+import { saveDocumentDirect, getDocumentContent, getDocumentMeta } from './documents/document-generator.js';
+import { parseRequestedFormat, detectPresentationIntent, detectSlideOrientation } from './documents/format-detector.js';
+import { validateSlideHtml, countSlides, extractTitle, resolveSlideOrientation } from './slides/slide-generator.js';
+import type { SavedSlide } from './slides/slide-generator.js';
+import { patchHtml, toVideoEmbedUrl, findByPath, locateElement, hideCoveringImage } from './html-patch.js';
+import { classifyChatIntent, type IntentDecision, type PendingClarification } from './super-client/intent-gate.js';
 
 // Strip preview-only injections that the UI adds to srcdoc iframes.
 // These must never be saved to disk — if the client sends currentHtml that
@@ -41,12 +48,56 @@ function sanitizeHtmlOutput(html: string): string {
     );
 }
 
+// Strip markdown fences and leading/trailing prose from an LLM HTML response.
+// Used in multiple handler scopes — defined at module level so all can share it.
+function extractHtmlFromResponseGlobal(raw: string): string {
+  const s = raw.trim();
+  const fenceMatch = s.match(/```(?:html)?\r?\n?([\s\S]+?)\r?\n?```/);
+  if (fenceMatch) return sanitizeHtmlOutput(fenceMatch[1].trim());
+  const firstTag = s.indexOf('<');
+  if (firstTag === -1) return s;
+  let result = s.slice(firstTag);
+  const lastTag = result.lastIndexOf('>');
+  if (lastTag !== -1) result = result.slice(0, lastTag + 1);
+  return sanitizeHtmlOutput(result.trim());
+}
+
 function slugify(input: string): string {
   return input
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 50);
+}
+
+// Locate the Chrome binary that Puppeteer downloaded to ~/.cache/puppeteer/chrome.
+// Returns null if nothing is found — caller should surface a 503.
+async function findChromeBinary(): Promise<string | null> {
+  const { homedir } = await import('node:os');
+  const cacheDir = path.join(homedir(), '.cache', 'puppeteer', 'chrome');
+  let versions: string[];
+  try {
+    versions = await readdir(cacheDir);
+  } catch {
+    return null;
+  }
+  for (const v of versions.sort().reverse()) {
+    const candidates = [
+      // macOS
+      path.join(cacheDir, v, 'chrome-mac-x64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+      path.join(cacheDir, v, 'chrome-mac-arm64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+      // Linux
+      path.join(cacheDir, v, 'chrome-linux64', 'chrome'),
+      path.join(cacheDir, v, 'chrome-linux', 'chrome'),
+    ];
+    for (const candidate of candidates) {
+      try {
+        await stat(candidate);
+        return candidate;
+      } catch { /* try next */ }
+    }
+  }
+  return null;
 }
 
 interface SuperClientMeta {
@@ -60,7 +111,10 @@ interface HistoryEntry {
   role: 'user' | 'assistant';
   content: string;
   createdAt: string;
-  editContext?: 'microsite' | 'proposal';
+  editContext?: 'microsite' | 'proposal' | 'document';
+  // Set on an assistant turn when it asked a clarifying question, so the next
+  // turn can resolve the deferred intent instead of re-classifying from scratch.
+  pendingClarification?: PendingClarification;
 }
 
 interface ScFile {
@@ -91,14 +145,14 @@ interface ScMicrosite {
 interface GenerationEntry {
   id: string;
   clientSlug: string;
-  type: 'proposal' | 'microsite';
+  type: 'proposal' | 'microsite' | 'slide';
   phase: 'generating' | 'complete' | 'error';
   title: string;
   steps: string[];
   createdAt?: string;
   charCount?: number;
   error?: string;
-  result?: { fileName?: string; micrositeId?: string };
+  result?: { fileName?: string; micrositeId?: string; slideId?: string };
 }
 
 async function readGenerations(dir: string): Promise<GenerationEntry[]> {
@@ -134,6 +188,19 @@ async function readHistory(dir: string): Promise<HistoryEntry[]> {
   } catch {
     return [];
   }
+}
+
+/** The pending clarification carried by the most recent assistant turn, if any. */
+function lastAssistantPending(history: HistoryEntry[]): PendingClarification | undefined {
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].role === 'assistant') return history[i].pendingClarification;
+  }
+  return undefined;
+}
+
+/** Remove em/en dashes from chat-visible text — replace with a spaced hyphen. */
+function stripDashes(s: string): string {
+  return s.replace(/\s*[—–]\s*/g, ' - ');
 }
 
 async function readContext(dir: string): Promise<string> {
@@ -194,6 +261,30 @@ async function saveProposal(dir: string, title: string, content: string): Promis
   return entry;
 }
 
+async function updateDocumentContent(
+  workdir: string,
+  clientSlug: string,
+  id: string,
+  content: string,
+): Promise<import('./skills/skill.types.js').GeneratedDocumentMeta> {
+  const docsDir = path.join(workdir, 'super-clients', clientSlug, 'documents');
+  await writeFile(path.join(docsDir, `${id}.md`), content, 'utf-8');
+  // Update updatedAt in meta
+  const meta = await getDocumentMeta(workdir, clientSlug, id);
+  const updatedMeta = { ...meta, updatedAt: new Date().toISOString() };
+  await writeFile(path.join(docsDir, `${id}.meta.json`), JSON.stringify(updatedMeta, null, 2), 'utf-8');
+  // Update index entry
+  const indexPath = path.join(workdir, 'super-clients', clientSlug, 'documents.json');
+  try {
+    const raw = await readFile(indexPath, 'utf-8');
+    const index = JSON.parse(raw) as Array<Record<string, unknown>>;
+    const idx = index.findIndex((e) => e['id'] === id);
+    if (idx !== -1) index[idx] = { ...index[idx], updatedAt: updatedMeta.updatedAt };
+    await writeFile(indexPath, JSON.stringify(index, null, 2), 'utf-8');
+  } catch { /* index update is best-effort */ }
+  return updatedMeta;
+}
+
 async function updateProposal(dir: string, fileName: string, title: string, content: string): Promise<ScProposal> {
   const proposalsDir = path.join(dir, 'proposals');
   await writeFile(path.join(proposalsDir, fileName), content, 'utf-8');
@@ -216,6 +307,71 @@ function extractProposalTag(text: string): { title: string; content: string } | 
 
 function stripProposalTag(text: string): string {
   return text.replace(/<proposal\s+title="[^"]*">[\s\S]*?<\/proposal>/i, '').trim();
+}
+
+function extractDocumentTag(
+  text: string,
+): { title: string; type: string; format: string; content: string } | null {
+  const match = text.match(
+    /<document\s+title="([^"]+)"(?:\s+type="([^"]*)")?(?:\s+format="([^"]*)")?>([\s\S]*?)<\/document>/i,
+  );
+  if (!match) return null;
+  return {
+    title: match[1].trim(),
+    type: match[2]?.trim() ?? 'document',
+    format: match[3]?.trim() ?? 'md',
+    content: match[4].trim(),
+  };
+}
+
+function stripDocumentTag(text: string): string {
+  return text
+    .replace(/<document\s+title="[^"]*"(?:\s+type="[^"]*")?(?:\s+format="[^"]*")?>[\s\S]*?<\/document>/i, '')
+    .trim();
+}
+
+function extractSlidesTag(text: string): { html: string } | null {
+  const m = text.match(/<slides>([\s\S]*?)<\/slides>/i);
+  if (!m) return null;
+  return { html: m[1].trim() };
+}
+
+function stripSlidesTag(text: string): string {
+  return text.replace(/<slides>[\s\S]*?<\/slides>/i, '').trim();
+}
+
+async function saveSlide(
+  dir: string,
+  clientSlug: string,
+  html: string,
+  orientation: 'landscape' | 'portrait' = 'landscape',
+): Promise<SavedSlide> {
+  const slidesDir = path.join(dir, 'slides');
+  await mkdir(slidesDir, { recursive: true });
+
+  const now = new Date();
+  const id = `${now.toISOString().replace(/[:.]/g, '-').slice(0, 19)}-${Math.random().toString(36).slice(2, 6)}`;
+  const entry: SavedSlide = {
+    id,
+    title: extractTitle(html),
+    client: clientSlug,
+    slideCount: countSlides(html),
+    savedAt: now.toISOString(),
+    orientation,
+  };
+
+  await writeFile(path.join(slidesDir, `${id}.html`), html);
+
+  // Update slides index
+  let index: SavedSlide[] = [];
+  try {
+    const raw = await readFile(path.join(dir, 'slides.json'), 'utf-8');
+    index = JSON.parse(raw) as SavedSlide[];
+  } catch { /* first slide */ }
+  index.unshift(entry);
+  await writeFile(path.join(dir, 'slides.json'), JSON.stringify(index, null, 2));
+
+  return entry;
 }
 
 function extractTextReplacements(text: string): Array<{ find: string; replace: string }> {
@@ -448,8 +604,22 @@ Return ONLY valid JSON (null for fields not found in the document):
   }
 }
 
-// Fire-and-forget: extract facts from a chat turn and persist to ClientMemoryService.
+// Drop entries below this confidence — anything the model is unsure about is
+// noise, not durable memory.
+const MEMORY_MIN_CONFIDENCE = 0.6;
+// Hedging language is a tell that the "fact" is a guess, not knowledge.
+const HEDGE_PATTERN = /\b(possibly|maybe|perhaps|might be|could be|based on context|presumably|likely|seems? to)\b/i;
+
+export interface MemoryDistillSummary {
+  knowledgeAdded: number;
+  stakeholdersAdded: number;
+  skipped: number;
+}
+
+// Extract NEW facts from a chat turn and persist to ClientMemoryService.
 // Uses llmGenerateFn → Python LLM bridge → respects configured provider/model.
+// Returns a summary of what was learned (or null on failure) so the caller can
+// confirm it to the user. Never throws — memory must never break the chat reply.
 async function distillChatTurn(
   workdir: string,
   clientSlug: string,
@@ -457,11 +627,30 @@ async function distillChatTurn(
   userMessage: string,
   assistantReply: string,
   log: FastifyBaseLogger,
-): Promise<void> {
-  const prompt = `You are a client intelligence extractor.
-Given this chat exchange about a client, extract any facts worth remembering long-term.
+): Promise<MemoryDistillSummary | null> {
+  try {
+    const memService = new ClientMemoryService(workdir);
+    const existing = await memService.get(clientSlug);
+    // Feed the model everything already known so it stops re-extracting and
+    // hedging over facts we already hold (e.g. the company name).
+    const knownFacts = (existing?.knowledge ?? [])
+      .filter((k) => !k.supersededBy)
+      .map((k) => k.content.trim())
+      .filter(Boolean);
+    const knownNorm = new Set(knownFacts.map((c) => c.toLowerCase()));
+    const knownBlock = knownFacts.length
+      ? `\nALREADY KNOWN — do NOT re-extract these or minor rephrasings of them:\n${knownFacts.map((c) => `- ${c}`).join('\n')}\n`
+      : '';
+
+    const prompt = `You are a client intelligence extractor.
+Given this chat exchange about a client, extract ONLY NEW, durable facts worth remembering long-term.
 Focus on: company facts, preferences, constraints, requirements, stakeholders (people + roles), brand traits.
-Skip: conversational filler, questions without answers, project-specific one-off details.
+Skip: conversational filler, questions without answers, project-specific one-off details, and anything already known.
+
+STRICT RULES:
+- Do NOT hedge or speculate. If a fact is not stated clearly, omit it — never write "possibly", "maybe", "likely", or "based on context".
+- Do NOT restate facts already known (see the ALREADY KNOWN list) or facts already obvious from the client profile.
+- Prefer a few high-signal facts over many weak ones. Score confidence honestly (0.0–1.0); if you are not confident, omit the fact rather than giving it a low score.
 
 Categories (use the most specific one that fits):
 - requirement  : A stated must-have or should-have capability or deliverable
@@ -477,7 +666,7 @@ Categories (use the most specific one that fits):
 - context      : Background about the company, people, or situation
 
 CLIENT: ${clientName}
-
+${knownBlock}
 USER: ${userMessage}
 ASSISTANT: ${assistantReply}
 
@@ -491,7 +680,6 @@ Return ONLY valid JSON (empty arrays if nothing notable):
   ]
 }`;
 
-  try {
     const raw = await llmGenerateFn(prompt);
     const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
     const extracted = JSON.parse(json) as {
@@ -499,15 +687,31 @@ Return ONLY valid JSON (empty arrays if nothing notable):
       stakeholders?: { name: string; role: string; email?: string; notes?: string }[];
     };
 
-    const memService = new ClientMemoryService(workdir);
-    if (!(await memService.get(clientSlug))) {
+    if (!existing) {
       await memService.createEmpty(clientName);
     }
+
+    let knowledgeAdded = 0;
+    let skipped = 0;
     for (const k of extracted.knowledge ?? []) {
-      if (k.content?.trim()) {
-        await memService.addKnowledge(clientSlug, k.content, k.category as ClientKnowledgeEntry['category'], k.confidence ?? 0.7);
+      const content = k.content?.trim();
+      if (!content) continue;
+      const confidence = k.confidence ?? 0.7;
+      // Reject low-confidence guesses, hedged phrasing, and anything we already know.
+      if (
+        confidence < MEMORY_MIN_CONFIDENCE ||
+        HEDGE_PATTERN.test(content) ||
+        knownNorm.has(content.toLowerCase())
+      ) {
+        skipped++;
+        continue;
       }
+      await memService.addKnowledge(clientSlug, content, k.category as ClientKnowledgeEntry['category'], confidence);
+      knownNorm.add(content.toLowerCase());
+      knowledgeAdded++;
     }
+
+    let stakeholdersAdded = 0;
     for (const s of extracted.stakeholders ?? []) {
       if (s.name?.trim() && s.role?.trim()) {
         await memService.addStakeholder(clientSlug, {
@@ -516,10 +720,18 @@ Return ONLY valid JSON (empty arrays if nothing notable):
           ...(s.email?.trim() ? { email: s.email } : {}),
           ...(s.notes?.trim() ? { notes: s.notes } : {}),
         });
+        stakeholdersAdded++;
       }
     }
+
+    log.info(
+      { clientSlug, knowledgeAdded, stakeholdersAdded, skipped },
+      '[SuperClient] Memory distillation complete',
+    );
+    return { knowledgeAdded, stakeholdersAdded, skipped };
   } catch (err) {
     log.warn({ err }, '[SuperClient] Memory distillation failed — chat unaffected');
+    return null;
   }
 }
 
@@ -726,13 +938,16 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
   // routes in this codebase). Non-streaming calls (context gen, distillation) use llmGenerateFn.
   app.post('/super-clients/:name/chat', async (req: FastifyRequest, reply: FastifyReply) => {
     const { name } = req.params as { name: string };
-    const body = req.body as { message?: string; activeProposalId?: string } | undefined;
+    const body = req.body as { message?: string; activeProposalId?: string; activeDocumentId?: string } | undefined;
 
     const message = body?.message?.trim();
     const activeProposalId = body?.activeProposalId?.trim() || undefined;
+    const activeDocumentId = body?.activeDocumentId?.trim() || undefined;
     if (!message) {
       return reply.code(400).send({ error: 'Missing required field: message' });
     }
+
+    const detectedFormat = parseRequestedFormat(message);
 
     const dir = path.join(superClientsRoot, name);
 
@@ -752,6 +967,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     });
 
     const send = (data: unknown) => {
+      // No em/en dashes in any chat-visible text (Golden UX rule for this surface).
+      if (data && typeof data === 'object') {
+        const d = data as Record<string, unknown>;
+        if (typeof d.text === 'string') d.text = stripDashes(d.text);
+        if (typeof d.message === 'string') d.message = stripDashes(d.message);
+      }
       try { reply.raw.write(`data: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
     };
 
@@ -767,9 +988,194 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       const extractedFiles = scFiles.filter((f) => f.status === 'extracted');
 
+      // Stream a plain assistant message word-by-word (matches the generation UX)
+      // and persist the turn — used by the intent-gate terminal branches below.
+      const streamAssistant = async (text: string) => {
+        for (const w of text.split(' ')) {
+          send({ type: 'chunk', text: w + ' ' });
+          await new Promise<void>((r) => setTimeout(r, 12));
+        }
+      };
+      const persistTurn = async (assistantText: string, pending?: PendingClarification) => {
+        const updated: HistoryEntry[] = [
+          ...history,
+          { role: 'user', content: message, createdAt: new Date().toISOString() },
+          {
+            role: 'assistant',
+            content: stripDashes(assistantText),
+            createdAt: new Date(Date.now() + 1).toISOString(),
+            ...(pending ? { pendingClarification: pending } : {}),
+          },
+        ];
+        await writeFile(path.join(dir, 'history.json'), JSON.stringify(updated, null, 2));
+      };
+
+      // Resolve skill match BEFORE building the prompt so we can branch the generation rules.
+      let matchedDocumentSkill: Awaited<ReturnType<typeof findBestDocumentSkill>> = null;
+      let matchedSkillInstructionsMd: string | undefined;
+      let matchedSkillSections: Awaited<ReturnType<typeof loadSkill>>['sections'] | undefined;
+      try {
+        matchedDocumentSkill = await findBestDocumentSkill(workdir, message);
+        if (matchedDocumentSkill) {
+          const loaded = await loadSkill(workdir, matchedDocumentSkill.slug);
+          matchedSkillInstructionsMd = loaded?.instructionsMd;
+          matchedSkillSections = loaded?.sections;
+        }
+      } catch {
+        // Non-critical — skill matching failure should not block generation
+      }
+
+      const msgLower = message.toLowerCase();
+      const isEdit = !!(activeProposalId || activeDocumentId);
+
+      // ── Intent gate ────────────────────────────────────────────────────────
+      // Fresh (non-edit) requests pass through the intelligent gate: it decides
+      // whether to generate, ask a clarifying question, or decline off-topic —
+      // rather than generating immediately on any keyword match. Edits keep their
+      // existing behavior (the gate would only interfere with a live edit).
+      let decision: IntentDecision | null = null;
+      if (!isEdit) {
+        const proposalsList = await readProposals(dir).catch(() => []);
+        const docSkills = await listSkills(workdir, { type: 'document' }).catch(() => []);
+        decision = await classifyChatIntent({
+          message,
+          history,
+          clientName: meta.displayName,
+          skills: docSkills.map((s) => ({
+            slug: s.slug,
+            displayName: s.displayName,
+            description: s.description,
+            triggers: s.triggers,
+            outputFormats: s.outputFormats,
+          })),
+          hasProposals: proposalsList.length > 0,
+          matchedSkillSlug: matchedDocumentSkill?.slug,
+          pendingClarification: lastAssistantPending(history),
+          generateFn: llmGenerateFn,
+        });
+
+        // Terminal intents — respond and stop before any generation.
+        if (decision.intent === 'off_topic') {
+          const text = `I'm focused on ${meta.displayName} — I can help you create proposals, documents, presentations, or microsites for them, or answer questions about their business. What would you like to do for ${meta.displayName}?`;
+          await streamAssistant(text);
+          await persistTurn(text);
+          send({ type: 'done', text });
+          return;
+        }
+        if (decision.intent === 'clarify') {
+          const text = decision.clarifyingQuestion ?? `Just to confirm, what would you like me to do for ${meta.displayName}?`;
+          const options = decision.clarifyOptions ?? [];
+          // Carry ONLY a deterministically-matched skill into the pending marker
+          // (never the LLM's guess) so a confirmed resume can't re-apply a skill
+          // the request never actually matched.
+          const pendingSkillSlug = matchedDocumentSkill?.slug;
+          const pending: PendingClarification | undefined = decision.proposedIntent
+            ? {
+                proposedIntent: decision.proposedIntent,
+                ...(pendingSkillSlug ? { skillSlug: pendingSkillSlug } : {}),
+                ...(decision.format ? { format: decision.format } : {}),
+              }
+            : undefined;
+          // A question renders as a distinct card, not streamed text — emit it as a
+          // single `done` so the UI shows it cleanly (isClarify) with any options.
+          await persistTurn(text, pending);
+          send({
+            type: 'done',
+            text,
+            isClarify: true,
+            ...(options.length ? { clarifyOptions: options } : {}),
+          });
+          return;
+        }
+        if (decision.intent === 'generate_microsite') {
+          const text = proposalsList.length > 0
+            ? 'Pick a proposal below to generate its microsite.'
+            : `You'll need a proposal first, ask me to generate one for ${meta.displayName}, then I can turn it into a microsite.`;
+          // Microsites are built by selecting a proposal in the composer (backend
+          // can't generate them). Signal the UI to open the proposal selector
+          // instead of leaving a dangling "pick a proposal below" text with no picker.
+          await persistTurn(text);
+          send({ type: 'done', text, isMicrosite: true, hasProposals: proposalsList.length > 0 });
+          return;
+        }
+      }
+
+      // The document skill is determined deterministically by findBestDocumentSkill
+      // on the message (matchedDocumentSkill) — the LLM never gets to pick it, or it
+      // hallucinates skills (e.g. "catalogue" -> "Marketing Brief"). The ONLY skill
+      // reload allowed is for a rule-sourced decision: a resumed clarification ("yes
+      // go ahead"), whose reply text matches no skill but whose pending marker
+      // carries the skill that WAS deterministically matched on the original request.
+      if (!isEdit && decision?.source === 'rule' && decision?.skillSlug && matchedDocumentSkill?.slug !== decision.skillSlug) {
+        try {
+          const loaded = await loadSkill(workdir, decision.skillSlug);
+          matchedDocumentSkill = loaded.skill;
+          matchedSkillInstructionsMd = loaded.instructionsMd;
+          matchedSkillSections = loaded.sections;
+        } catch {
+          // Non-critical — fall back to whatever the message-text match found
+        }
+      }
+
+      // Presentation mode is now an OUTPUT of the intent gate (not raw regex). For
+      // edits, preserve the historical detection so live edits are unaffected.
+      const isPresentationRequest = isEdit
+        ? (matchedDocumentSkill?.slug === 'presentation' || detectPresentationIntent(message))
+        : decision?.intent === 'generate_presentation';
+      // When the gate resolved to a conversational answer, tell the generator not
+      // to emit an artifact for this turn.
+      const isAnswerIntent = !isEdit && decision?.intent === 'answer';
+      // Orientation follows an explicit aspect-ratio mention: 9:16 → portrait,
+      // otherwise landscape (the historical default, kept byte-for-byte unchanged).
+      const slideOrientation = detectSlideOrientation(message);
+
+      // Orientation-dependent prompt fragments. For landscape these resolve to the
+      // exact historical strings, so the existing 16:9 prompt is unchanged.
+      const isPortrait = slideOrientation === 'portrait';
+      const slideAspect = isPortrait ? '9/16' : '16/9';
+      const slideHeightNote = isPortrait ? 'height = 177.78vw' : 'height = 56.25vw';
+      const portraitDesignNote =
+        `- PORTRAIT FORMAT (9:16): every slide is tall and narrow like a phone screen / story frame. Stack content vertically with generous spacing; prefer justify-content:space-between or flex-start over always centering. Keep one focused idea per slide, oversized headlines, and design for a vertical mobile reading experience.`;
+
       // Build combined prompt — llmGenerateFn takes a single string and routes through
       // the Python LLM bridge which respects LLM_PROVIDER / provider-specific model config.
-      const promptParts: string[] = [
+      const promptParts: string[] = isPresentationRequest ? [
+        // ── PRESENTATION MODE — no proposal/document rules ──────────────────
+        // Deliberately minimal: the ONLY fixed rules are the technical frame that
+        // lets the deck render/save (scroll layout, slide box, aspect ratio, 8px
+        // gap, self-contained-enough HTML) plus quality guardrails (no broken
+        // words, diverse slides). EVERYTHING visual — background, colour,
+        // typography, layout, shadows — is the designer's invention. Do not
+        // reintroduce prescriptive design rules or an example deck here; that is
+        // what made every deck look the same.
+        `You are a world-class senior UI, brand, and product designer creating a bespoke slide presentation for a team that manages the client "${meta.displayName}".`,
+        ``,
+        `Read the client context, ingested documents, and memory below and infer this client's industry, brand, and audience. Then design a visual language that genuinely fits THEM — a fintech or consulting client wants refined, restrained, high-trust design; a consumer or creative brand wants bold, expressive, unexpected design. Every deck you make should look custom-designed for this specific client, not like a template. Aim for award-winning, magazine-grade craft: intentional typography, confident use of colour and space, and real visual hierarchy.`,
+        ``,
+        `NEVER ask the user to re-upload files listed in the Ingested Documents section — their content is already extracted into memory below.`,
+        ``,
+        `SLIDES GENERATION RULE — this is the ONLY output format for this request:`,
+        `Output ONE complete standalone HTML document wrapped in <slides>...</slides>. Do NOT use <proposal> or <document> tags. Do NOT output markdown.`,
+        ``,
+        `You have FULL creative freedom over the visual design. The following are the ONLY hard rules — everything else is yours to invent:`,
+        `- Full HTML document: <!DOCTYPE html> … </html>, with a <title> = the presentation title.`,
+        `- VERTICAL SCROLL DECK: every slide stacks top-to-bottom in one scrollable page and is always visible. No JS navigation, visibility toggling, click zones, keyboard nav, or slide transitions — scrolling is the only navigation.`,
+        `- Give every slide element the class "slide", each width:100% and aspect-ratio:${slideAspect} (${slideHeightNote}). Wrap all slides in a single container div with class "deck" (display:flex; flex-direction:column).`,
+        `- Gap between slides: exactly 8px.`,
+        `- Each slide is a self-contained box. Keep every slide's content inside its own slide — nothing may overflow into or overlap the slide before or after it. Within a single slide you MAY use position:absolute to layer and compose freely (the slide clips its own overflow).`,
+        `- Inline the deck's own CSS and JS. You MAY load external web fonts (e.g. Google Fonts via <link>) and remote images / icons / CDNs for polish — always include a system-font fallback in every font-family stack so the deck still looks intentional if a font fails to load.`,
+        `- NEVER break a single word across two lines. Do NOT use word-break:break-all, overflow-wrap:break-word/anywhere, or hyphens. Text wraps only at spaces; if a word would overflow, reduce its font-size or widen the column — never split or clip it.`,
+        `- Make every slide visually distinct. No two slides should share the same layout.`,
+        ...(isPortrait ? [portraitDesignNote] : []),
+        ``,
+        `CONTENT:`,
+        `- Draw ALL facts from client context, ingested documents, and conversation. Never invent facts.`,
+        `- Slide titles are insights, not labels — "Revenue grew 3× in 12 months" beats "Revenue Growth".`,
+        `- Use the slide count the user specified, or 10–12 if not mentioned.`,
+        ``,
+        `Output: ONLY the <slides>...</slides> tag with the full HTML document inside. After the tag, write ONE plain sentence (MAX 25 words) describing only WHAT the deck covers — the subject and message — as if telling a colleague over the phone. It must contain NO visual or design detail. BANNED words: slide, deck, 16:9, cover, hero, headline, panel, grid, card, column, CTA, footer, bar, layout, SVG, palette, and every colour name. Example: "A quick overview of your services and why clients trust you, ending with an invitation to book a consultation."`,
+      ] : [
+        // ── STANDARD MODE — proposal + document rules ────────────────────────
         `You are a senior business development consultant and proposal strategist with 20+ years of experience crafting winning proposals across diverse industries. You are working on behalf of a team that manages the client "${meta.displayName}".`,
         ``,
         `For general questions: respond concisely with strategic insight. Stay focused on this client's world — their business, goals, audience, and brand.`,
@@ -784,8 +1190,21 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         `<proposal title="Descriptive Proposal Title Here">`,
         `[full markdown content here]`,
         `</proposal>`,
-        `3. Outside the tag, add only a brief 1-2 sentence confirmation that the proposal was saved.`,
+        `3. Outside the tag, write ONE short, plain-language sentence telling the user what the proposal covers — its focus and the value it offers. Do not describe formatting or structure. Keep it simple and friendly.`,
         `Do NOT put any explanation or preamble inside the tag — only the markdown proposal body.`,
+        ``,
+        `DOCUMENT GENERATION RULE: When the user asks you to write, create, generate, or draft any document that is NOT a proposal — such as a strategy document, blog post, marketing brief, executive report, press release, competitive analysis, case study, go-to-market plan, one-pager, compliance checklist, or any other standalone document — you MUST:`,
+        `1. Write the full document in rich markdown — use # for the title, ## for section headings, **bold** for key terms, and appropriate structure driven by the content type.`,
+        `2. Wrap the ENTIRE document markdown inside a single XML tag like this:`,
+        `<document title="Descriptive Document Title" type="inferred-type-slug" format="${detectedFormat ?? 'md'}">`,
+        `[full markdown content here]`,
+        `</document>`,
+        `   - title: a descriptive title for the document`,
+        `   - type: a lowercase kebab-case slug inferred from the document's purpose — use any slug that fits (e.g. "blog-post", "press-release", "case-study", "competitive-analysis", "onboarding-guide", "compliance-checklist", "go-to-market-plan") — no fixed list, choose freely`,
+        `   - format: ${detectedFormat ?? 'md'} (use exactly this value — detected from the user's request)`,
+        `3. Outside the tag, write ONE short, plain-language sentence telling the user what the document covers — its topic and main takeaway. Do not describe formatting or structure. Keep it simple and friendly.`,
+        `Do NOT put any explanation or preamble inside the tag — only the markdown document body.`,
+        `IMPORTANT: Use <proposal> for multi-section consulting proposals. Use <document> for text-based documents (blogs, strategy docs, reports, briefs).`,
       ];
 
       // If the user has a proposal open, load it and inject into the prompt with two-mode editing rule
@@ -821,6 +1240,39 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           );
         } catch {
           // Proposal file not found — proceed without it
+        }
+      }
+
+      // If the user has a document open, load it and inject with the same 3-tier editing rule
+      let activeDocumentContent: string | undefined;
+      if (activeDocumentId) {
+        try {
+          activeDocumentContent = await getDocumentContent(workdir, name, activeDocumentId);
+          promptParts.push(
+            `\n## Currently Open Document\n${activeDocumentContent}`,
+            `\nDOCUMENT EDITING RULE (applies only because a document is currently open):`,
+            `When the user requests any change, use the LIGHTEST format that is sufficient:`,
+            ``,
+            `TIER 1 — PINPOINT (fix a word, number, date, rename a heading, replace a phrase):`,
+            `  Use one or more self-closing <text-replace> tags:`,
+            `  <text-replace find="exact original text" replace="new text" />`,
+            `  • "exact original text" must appear verbatim in the document (copy it exactly).`,
+            `  • Outside the tags write a brief 1-sentence confirmation only.`,
+            ``,
+            `TIER 2 — SECTION (reword a paragraph, add/remove bullets, rewrite a section body):`,
+            `  Output one or more <section-update> tags — one per changed section only:`,
+            `  <section-update heading="## Exact Heading Text">`,
+            `  [full replacement body — do NOT include the heading line inside the tag]`,
+            `  </section-update>`,
+            `  Outside the tags write a brief 1-sentence confirmation only.`,
+            ``,
+            `TIER 3 — FULL REWRITE (add new sections, remove a section entirely, restructure):`,
+            `  Use the full <document title="..." type="..." format="...">...</document> tag containing the complete new markdown.`,
+            ``,
+            `NEVER mix formats in one response. Default to Tier 1 for any single-string substitution.`,
+          );
+        } catch {
+          // Document file not found — proceed without it
         }
       }
 
@@ -876,6 +1328,25 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         promptParts.push(memParts.join('\n'));
       }
 
+      // For non-presentation document requests, inject the matched skill's persona
+      if (matchedDocumentSkill && !isPresentationRequest && matchedSkillInstructionsMd) {
+        promptParts.push(`\n## Document Generation Expertise\n${matchedSkillInstructionsMd.trim()}`);
+      }
+
+      // For presentation requests, a slide-capable document skill (e.g. pitch-deck)
+      // shapes the deck's narrative + recommended arc. Gated on outputFormats so a
+      // non-slide skill that merely matched cannot pollute a deck. The requested
+      // slide count and the hardcoded HTML/visual rules above stay authoritative.
+      if (
+        matchedDocumentSkill &&
+        isPresentationRequest &&
+        matchedSkillInstructionsMd &&
+        matchedDocumentSkill.outputFormats?.includes('pptx')
+      ) {
+        const block = formatSkillForSlides(matchedDocumentSkill, matchedSkillInstructionsMd, matchedSkillSections ?? []);
+        if (block) promptParts.push(block);
+      }
+
       const recentHistory = history.slice(-20);
       if (recentHistory.length > 0) {
         promptParts.push('\n## Conversation History');
@@ -884,55 +1355,187 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }
       }
 
+      // Inject format-specific content structuring directive when the user requested a specific format
+      const FORMAT_DIRECTIVES: Partial<Record<import('./skills/skill.types.js').OutputFormat, string>> = {
+        pptx: 'FORMAT DIRECTIVE: The user wants a PowerPoint presentation. Write rich, well-structured content using natural headings (# Title, ## Section Name) and bullet points. Do NOT use "## Slide N:" numbering — the system automatically converts your structured content into beautifully designed slides using a visual layout engine. Focus on compelling, well-organised content.',
+        docx: 'FORMAT DIRECTIVE: The user wants a Microsoft Word document. Use clean heading hierarchy (#, ##, ###), standard paragraphs, and bulleted lists. Avoid complex markdown tables — Word renders them poorly.',
+        txt: 'FORMAT DIRECTIVE: The user wants plain text. Do NOT use any markdown syntax — no **, no #, no dashes for bullets, no backticks. Write in clear prose with section titles as plain uppercase labels followed by a colon.',
+        notion: 'FORMAT DIRECTIVE: The user wants Notion-compatible output. Use > blockquotes for callout blocks, --- horizontal dividers between major sections, and standard heading hierarchy (# ## ###).',
+        pdf: 'FORMAT DIRECTIVE: The user wants a PDF. Use rich markdown — headings, bullets, **bold** key terms, blockquotes for callouts — it will be rendered and typeset to PDF.',
+      };
+      if (!isPresentationRequest && detectedFormat && detectedFormat !== 'md') {
+        const directive = FORMAT_DIRECTIVES[detectedFormat];
+        if (directive) promptParts.push(`\n${directive}`);
+      }
+
+      if (isAnswerIntent) {
+        promptParts.push(`\nThe user is asking a question or making conversation — respond helpfully and concisely about ${meta.displayName}. Do NOT generate a proposal, document, or slides in this reply; just answer.`);
+      }
+
       promptParts.push(`\nUser: ${message}`);
 
       const combinedPrompt = promptParts.join('\n');
 
-      // Call provider-agnostic LLM bridge — respects LLM_PROVIDER + model config
-      const fullResponse = await llmGenerateFn(combinedPrompt);
+      // ── Generation-turn resolution ────────────────────────────────────────
+      // The intent gate's decision (not raw regex) determines whether this turn
+      // produces an artifact, what type it is, and which skill shapes it. Edits
+      // and conversational answers keep the legacy streaming behavior.
+      const isGenerationTurn = !isEdit && (
+        decision?.intent === 'generate_proposal' ||
+        decision?.intent === 'generate_document' ||
+        decision?.intent === 'generate_presentation'
+      );
+      const artifactType: 'slide' | 'proposal' | 'document' | undefined = !isGenerationTurn
+        ? undefined
+        : decision!.intent === 'generate_presentation' ? 'slide'
+        : decision!.intent === 'generate_proposal' ? 'proposal'
+        : 'document';
+      // The skill is only "used" when its guidance is actually injected into the
+      // prompt — mirror the injection gates above (presentation: pptx-capable;
+      // document: standard-mode instructions present; proposal: none).
+      const ackSkill =
+        artifactType === 'slide' && matchedDocumentSkill && matchedSkillInstructionsMd && matchedDocumentSkill.outputFormats?.includes('pptx')
+          ? matchedDocumentSkill
+          : artifactType === 'document' && matchedDocumentSkill && matchedSkillInstructionsMd
+            ? matchedDocumentSkill
+            : null;
+      const artifactLabel = artifactType === 'slide'
+        ? 'presentation'
+        : artifactType === 'proposal'
+          ? 'proposal'
+          : (ackSkill?.displayName ?? matchedDocumentSkill?.displayName ?? 'document').toLowerCase();
 
-      // Fake-stream word by word for a natural streaming UX
-      const words = fullResponse.split(' ');
-      for (const word of words) {
-        send({ type: 'chunk', text: word + ' ' });
-        await new Promise<void>((r) => setTimeout(r, 12));
+      // ── Acknowledgment + planning announcement ───────────────────────────
+      // Acknowledge in chat BEFORE generating — naming the skill in use — so the
+      // turn reads as interactive rather than an abrupt jump into generation.
+      let ackText = '';
+      if (isGenerationTurn) {
+        ackText = ackSkill
+          ? `Using the **${ackSkill.displayName}** skill to create this ${artifactLabel} for ${meta.displayName}, give me a moment…`
+          : `Creating a ${artifactLabel} for ${meta.displayName}, give me a moment…`;
+        await streamAssistant(ackText);
+
+        const countMatch = message.match(/\b(\d+)[\s\-]*(page|slide|screen)s?\b/i);
+        const count = countMatch ? countMatch[1] : null;
+        const planText = artifactType === 'slide'
+          ? (count
+              ? `Building a ${count}-slide presentation for ${meta.displayName}…`
+              : `Building a presentation for ${meta.displayName}…`)
+          : artifactType === 'proposal'
+            ? `Drafting a proposal for ${meta.displayName}…`
+            : `Writing a ${artifactLabel} for ${meta.displayName}…`;
+        send({
+          type: 'planning',
+          text: planText,
+          artifactType,
+          ...(ackSkill ? { skillSlug: ackSkill.slug, skillName: ackSkill.displayName } : {}),
+          genTitle: ackSkill?.displayName
+            ?? (artifactType === 'slide' ? 'Presentation' : artifactType === 'proposal' ? 'Proposal' : 'Document'),
+        });
       }
 
-      // Detect proposal changes — apply the lightest format that fired
+      // ── LLM call with heartbeat progress ─────────────────────────────────
+      // The generation is one opaque blocking call, so — exactly like the
+      // microsite generate-v2-stream route — a heartbeat cycles progress steps
+      // to keep the UI's generation card alive while the model works.
+      const HEARTBEAT_STEPS: Record<'slide' | 'proposal' | 'document', string[]> = {
+        slide: ['Reading client context…', 'Analyzing presentation requirements…', 'Structuring slides…', 'Writing slide content…', 'Applying design and layout…', 'Finalizing presentation…'],
+        proposal: ['Reading client context…', 'Analyzing requirements…', 'Drafting proposal sections…', 'Refining content…', 'Finalizing proposal…'],
+        document: ['Reading client context…', 'Researching topic…', 'Structuring document…', 'Writing sections…', 'Reviewing and refining…', 'Preparing document…'],
+      };
+      let hbTimer: ReturnType<typeof setInterval> | null = null;
+      if (isGenerationTurn && artifactType) {
+        const steps = [...HEARTBEAT_STEPS[artifactType]];
+        if (ackSkill) steps.splice(2, 0, `Applying the ${ackSkill.displayName} structure…`);
+        send({ type: 'progress', message: steps[0] });
+        let hbIdx = 1;
+        hbTimer = setInterval(() => {
+          send({ type: 'progress', message: steps[hbIdx % steps.length] });
+          hbIdx++;
+        }, 6000);
+      }
+
+      // Call provider-agnostic LLM bridge — respects LLM_PROVIDER + model config
+      let fullResponse: string;
+      try {
+        fullResponse = await llmGenerateFn(combinedPrompt);
+      } finally {
+        if (hbTimer) clearInterval(hbTimer);
+      }
+
+      if (isGenerationTurn) {
+        send({ type: 'progress', message: `Saving ${artifactLabel}…` });
+      } else {
+        // Conversational / edit turns: fake-stream the full reply word by word
+        // as before. Generation turns stream only the stripped confirmation
+        // AFTER parsing, so raw <slides>/<proposal> markup never floods the chat.
+        const words = fullResponse.split(' ');
+        for (const word of words) {
+          send({ type: 'chunk', text: word + ' ' });
+          await new Promise<void>((r) => setTimeout(r, 12));
+        }
+      }
+
+      // Apply the lightest edit format that fired (proposals and documents share the same 3-tier logic)
       let proposalSaved: ScProposal | undefined;
       let proposalUpdated: ScProposal | undefined;
+      let documentSaved: import('./skills/skill.types.js').GeneratedDocumentMeta | undefined;
+      let documentUpdated: import('./skills/skill.types.js').GeneratedDocumentMeta | undefined;
+      let slideSaved: SavedSlide | undefined;
       let displayResponse = fullResponse;
 
-      const textReplacements = activeProposalId ? extractTextReplacements(fullResponse) : [];
-      const sectionUpdates = activeProposalId ? extractSectionUpdates(fullResponse) : [];
+      const activeEditId = activeProposalId ?? activeDocumentId;
+      const textReplacements = activeEditId ? extractTextReplacements(fullResponse) : [];
+      const sectionUpdates = activeEditId ? extractSectionUpdates(fullResponse) : [];
 
-      if (textReplacements.length > 0 && activeProposalId && activeProposalContent !== undefined) {
-        // Tier 1: pinpoint string replacements — no section parsing
-        try {
-          const patchedContent = applyTextReplacements(activeProposalContent, textReplacements);
-          const existingProposals = await readProposals(dir);
-          const existingEntry = existingProposals.find((p) => p.fileName === activeProposalId);
-          const title = existingEntry?.title ?? activeProposalId;
-          proposalUpdated = await updateProposal(dir, activeProposalId, title, patchedContent);
-        } catch (err) {
-          app.log.warn({ err }, '[SuperClient] Failed to apply text replacements');
+      if (textReplacements.length > 0 && activeEditId) {
+        // Tier 1: pinpoint string replacements
+        if (activeProposalId && activeProposalContent !== undefined) {
+          try {
+            const patchedContent = applyTextReplacements(activeProposalContent, textReplacements);
+            const existingProposals = await readProposals(dir);
+            const existingEntry = existingProposals.find((p) => p.fileName === activeProposalId);
+            const title = existingEntry?.title ?? activeProposalId;
+            proposalUpdated = await updateProposal(dir, activeProposalId, title, patchedContent);
+          } catch (err) {
+            app.log.warn({ err }, '[SuperClient] Failed to apply text replacements to proposal');
+          }
+        } else if (activeDocumentId && activeDocumentContent !== undefined) {
+          try {
+            const patchedContent = applyTextReplacements(activeDocumentContent, textReplacements);
+            documentUpdated = await updateDocumentContent(workdir, name, activeDocumentId, patchedContent);
+          } catch (err) {
+            app.log.warn({ err }, '[SuperClient] Failed to apply text replacements to document');
+          }
         }
         displayResponse = stripTextReplaceTags(fullResponse);
-      } else if (sectionUpdates.length > 0 && activeProposalId && activeProposalContent !== undefined) {
+      } else if (sectionUpdates.length > 0 && activeEditId) {
         // Tier 2: section-body patches
-        try {
-          const patchedContent = patchProposalSections(activeProposalContent, sectionUpdates);
-          const existingProposals = await readProposals(dir);
-          const existingEntry = existingProposals.find((p) => p.fileName === activeProposalId);
-          const title = existingEntry?.title ?? activeProposalId;
-          proposalUpdated = await updateProposal(dir, activeProposalId, title, patchedContent);
-        } catch (err) {
-          app.log.warn({ err }, '[SuperClient] Failed to patch proposal sections');
+        if (activeProposalId && activeProposalContent !== undefined) {
+          try {
+            const patchedContent = patchProposalSections(activeProposalContent, sectionUpdates);
+            const existingProposals = await readProposals(dir);
+            const existingEntry = existingProposals.find((p) => p.fileName === activeProposalId);
+            const title = existingEntry?.title ?? activeProposalId;
+            proposalUpdated = await updateProposal(dir, activeProposalId, title, patchedContent);
+          } catch (err) {
+            app.log.warn({ err }, '[SuperClient] Failed to patch proposal sections');
+          }
+        } else if (activeDocumentId && activeDocumentContent !== undefined) {
+          try {
+            const patchedContent = patchProposalSections(activeDocumentContent, sectionUpdates);
+            documentUpdated = await updateDocumentContent(workdir, name, activeDocumentId, patchedContent);
+          } catch (err) {
+            app.log.warn({ err }, '[SuperClient] Failed to patch document sections');
+          }
         }
         displayResponse = stripSectionUpdateTags(fullResponse);
       } else {
-        // Tier 3: full proposal tag
+        // Tier 3: full tag rewrite
         const proposalMatch = extractProposalTag(fullResponse);
+        const slidesTagMatch = !proposalMatch ? extractSlidesTag(fullResponse) : null;
+        const documentMatch = !proposalMatch && !slidesTagMatch ? extractDocumentTag(fullResponse) : null;
+
         if (proposalMatch) {
           try {
             if (activeProposalId && activeProposalContent !== undefined) {
@@ -944,19 +1547,65 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             app.log.warn({ err }, '[SuperClient] Failed to save/update proposal');
           }
           displayResponse = stripProposalTag(fullResponse);
+        } else if (documentMatch) {
+          try {
+            if (activeDocumentId && activeDocumentContent !== undefined) {
+              documentUpdated = await updateDocumentContent(workdir, name, activeDocumentId, documentMatch.content);
+            } else {
+              documentSaved = await saveDocumentDirect(
+                workdir,
+                name,
+                documentMatch.title,
+                documentMatch.type,
+                // Prefer the format detected from the user's natural language over
+                // the LLM-generated attribute — they should agree, but detectedFormat
+                // is the authoritative source from the user's actual request.
+                (detectedFormat ?? documentMatch.format) as import('./skills/skill.types.js').OutputFormat,
+                documentMatch.content,
+              );
+
+            }
+          } catch (err) {
+            app.log.warn({ err }, '[SuperClient] Failed to save/update document');
+          }
+          displayResponse = stripDocumentTag(fullResponse);
+        } else if (slidesTagMatch) {
+          try {
+            // The requested orientation drove the prompt, but the model may have
+            // designed a different one. Trust the actual HTML so the enforcer,
+            // the stored index, and the rendered deck all agree.
+            const finalOrientation = resolveSlideOrientation(slidesTagMatch.html, slideOrientation);
+            const html = validateSlideHtml(slidesTagMatch.html, finalOrientation);
+            slideSaved = await saveSlide(dir, name, html, finalOrientation);
+          } catch (err) {
+            app.log.warn({ err }, '[SuperClient] Failed to save slides');
+          }
+          displayResponse = stripSlidesTag(fullResponse);
         }
       }
 
+      // Generation turns: the raw response was never fake-streamed (only the ack
+      // was). Stream the stripped confirmation now, then keep the ack at the top
+      // of the persisted/final text so the turn reads as one coherent message.
+      if (isGenerationTurn) {
+        if (displayResponse.trim()) {
+          await streamAssistant(displayResponse.trim());
+        }
+        displayResponse = [ackText, displayResponse.trim()].filter(Boolean).join('\n\n');
+      }
+
       // Persist turn to history.
-      // User and assistant get distinct timestamps (+1 ms apart) so timestamp-
-      // based sort always places the user message before its paired assistant reply.
       const userTs      = new Date().toISOString();
       const assistantTs = new Date(Date.now() + 1).toISOString();
-      const editCtx = activeProposalId ? ({ editContext: 'proposal' } as const) : {};
+      const editCtx = activeProposalId
+        ? ({ editContext: 'proposal' } as const)
+        : activeDocumentId
+          ? ({ editContext: 'document' } as const)
+          : {};
       const updatedHistory: HistoryEntry[] = [
         ...history,
         { role: 'user',      content: message,         createdAt: userTs,      ...editCtx },
-        { role: 'assistant', content: displayResponse, createdAt: assistantTs, ...editCtx },
+        { role: 'assistant', content: stripDashes(displayResponse), createdAt: assistantTs, ...editCtx },
       ];
       await writeFile(path.join(dir, 'history.json'), JSON.stringify(updatedHistory, null, 2));
 
@@ -965,10 +1614,24 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         text: displayResponse,
         ...(proposalSaved ? { proposalSaved } : {}),
         ...(proposalUpdated ? { proposalUpdated } : {}),
+        ...(documentSaved ? { documentSaved } : {}),
+        ...(documentUpdated ? { documentUpdated } : {}),
+        ...(slideSaved ? { slideSaved } : {}),
       });
 
-      // Background memory distillation — non-blocking, uses llmGenerateFn
-      void distillChatTurn(workdir, name, meta.displayName, message, displayResponse, app.log);
+      // Memory distillation runs after the answer is delivered (the `done` event
+      // above already carries the reply + any saved artifacts, so the UI renders
+      // immediately). It is awaited only so we can confirm what was learned back
+      // to the client; distillChatTurn has its own try/catch and returns null on
+      // failure, so it can never break the chat response.
+      const learned = await distillChatTurn(workdir, name, meta.displayName, message, displayResponse, app.log);
+      if (learned && (learned.knowledgeAdded > 0 || learned.stakeholdersAdded > 0)) {
+        send({
+          type: 'memory',
+          knowledgeAdded: learned.knowledgeAdded,
+          stakeholdersAdded: learned.stakeholdersAdded,
+        });
+      }
 
     } catch (err) {
       app.log.error(err, 'Super client chat error');
@@ -998,7 +1661,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       role: (m.role === 'user' || m.role === 'assistant' ? m.role : 'user') as 'user' | 'assistant',
       content: String(m.content ?? ''),
       createdAt: m.createdAt ?? now,
-      ...(m.editContext === 'microsite' || m.editContext === 'proposal' ? { editContext: m.editContext } : {}),
+      ...(m.editContext === 'microsite' || m.editContext === 'proposal' || m.editContext === 'document' ? { editContext: m.editContext } : {}),
     }));
     await writeFile(path.join(dir, 'history.json'), JSON.stringify([...history, ...toAppend], null, 2));
     return reply.send({ ok: true });
@@ -1387,248 +2050,35 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // Never use (.+)$ or ([\s\S]+)$ for a URL/text group — those eat the hint.
     // ─────────────────────────────────────────────────────────────────────────
 
-    // Shared context flags used by both video removal and video injection below
-    const userPart = instruction.includes('||') ? instruction.slice(instruction.lastIndexOf('||') + 2) : instruction;
-    const isElementEditCtx = instruction.startsWith('__ELEMENT_EDIT__:');
-
-    // ── Deterministic video-background removal ────────────────────────────────
-    // Match only against the user-typed part of the instruction (after last ||)
-    // to avoid false positives from outerHtml content in __ELEMENT_EDIT__ payloads.
-    const isRemoveVideoIntent =
-      /\b(?:remove|delete|clear|hide)\b[\s\S]{0,40}\b(?:video|background[\s-]video|video[\s-]background|vimeo|youtube)\b/i.test(userPart) ||
-      /\b(?:video|background[\s-]video|video[\s-]background|vimeo|youtube)\b[\s\S]{0,40}\b(?:remove|delete|clear|hide)\b/i.test(userPart);
-    if (isRemoveVideoIntent) {
-      // Remove ALL iframe types — Vimeo, YouTube, and any other video embed
-      // [\s\S]*? handles both same-line and multi-line iframes
-      function removeVideoIframes(src: string): string {
-        // Remove Vimeo/YouTube iframes (any format)
-        let out = src.replace(
-          /<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[\s\S]*?<\/iframe>/gi, '',
-        );
-        // Also remove self-closing variant
-        out = out.replace(/<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[^>]*\/>/gi, '');
-        // Also remove any generic video-player iframe (poster frame, etc.) that's position:absolute
-        out = out.replace(
-          /<iframe\b[^>]*style="[^"]*position\s*:\s*absolute[^"]*"[^>]*(?:allow="autoplay|pointer-events:none)[^>]*[\s\S]*?<\/iframe>/gi, '',
-        );
-        return out;
+    // ── Video URL → embed URL normalization (pure format transform, not an intent
+    // guess — used later to hand the global LLM op-picker a ready-made embed URL
+    // instead of letting it invent embed syntax). Kept at handler scope so both
+    // the global augmented-instruction step below and __VIDEO_INJECT__-style
+    // paths can format a watch-page URL the same way.
+    function toEmbedUrl(raw: string): string {
+      const vimeoM = raw.match(/^https?:\/\/(?:www\.)?vimeo\.com\/(\d+)([?&]\S*)?/i);
+      if (vimeoM) {
+        const id     = vimeoM[1];
+        const params = vimeoM[2] ?? '?autoplay=1&loop=1&muted=1&title=0&byline=0&portrait=0';
+        return `https://player.vimeo.com/video/${id}${params}`;
       }
-
-      // If element was selected, scope removal to its parent section for safety
-      const elementEditForRemoval = instruction.match(/^__ELEMENT_EDIT__:([\s\S]*?)\|\|/s);
-      if (elementEditForRemoval) {
-        const cssPath = elementEditForRemoval[1].trim();
-        const elBounds = cssPath ? findByPath(html, cssPath) : null;
-        const sectionBounds = extractAllTopLevelSections(html);
-        const parentSec = elBounds
-          ? sectionBounds.find(s => s.start <= elBounds.start && elBounds.end <= s.end)
-          : null;
-        if (parentSec) {
-          const sectionHtml = html.slice(parentSec.start, parentSec.end);
-          const cleaned = removeVideoIframes(sectionHtml);
-          if (cleaned !== sectionHtml) {
-            const updatedHtml = html.slice(0, parentSec.start) + cleaned + html.slice(parentSec.end);
-            return saveValidatedEdit(updatedHtml, 'Video background removed');
-          }
-        }
-      }
-
-      // If user had an element selected, don't fall back to global removal —
-      // that would remove the wrong section's video. Return a scoped error.
-      if (isElementEditCtx) {
-        return reply.code(422).send({ error: 'No video found in the selected section to remove' });
-      }
-      // No element context — apply globally across the whole microsite
-      const withoutVideo = removeVideoIframes(html);
-      if (withoutVideo !== html) {
-        return saveValidatedEdit(withoutVideo, 'Video background removed');
-      }
-      return reply.code(422).send({
-        error: 'No video iframe found in this microsite to remove',
-      });
-    }
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // ── LLM-placed video embed inside a named section ────────────────────────
-    // Format: __VIDEO_IN_SECTION__:||[sectionKeyword]||[rawVideoUrl]||[userPrompt]
-    // Built by the client only when no element is selected and a named section is given.
-    const videoInSectionMatch = instruction.match(
-      /^__VIDEO_IN_SECTION__:[^|]*\|\|([\s\S]*?)\|\|(https?:\/\/[^|]+)\|\|([\s\S]*)$/s,
-    );
-    if (videoInSectionMatch) {
-      const sectionKw   = videoInSectionMatch[1].trim();
-      const rawVideoUrl = videoInSectionMatch[2].trim();
-      const userPrompt  = videoInSectionMatch[3].trim();
-
-      const toEmbedUrl = (raw: string): string => {
-        const vimeoM = raw.match(/^https?:\/\/(?:www\.)?vimeo\.com\/(\d+)([?&]\S*)?/i);
-        if (vimeoM) {
-          const id     = vimeoM[1];
-          const params = vimeoM[2] ?? '?autoplay=1&loop=1&muted=1&title=0&byline=0&portrait=0';
-          return `https://player.vimeo.com/video/${id}${params}`;
-        }
-        const ytW = raw.match(/youtube\.com\/watch\?.*\bv=([a-zA-Z0-9_-]{11})/i);
-        if (ytW) return `https://www.youtube.com/embed/${ytW[1]}?autoplay=1&loop=1&mute=1&controls=0&playlist=${ytW[1]}`;
-        const ytS = raw.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/i);
-        if (ytS) return `https://www.youtube.com/embed/${ytS[1]}?autoplay=1&loop=1&mute=1&controls=0&playlist=${ytS[1]}`;
-        return raw;
-      };
-      const embedUrl = toEmbedUrl(rawVideoUrl);
-
-      const isBgIntent = /\b(?:background|bg)\b/i.test(userPrompt);
-
-      // Section selection:
-      // - Named section → score by keyword
-      // - Explicit bg intent, no name → use first section (hero/banner is fine for bg)
-      // - No section, no bg intent → skip hero-like first section, prefer first content section
-      let bestSlice: ReturnType<typeof extractBestSection>;
-      if (sectionKw) {
-        bestSlice = extractBestSection(html, sectionKw);
-      } else if (isBgIntent) {
-        bestSlice = extractBestSection(html, 'hero first banner');
-      } else {
-        const allSecs = extractAllTopLevelSections(html);
-        const HERO_LIKE = /\b(?:hero|banner|jumbotron)\b/i;
-        const firstHtml = allSecs[0] ? html.slice(allSecs[0].start, Math.min(allSecs[0].start + 400, allSecs[0].end)) : '';
-        const useSecond = HERO_LIKE.test(firstHtml) && allSecs.length > 1;
-        const targetSec = useSecond ? allSecs[1] : allSecs[0];
-        bestSlice = targetSec
-          ? { before: html.slice(0, targetSec.start), section: html.slice(targetSec.start, targetSec.end), after: html.slice(targetSec.end), tag: 'section' }
-          : null;
-      }
-
-      if (!bestSlice) {
-        return reply.code(422).send({ error: 'No sections found in this microsite' });
-      }
-      const platform   = /vimeo/i.test(rawVideoUrl) ? 'Vimeo' : 'YouTube';
-
-      const embedBlock = isBgIntent
-        ? [
-            `  Modify the opening <section> tag to add style="position:relative;overflow:hidden" (merge with existing styles).`,
-            `  Add this as the very first child inside the section:`,
-            `  <iframe src="${embedUrl}" style="position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100%;min-width:177.78vh;transform:translate(-50%,-50%);border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen" frameborder="0"></iframe>`,
-          ].join('\n')
-        : [
-            `  Wrap the video in a responsive container and insert it at a natural visual break`,
-            `  (after the intro paragraph, before any CTA button, or at the end of main content):`,
-            `  <div class="video-embed" style="position:relative;padding-top:56.25%;margin:2rem 0"><iframe src="${embedUrl}" style="position:absolute;inset:0;width:100%;height:100%;border:none" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>`,
-          ].join('\n');
-
-      const prompt = [
-        `You are editing one HTML section of a microsite. Your job: add a ${platform} video embed.`,
-        ``,
-        `SECTION HTML:`,
-        bestSlice.section.slice(0, 12000),
-        ``,
-        `EMBED URL (use exactly — do NOT change it): ${embedUrl}`,
-        ``,
-        `USER INSTRUCTION: ${userPrompt}`,
-        ``,
-        `WHAT TO DO:`,
-        embedBlock,
-        ``,
-        `STRICT RULES:`,
-        `- Use the EXACT embed URL above — never alter it`,
-        `- Return ONLY the complete modified <section>...</section> element`,
-        `- Do NOT include <!DOCTYPE>, <html>, <head>, or <body>`,
-        `- Preserve all existing text, styles, and children — only ADD the video`,
-        `- Do not remove or reorder any existing content`,
-      ].join('\n');
-
-      console.log('\n┌─ __VIDEO_IN_SECTION__ ──────────────────────────────────────');
-      console.log(`  keyword: "${sectionKw}" | bg: ${isBgIntent} | url: ${embedUrl.slice(0, 80)}`);
-      console.log('└────────────────────────────────────────────────────────────');
-
-      const raw      = await llmGenerateFn(prompt);
-      const modified = extractHtmlFromResponse(raw);
-
-      if (!modified) return reply.code(502).send({ error: 'LLM returned no HTML — try rephrasing' });
-      if (!/^<section[\s>]/i.test(modified.trim())) {
-        return reply.code(422).send({ error: 'LLM returned unexpected structure — try again' });
-      }
-
-      return saveValidatedEdit(
-        bestSlice.before + modified + bestSlice.after,
-        `${platform} video added to ${sectionKw || 'section'}`,
-      );
+      const ytW = raw.match(/youtube\.com\/watch\?.*\bv=([a-zA-Z0-9_-]{11})/i);
+      if (ytW) return `https://www.youtube.com/embed/${ytW[1]}?autoplay=1&loop=1&mute=1&controls=0&playlist=${ytW[1]}`;
+      const ytS = raw.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/i);
+      if (ytS) return `https://www.youtube.com/embed/${ytS[1]}?autoplay=1&loop=1&mute=1&controls=0&playlist=${ytS[1]}`;
+      return raw;
     }
 
-    // ── Deterministic video-background injection (bypasses LLM entirely) ──────
-    const vimeoIdMatch = instruction.match(/vimeo\.com\/(\d+)/i);
-    const youtubeIdMatch = instruction.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
-    // When the user has an element selected (__ELEMENT_EDIT__) and is NOT explicitly asking
-    // for a background video, let the __ELEMENT_EDIT__ handler deal with the URL so the video
-    // is placed where the user intended (below, beside, inside the section) rather than always
-    // being injected as a fullscreen background in the first <section>.
-    const isVideoBgIntent = /\b(?:background|bg)\b/i.test(userPart);
-    if ((vimeoIdMatch ?? youtubeIdMatch) && !(isElementEditCtx && !isVideoBgIntent) && !instruction.startsWith('__VIDEO_INJECT__:') && !instruction.startsWith('__VIDEO_IN_SECTION__:') && !instruction.startsWith('__REMOVE_BY_PATH__:')) {
-      const isVimeo = !!vimeoIdMatch;
-      const videoId = (vimeoIdMatch ?? youtubeIdMatch)![1];
-      const src = isVimeo
-        ? `https://player.vimeo.com/video/${videoId}?background=1&autoplay=1&loop=1&muted=1&byline=0&title=0`
-        : `https://www.youtube.com/embed/${videoId}?autoplay=1&loop=1&mute=1&controls=0&playlist=${videoId}`;
-      // Cover trick: center + oversized so 16:9 video fills any aspect-ratio container
-      const videoIframe = `<iframe src="${src}" style="position:absolute;top:50%;left:50%;width:100vw;height:56.25vw;min-height:100%;min-width:177.78vh;transform:translate(-50%,-50%);border:none;pointer-events:none;z-index:0" allow="autoplay; fullscreen; picture-in-picture" frameborder="0"></iframe>`;
-
-      // Remove any existing video iframes
-      let updatedHtml = html.replace(/<iframe\b[^>]*src="[^"]*(?:vimeo\.com|youtube\.com|youtu\.be)[^"]*"[^>]*><\/iframe>/gi, '');
-
-      // Strip background-image from photo/background elements so video shows through
-      updatedHtml = updatedHtml.replace(
-        /(\.(?:hero|banner|splash)[-_]?(?:photo|image|img|bg|background)[^{]*\{[^}]*)background-image\s*:[^;]+;?\s*/gi,
-        '$1',
-      );
-
-      // Helper: patch a <section> opening tag to add position:relative;overflow:hidden
-      // then prepend the video iframe as its first child.
-      function injectVideoIntoSection(src: string, secStart: number): string {
-        const tagOpenEnd = src.indexOf('>', secStart);
-        if (tagOpenEnd === -1) return src;
-        const rawAttrs = src.slice(secStart + '<section'.length, tagOpenEnd);
-        const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
-        const styleMatch = styleRx.exec(rawAttrs);
-        let patchedAttrs: string;
-        if (styleMatch) {
-          const cleaned = styleMatch[1]
-            .replace(/\bposition\s*:[^;]+;?\s*/g, '')
-            .replace(/\boverflow\s*:[^;]+;?\s*/g, '')
-            .trim().replace(/;$/, '');
-          patchedAttrs = rawAttrs.replace(styleRx, `style="${cleaned ? cleaned + '; ' : ''}position:relative;overflow:hidden"`);
-        } else {
-          patchedAttrs = `${rawAttrs} style="position:relative;overflow:hidden"`;
-        }
-        return src.slice(0, secStart) +
-          `<section${patchedAttrs}>\n  ${videoIframe}` +
-          src.slice(tagOpenEnd + 1);
-      }
-
-      // When the user selected a specific element, inject into its parent section.
-      // Otherwise fall back to the first <section>.
-      const elementEditForVideo = instruction.match(/^__ELEMENT_EDIT__:([\s\S]*?)\|\|[\s\S]*?\|\|[\s\S]+$/s);
-      let injected = false;
-      if (elementEditForVideo) {
-        const cssPath = elementEditForVideo[1].trim();
-        const elBounds = cssPath ? findByPath(updatedHtml, cssPath) : null;
-        if (elBounds) {
-          const sections = extractAllTopLevelSections(updatedHtml);
-          const parentSec = sections.find(s => s.start <= elBounds.start && elBounds.end <= s.end);
-          if (parentSec) {
-            updatedHtml = injectVideoIntoSection(updatedHtml, parentSec.start);
-            injected = true;
-          }
-        }
-      }
-      if (!injected) {
-        // Default: inject into the first <section>
-        const firstSecIdx = updatedHtml.search(/<section\b/i);
-        if (firstSecIdx !== -1) {
-          updatedHtml = injectVideoIntoSection(updatedHtml, firstSecIdx);
-        }
-      }
-
-      const summary = `Added ${isVimeo ? 'Vimeo' : 'YouTube'} video background`;
-      return saveValidatedEdit(updatedHtml, summary);
-    }
+    // NOTE: global (no-element-selected) video add/remove used to be handled by
+    // three separate free-text intent-guessing branches here (isRemoveVideoIntent,
+    // __VIDEO_IN_SECTION__, and a deterministic "any bare video URL → inject as
+    // hero background" branch). They were removed because each one guessed intent
+    // from an open-ended sentence and they collided on compound instructions (e.g.
+    // "remove background image and add this video ... in background of X section"
+    // was misread as "remove video" before the add-video request ever ran). Global
+    // video add/remove now flows through the unified LLM operation-picker below
+    // (see the video-URL pre-fetch step and the extended opPrompt), which sees the
+    // full instruction and full document instead of a 40-character regex window.
     // ── Video src replacement — replaces the iframe src in a video container ───
     // Format: __VIDEO_INJECT__:[cssPath]||[videoUrl]||[hintHtml?]
     // Converts watch-page URLs to embed format before patching.
@@ -1674,8 +2124,20 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             'Video updated',
           );
         }
+        // Element located but holds no player yet — insert a responsive embed as
+        // its last child instead of patching some OTHER element's iframe (which
+        // would silently edit the wrong section) or erroring out.
+        const closeM = elementHtml.match(/<\/(\w+)>\s*$/);
+        if (closeM) {
+          const closeIdx = elementHtml.lastIndexOf(closeM[0]);
+          const embed = `<div style="position:relative;padding-top:56.25%;width:100%"><iframe src="${newSrc}" style="position:absolute;inset:0;width:100%;height:100%;border:0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>`;
+          return saveValidatedEdit(
+            html.slice(0, bounds.start) + elementHtml.slice(0, closeIdx) + embed + elementHtml.slice(closeIdx) + html.slice(bounds.end),
+            'Video added',
+          );
+        }
       }
-      // Fallback: patch the first video iframe anywhere in the document
+      // Path lookup failed entirely — fall back to the first video iframe in the document
       const globalPatched = patchIframeSrc(html);
       if (globalPatched !== html) {
         return saveValidatedEdit(globalPatched, 'Video updated');
@@ -1894,8 +2356,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
         );
         if (out !== target) return out;
-        // 3. data-bg lazy-load attribute
+        // 3. data-bg / data-src lazy-load attributes (JS copies these into src at
+        // runtime, so the browser DOM shows an <img src> the stored HTML lacks)
         out = target.replace(/\bdata-bg=["'][^'"]*["']/gi, () => `data-bg="${newUrl}"`);
+        if (out !== target) return out;
+        out = target.replace(/(<img\b[^>]*?\bdata-src=["'])([^'"]+)(["'])/i,
+          (_m, pre, _old, post) => `${pre}${newUrl}${post}`);
         return out;
       }
 
@@ -2037,6 +2503,39 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           if (patched !== html) {
             return saveValidatedEdit(patched, 'Image updated');
           }
+        }
+      }
+
+      // ── Graceful fallback: the element was located but holds no replaceable
+      // image reference in the STORED HTML (its visible image may be injected
+      // by JS at runtime, or it never had one). The user still asked to put
+      // this image on the selected element — apply it as a cover background on
+      // the element itself instead of dead-ending with an error. !important
+      // beats any CSS-class background so the change is always visible.
+      if (bounds) {
+        const elementHtml = html.slice(bounds.start, bounds.end);
+        const tagEnd = elementHtml.indexOf('>');
+        if (tagEnd !== -1) {
+          const openTag = elementHtml.slice(0, tagEnd);
+          const rest    = elementHtml.slice(tagEnd);
+          const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+          const sm      = styleRx.exec(openTag);
+          const bgVal   = `background-image:url('${newUrl}') !important;background-size:cover !important;background-position:center !important`;
+          let patchedTag: string;
+          if (sm) {
+            const existing = sm[1]
+              .replace(/\bbackground-image\s*:\s*(?:url\([^)]*\)|[^;]*)\s*;?\s*/gi, '')
+              .replace(/\bbackground-size\s*:[^;]+;?\s*/gi, '')
+              .replace(/\bbackground-position\s*:[^;]+;?\s*/gi, '')
+              .trim().replace(/;$/, '');
+            patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}${bgVal}"`);
+          } else {
+            patchedTag = `${openTag} style="${bgVal}"`;
+          }
+          return saveValidatedEdit(
+            html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end),
+            'Image applied as background',
+          );
         }
       }
 
@@ -2213,144 +2712,19 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       return fullHtml.slice(0, idx) + replacement + fullHtml.slice(idx + elementHtml.length);
     }
 
-    // ── Position-based element finder ─────────────────────────────────────────
-    // Traverses the HTML string using a CSS path with nth-of-type indices.
-    // This is position-based, not content-based, so browser attribute normalization
-    // never causes mismatches. Returns exact { start, end } byte positions.
-    function findByPath(src: string, path: string): { start: number; end: number } | null {
-      const VOID = new Set(['area','base','br','col','embed','hr','img','input',
-                            'link','meta','param','source','track','wbr']);
-      const parts = path.trim().split(/\s*>\s*/);
-      let searchFrom = 0;
-      let searchTo   = src.length;
-
-      for (let i = 0; i < parts.length; i++) {
-        const part   = parts[i].trim();
-        const tag    = part.match(/^(\w+)/)?.[1];
-        if (!tag) return null;
-
-        const idVal  = part.match(/#([\w-]+)/)?.[1] ?? null;
-        const clsVal = part.match(/\.([\w-]+)/)?.[1] ?? null;
-        const nth    = parseInt(part.match(/:nth-of-type\((\d+)\)/)?.[1] ?? '1', 10);
-        const isLast = i === parts.length - 1;
-
-        let count = 0, pos = searchFrom, foundStart = -1, foundEnd = -1;
-
-        while (pos < searchTo) {
-          const ti = src.indexOf(`<${tag}`, pos);
-          if (ti === -1 || ti >= searchTo) break;
-          const te = src.indexOf('>', ti);
-          if (te === -1) break;
-          const opening = src.slice(ti, te + 1);
-
-          const mId  = !idVal  || opening.includes(`id="${idVal}"`);
-          const mCls = !clsVal || (opening.match(/\bclass="([^"]+)"/)?.[1] ?? '')
-                                    .split(/\s+/).includes(clsVal);
-
-          if (mId && mCls) {
-            count++;
-            if (count === nth) {
-              foundStart = ti;
-              if (VOID.has(tag) || opening.trimEnd().endsWith('/>')) {
-                foundEnd = te + 1;
-              } else {
-                const close = `</${tag}>`;
-                let depth = 1, j = te + 1;
-                while (j < src.length && depth > 0) {
-                  const nO = src.indexOf(`<${tag}`, j);
-                  const nC = src.indexOf(close, j);
-                  if (nC === -1) break;
-                  if (nO !== -1 && nO < nC) { depth++; j = nO + tag.length + 1; }
-                  else { depth--; j = nC + close.length; }
-                }
-                foundEnd = j;
-              }
-              break;
-            }
-          }
-          pos = ti + 1;
-        }
-
-        if (foundStart === -1) return null;
-        if (isLast) return { start: foundStart, end: foundEnd };
-
-        // Narrow scope to inside this element for the next path segment
-        const tagEnd = src.indexOf('>', foundStart);
-        searchFrom = tagEnd + 1;
-        searchTo   = foundEnd;
-      }
-
-      return null;
-    }
-
-    // ── Shared multi-strategy element locator ────────────────────────────────
-    // Browsers normalise attribute order and inline styles in outerHTML, so exact
-    // string match often fails. We try five increasingly-fuzzy strategies.
-    function locateElement(src: string, snippet: string): number {
-      const openTag = snippet.match(/^<(\w+)/)?.[1] ?? '';
-
-      // 1. Exact substring (fastest — works when HTML is unmodified)
-      let idx = src.indexOf(snippet.slice(0, 200));
-      if (idx !== -1) return idx;
-
-      // 2. id attribute (globally unique)
-      const idVal = snippet.match(/\bid="([^"]+)"/)?.[1];
-      if (idVal) {
-        idx = src.indexOf(`id="${idVal}"`);
-        if (idx !== -1) { let s = idx; while (s > 0 && src[s] !== '<') s--; return s; }
-      }
-
-      // 3. src URL for media elements (unique per page)
-      // Decode &amp; → & because browser outerHTML encodes & as &amp; but stored HTML has raw &
-      if (['img', 'video', 'source', 'iframe'].includes(openTag)) {
-        const rawSrcVal = snippet.match(/\bsrc="([^"]+)"/)?.[1];
-        const srcVal = rawSrcVal ? rawSrcVal.replace(/&amp;/gi, '&') : undefined;
-        if (srcVal) {
-          idx = src.indexOf(`src="${srcVal}"`);
-          if (idx !== -1) { let s = idx; while (s > 0 && src[s] !== '<') s--; return s; }
-        }
-      }
-
-      // 4. Most-specific class name — find first <openTag with this exact class token
-      const classStr = snippet.match(/\bclass="([^"]+)"/)?.[1] ?? '';
-      const classes  = classStr.trim().split(/\s+/).filter(Boolean);
-      // Prefer longer (more specific) class names, avoid single-letter / generic ones
-      const bestClass = classes.sort((a, b) => b.length - a.length).find(c => c.length > 2);
-      if (bestClass && openTag) {
-        let pos = 0;
-        while (pos < src.length) {
-          const ti = src.indexOf(`<${openTag}`, pos);
-          if (ti === -1) break;
-          const te = src.indexOf('>', ti);
-          if (te === -1) break;
-          const opening = src.slice(ti, te + 1);
-          const elClasses = (opening.match(/\bclass="([^"]+)"/)?.[1] ?? '').split(/\s+/);
-          if (elClasses.includes(bestClass)) return ti;
-          pos = ti + 1;
-        }
-      }
-
-      // 5. Attribute-set match (order-insensitive, ignores style which browsers reformat)
-      if (openTag) {
-        const extractNonStyle = (tag: string) =>
-          [...tag.matchAll(/\b(?!style\b)(\w[\w-]*)="([^"]*)"/g)]
-            .map(m => `${m[1]}="${m[2]}"`)
-            .sort()
-            .join(' ');
-        const snippetAttrs = extractNonStyle(snippet.slice(0, 300));
-        let pos = 0;
-        while (pos < src.length) {
-          const ti = src.indexOf(`<${openTag}`, pos);
-          if (ti === -1) break;
-          const te = src.indexOf('>', ti);
-          if (te === -1) break;
-          if (extractNonStyle(src.slice(ti, te + 1)) === snippetAttrs) return ti;
-          pos = ti + 1;
-        }
-      }
-
-      return -1;
-    }
+    // findByPath / locateElement are imported from ./html-patch.js (single
+    // shared implementation with the slide editor). This route used to carry
+    // its own local copy of findByPath that restricted matching to
+    // direct-children-only starting from the whole document as one flat
+    // level: any id-anchored path (the common case — getCssPath() on the
+    // client stops walking up at the first id it finds, e.g. "section#hero")
+    // always failed unless the id'd element happened to be a literal
+    // top-level sibling of <html>, because the very first mismatched tag
+    // (<html> itself) caused the entire document to be skipped as "one
+    // non-matching child's subtree". The imported version scans for the tag
+    // anywhere within the current search range instead of restricting to
+    // direct children, so id/class anchors resolve correctly regardless of
+    // nesting depth.
 
     // ── HTML extractor — strips LLM preamble/postamble from any response ──────
     // LLMs frequently prepend explanation text ("Looking at the element, I will…")
@@ -2423,21 +2797,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }
 
         // Also hide any <img> that is a DIRECT child of this element (background photo pattern)
-        // by setting display:none on it
-        const inner = result.slice(b.start, b.start + 3000);
-        const imgRe = /(<img\b)([^>]*)(\/?>)/gi;
-        result = result.replace(imgRe, (match, open, attrs, close) => {
-          if (!inner.includes((open + attrs).slice(0, 60))) return match;
-          // Already display:none — skip
-          if (/\bdisplay\s*:\s*none\b/i.test(attrs)) return match;
-          const styleM = attrs.match(/\bstyle="([^"]*)"/i);
-          if (styleM) {
-            return match.replace(/\bstyle="([^"]*)"/i, `style="${styleM[1].trim()};display:none"`);
-          }
-          return `${open}${attrs} style="display:none"${close}`;
-        });
-
-        return result;
+        return hideCoveringImage(result, b.start);
       }
 
       // Apply to the selected element first (clears inline style + CSS class gradient)
@@ -2504,9 +2864,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const rest    = elementHtml.slice(tagEnd);
       const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
       const sm = styleRx.exec(openTag);
-      // When setting background-color, also clear background-image so the color shows
+      // When setting a solid background, also clear background-image so the color shows
       // (bg-image renders on top of bg-color; CSS class bg-image needs !important override)
-      const clearBgImage = prop === 'background-color';
+      const clearBgImage = prop === 'background-color' || prop === 'background';
       let patchedTag: string;
       if (sm) {
         const escaped = prop.replace(/-/g, '\\-');
@@ -2522,7 +2882,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         const extra = clearBgImage ? '; background-image:none !important' : '';
         patchedTag = `${openTag} style="${prop}:${value}${extra}"`;
       }
-      const updatedHtml = html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end);
+      let updatedHtml = html.slice(0, bounds.start) + patchedTag + rest + html.slice(bounds.end);
+      // A covering <img> (photo-as-background pattern) would otherwise hide the new color.
+      if (clearBgImage) updatedHtml = hideCoveringImage(updatedHtml, bounds.start);
       return saveValidatedEdit(updatedHtml, `${prop} set to ${value}`);
     }
 
@@ -2532,12 +2894,36 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // Format: __TEXT_PATCH__:[cssPath]||[newText](||[hint — ignored])
     // Non-greedy group 2 stops before the trailing ||hint so the hint's outerHTML
     // is never concatenated into the visible text content.
-    const textPatchMatch = instruction.match(/^__TEXT_PATCH__:([\s\S]+?)\|\|([\s\S]+?)(?:\|\|[\s\S]*)?$/s);
+    const textPatchMatch = instruction.match(/^__TEXT_PATCH__:([\s\S]+?)\|\|([\s\S]+?)(?:\|\|([\s\S]*))?$/s);
     if (textPatchMatch) {
-      const cssPath = textPatchMatch[1].trim();
-      const newText = textPatchMatch[2].trim().slice(0, 2000);
+      const cssPath  = textPatchMatch[1].trim();
+      const newText  = textPatchMatch[2].trim().slice(0, 2000);
+      const hintHtml = (textPatchMatch[3] ?? '').trim();
 
-      const bounds = findByPath(html, cssPath);
+      let bounds = findByPath(html, cssPath);
+      // Content-based fallback when the path doesn't match (e.g. after an LLM
+      // edit restructured the DOM) — same strategy as the slide-route version.
+      if (!bounds && hintHtml) {
+        const hintStart = locateElement(html, hintHtml);
+        if (hintStart !== -1) {
+          const tagName = hintHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+          if (tagName) {
+            const tagEnd = html.indexOf('>', hintStart);
+            if (tagEnd !== -1) {
+              const close = `</${tagName}>`;
+              let depth = 1, j = tagEnd + 1;
+              while (j < html.length && depth > 0) {
+                const nO = html.indexOf(`<${tagName}`, j);
+                const nC = html.indexOf(close, j);
+                if (nC === -1) break;
+                if (nO !== -1 && nO < nC) { depth++; j = nO + tagName.length + 1; }
+                else { depth--; j = nC + close.length; }
+              }
+              bounds = { start: hintStart, end: j };
+            }
+          }
+        }
+      }
       if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
 
       const elementHtml  = html.slice(bounds.start, bounds.end);
@@ -2551,8 +2937,14 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const innerHtml = elementHtml.slice(openTag.length, elementHtml.lastIndexOf(closeTag));
       const hasChildren = /<\w/.test(innerHtml);
 
+      // Replace only the leading text run (the part with no element wrapper of
+      // its own — the only part a plain text-edit input can ever mean). Leave
+      // every child element and its own text content completely untouched:
+      // stripping "inter-tag" text globally here used to wipe out sibling
+      // elements' text too (e.g. a <span> holding a second line of a two-line
+      // headline), silently destroying content the user never asked to change.
       const newInner = hasChildren
-        ? newText + innerHtml.replace(/^[^<]+/, '').replace(/>[^<]+</g, '><').replace(/[^>]+$/, '')
+        ? newText + innerHtml.replace(/^[^<]+/, '')
         : newText;
 
       const updatedHtml = html.slice(0, bounds.start) + openTag + newInner + closeTag + html.slice(bounds.end);
@@ -2652,7 +3044,33 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       if (!svgMarkup.startsWith('<svg'))
         return reply.code(400).send({ error: 'Payload must be an SVG element' });
 
-      const bounds = findByPath(html, cssPath);
+      let bounds = findByPath(html, cssPath);
+      // SVG-specific fallback — browsers normalize SVG attribute order so exact
+      // path match can fail; locate the first <svg> inside the named section instead.
+      if (!bounds) {
+        const sectionIdMatch = cssPath.match(/section#([\w-]+)/);
+        if (sectionIdMatch) {
+          const secBounds = findByPath(html, `section#${sectionIdMatch[1]}`);
+          if (secBounds) {
+            const svgIdx = html.indexOf('<svg', secBounds.start);
+            if (svgIdx !== -1 && svgIdx < secBounds.end) {
+              const svgTagEnd = html.indexOf('>', svgIdx);
+              if (svgTagEnd !== -1) {
+                const svgClose = '</svg>';
+                let depth = 1, j = svgTagEnd + 1;
+                while (j < secBounds.end && depth > 0) {
+                  const nO = html.indexOf('<svg', j);
+                  const nC = html.indexOf(svgClose, j);
+                  if (nC === -1) break;
+                  if (nO !== -1 && nO < nC) { depth++; j = nO + 4; }
+                  else { depth--; j = nC + svgClose.length; }
+                }
+                bounds = { start: svgIdx, end: j };
+              }
+            }
+          }
+        }
+      }
       if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
 
       const originalHtml = html.slice(bounds.start, bounds.end);
@@ -2671,12 +3089,68 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // ── Icon / SVG replacement (from InlineEditPanel "Replace Icon" input) ─────
     // Format: __ICON_REPLACE__:[cssPath]||[imageUrl]
     // Replaces the selected SVG/icon element with an <img> pointing at the new URL.
-    const iconReplaceMatch = instruction.match(/^__ICON_REPLACE__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|[\s\S]*)?$/s);
+    const iconReplaceMatch = instruction.match(/^__ICON_REPLACE__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|([\s\S]*))?$/s);
     if (iconReplaceMatch) {
-      const cssPath = iconReplaceMatch[1].trim();
-      const imgUrl  = iconReplaceMatch[2].trim().replace(/['"<>]/g, '');
+      const cssPath  = iconReplaceMatch[1].trim();
+      const imgUrl   = iconReplaceMatch[2].trim().replace(/['"<>]/g, '');
+      const hintHtml = (iconReplaceMatch[3] ?? '').trim();
 
-      const bounds = findByPath(html, cssPath);
+      let bounds = findByPath(html, cssPath);
+      // Content-based fallback when the path doesn't match (e.g. after an LLM
+      // edit restructured the DOM around the icon)
+      if (!bounds && hintHtml) {
+        const hintStart = locateElement(html, hintHtml);
+        if (hintStart !== -1) {
+          const tagName = hintHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+          if (tagName) {
+            const tagEnd = html.indexOf('>', hintStart);
+            if (tagEnd !== -1) {
+              const opening = html.slice(hintStart, tagEnd + 1);
+              if (tagName === 'img' || opening.trimEnd().endsWith('/>')) {
+                bounds = { start: hintStart, end: tagEnd + 1 };
+              } else {
+                const close = `</${tagName}>`;
+                let depth = 1, j = tagEnd + 1;
+                while (j < html.length && depth > 0) {
+                  const nO = html.indexOf(`<${tagName}`, j);
+                  const nC = html.indexOf(close, j);
+                  if (nC === -1) break;
+                  if (nO !== -1 && nO < nC) { depth++; j = nO + tagName.length + 1; }
+                  else { depth--; j = nC + close.length; }
+                }
+                bounds = { start: hintStart, end: j };
+              }
+            }
+          }
+        }
+      }
+      // SVG-specific fallback: browsers normalize SVG attribute order in outerHTML,
+      // so locateElement's substring/attribute match fails. When the cssPath names a
+      // section id, find the first <svg> inside that section directly.
+      if (!bounds && /^<svg\b/i.test(hintHtml)) {
+        const sectionIdMatch = cssPath.match(/section#([\w-]+)/);
+        if (sectionIdMatch) {
+          const secBounds = findByPath(html, `section#${sectionIdMatch[1]}`);
+          if (secBounds) {
+            const svgIdx = html.indexOf('<svg', secBounds.start);
+            if (svgIdx !== -1 && svgIdx < secBounds.end) {
+              const svgTagEnd = html.indexOf('>', svgIdx);
+              if (svgTagEnd !== -1) {
+                const svgClose = '</svg>';
+                let depth = 1, j = svgTagEnd + 1;
+                while (j < secBounds.end && depth > 0) {
+                  const nO = html.indexOf('<svg', j);
+                  const nC = html.indexOf(svgClose, j);
+                  if (nC === -1) break;
+                  if (nO !== -1 && nO < nC) { depth++; j = nO + 4; }
+                  else { depth--; j = nC + svgClose.length; }
+                }
+                bounds = { start: svgIdx, end: j };
+              }
+            }
+          }
+        }
+      }
       if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
 
       const elementHtml = html.slice(bounds.start, bounds.end);
@@ -2765,17 +3239,27 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // deterministic BG shortcuts below so a prompt that mentions "background"
       // or a hex colour (e.g. "Background: #020509") doesn't get intercepted
       // by the colour-patch shortcut instead of reaching the redesign flow.
-      const isRedesignIntent = /\b(regenerat|redesign|completely new|redo|rebuild|restyle|overhaul)\b/i.test(editInstruction);
+      // Also covers structural fix requests ("fix overlapping strip", "repair broken layout")
+      // which need a full section rewrite, not a targeted element patch.
+      const isStructuralFix = /\b(?:fix|repair|correct|resolve)\b/i.test(editInstruction)
+        && /\b(?:overlap|overlapping|bleed(?:ing)?|overflow(?:ing)?|strip|stripe|z.?index|misalign|broken|cut.?off|clip(?:ped)?|spacing|layout|position|visual|design|gap|layer)\b/i.test(editInstruction);
+      const isRedesignIntent = isStructuralFix
+        || /\b(regenerat|redesign|completely new|redo|rebuild|restyle|overhaul|rewrite|remake|recreate)\b/i.test(editInstruction);
 
       // ── Deterministic background-image injection for element edits ──────────
       // When the instruction contains an image URL AND "background" intent,
       // patch the CSS directly instead of sending to LLM (LLM adds <img> tags
       // instead of setting background-image, which looks like a logo overlay).
       // Skip when the user is doing a full section redesign — let that flow handle it.
+      // Skip video URLs too: CSS background-image cannot render a YouTube/Vimeo
+      // page or a video file — "add this video as the background" must reach the
+      // LLM flow below, which embeds it as an absolutely-positioned <iframe>.
       const bgUrlMatch = editInstruction.match(/(https?:\/\/\S+)/);
+      const isVideoUrlInstruction = !!bgUrlMatch &&
+        /youtube\.com|youtu\.be|vimeo\.com|\.(?:mp4|webm|ogv)(?:[?#]|$)/i.test(bgUrlMatch[1]);
       const isBgImageIntent = /\b(?:background|bg)\b/i.test(editInstruction) &&
         /\b(?:add|set|use|change|put|apply|inject)\b/i.test(editInstruction);
-      if (!isRedesignIntent && bgUrlMatch && isBgImageIntent) {
+      if (!isRedesignIntent && bgUrlMatch && !isVideoUrlInstruction && isBgImageIntent) {
         const rawUrl = bgUrlMatch[1].replace(/['"]/g, '').replace(/[,)]+$/, '');
         // Apply background-image to the first matching element (section, div, header, etc.)
         const tagEnd = storedElementHtml.indexOf('>');
@@ -2822,13 +3306,18 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           const sm = styleRx.exec(openTag);
           let patchedTag: string;
           if (sm) {
-            const existing = sm[1].replace(/\bbackground-color\s*:[^;]+;?\s*/g, '').trim().replace(/;$/, '');
-            patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}background-color:${colorValue}"`);
+            const existing = sm[1]
+              .replace(/\bbackground-color\s*:[^;]+;?\s*/g, '')
+              .replace(/\bbackground-image\s*:[^;]+;?\s*/g, '')
+              .trim().replace(/;$/, '');
+            patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}background-color:${colorValue};background-image:none !important"`);
           } else {
-            patchedTag = `${openTag} style="background-color:${colorValue}"`;
+            patchedTag = `${openTag} style="background-color:${colorValue};background-image:none !important"`;
           }
           const patched     = patchedTag + rest;
-          const updatedHtml = html.slice(0, bounds.start) + patched + html.slice(bounds.end);
+          let updatedHtml   = html.slice(0, bounds.start) + patched + html.slice(bounds.end);
+          // A covering <img> (photo-as-background pattern) would otherwise hide the new color.
+          updatedHtml = hideCoveringImage(updatedHtml, bounds.start);
           return saveValidatedEdit(updatedHtml, `Background color set to ${colorValue}`);
         }
       }
@@ -2965,6 +3454,21 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
 
       // ── Build the LLM prompt (element-edit vs section-redesign) ──────────
+      // Video URL in an element-scoped instruction: hand the LLM a ready-made
+      // embed URL (watch-page URLs are blocked from iframes by X-Frame-Options)
+      // and the two standard placements, so any phrasing — background fill,
+      // inline embed, "choose the best position" — produces a working iframe.
+      const elVideoUrlMatch = editInstruction.match(/https?:\/\/\S*(?:youtube\.com|youtu\.be|vimeo\.com)\S*/i);
+      const videoGuidance = elVideoUrlMatch ? `
+VIDEO-SPECIFIC RULES (the instruction contains a video URL):
+- Use this exact embed URL as the iframe src (do NOT alter it or invent another): ${toEmbedUrl(elVideoUrlMatch[0].replace(/['"<>)\],.]+$/, ''))}
+- Background/full-bleed placement: add position:relative;overflow:hidden to this element's inline style and insert as its FIRST child:
+  <iframe src="[embed URL]" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;border:0;z-index:0" allow="autoplay; fullscreen" frameborder="0"></iframe>
+  (then make sure the element's direct content children have position:relative and a higher z-index so they stay visible above the video)
+- Inline/content placement: insert where it reads naturally:
+  <div style="position:relative;padding-top:56.25%"><iframe src="[embed URL]" style="position:absolute;inset:0;width:100%;height:100%;border:0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>
+- If the instruction asks to replace an existing video, change the existing iframe's src instead of adding a second iframe` : '';
+
       const imageGuidance = hasImg ? `
 IMAGE-SPECIFIC RULES (this element contains an image):
 - Current src: ${currentSrc}
@@ -2975,22 +3479,26 @@ IMAGE-SPECIFIC RULES (this element contains an image):
   • Replace ONLY the src attribute value — keep all other attributes unchanged
 - If the instruction provides a specific URL, use that URL exactly` : '';
 
+      const regenRootTag = targetHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? 'section';
+      const regenModeNote = isStructuralFix
+        ? `\nFIX MODE: Correct the described layout/design problem only. Do NOT change any colors, text content, branding, or visual style — only fix the structural issue described.`
+        : '';
       const elementPrompt = isRedesignIntent
-        ? `You are regenerating a complete HTML section. Return ONLY the <section> element — nothing before or after it.
+        ? `You are regenerating a complete HTML section/slide. Return ONLY the root element — nothing before or after it.
 
-SECTION TO REDESIGN:
+SECTION TO REGENERATE:
 ${targetHtml}
 
 INSTRUCTION: ${editInstruction}
-
+${regenModeNote}
 Output rules (strictly enforced):
-- Start your output with the section's opening tag and end with </section>
+- Start your output with the opening tag (<${regenRootTag}...) and end with </${regenRootTag}>
 - Do NOT output <!DOCTYPE>, <html>, <head>, or <body>
-- All CSS MUST be inside a single <style> tag placed as the LAST child of <section>, before </section>
+- All CSS MUST be inside a single <style> tag placed as the LAST child, before </${regenRootTag}>
 - All CSS selectors MUST be scoped with a unique prefix (e.g. .regen-${Date.now().toString(36)}-) — zero style leakage to other sections
-- All JS MUST be inside a single <script> tag placed as the LAST child of <section>, just before </section>
+- All JS MUST be inside a single <script> tag placed as the LAST child, just before </${regenRootTag}>
 - All JS MUST be wrapped in an IIFE: (function(){ ... })(); — no global variable declarations
-- Keep ALL existing text content exactly as-is — only visual/structural design changes
+- Keep ALL existing text content exactly as-is unless the instruction explicitly changes it
 - No external libraries except Google Fonts (loaded via @import inside the <style> tag)`
         : `You are making a precise edit to one HTML element. Return ONLY the modified element — same root tag, same nesting. Do not return any surrounding HTML, parent elements, or the full section.
 
@@ -3001,7 +3509,7 @@ ELEMENT TO EDIT:
 ${targetHtml}
 
 INSTRUCTION: ${editInstruction}
-${imageGuidance}
+${imageGuidance}${videoGuidance}
 Strict rules:
 - Return ONLY this element starting with its opening tag and ending with its closing tag
 - Do NOT include any parent or sibling elements
@@ -3009,7 +3517,19 @@ Strict rules:
 - For style changes: modify inline style properties on this element or its children
 - For image changes: update src or background-image on this element or its children
 - For adding/removing a child: do so while preserving all other children unchanged
-- Never truncate or omit any part of this element`;
+- Never truncate or omit any part of this element
+- COLOR/STYLE TARGETING: identify the exact content the instruction describes
+  (e.g. "light text" = elements whose inline color is a light value, not a
+  background, gradient, or border) and change ONLY that property on ONLY that
+  content. Do not "balance" the change by adjusting an unrelated property
+  (background, gradient, border) instead of the one named.
+- DESCENDANT OVERRIDES: an inline "color"/"background-color" on a child element
+  overrides anything inherited from a parent. If the described text lives on a
+  child (e.g. an <h2> or <p> inside this element) with its own inline color,
+  you MUST update that child's own inline color directly — setting color on
+  this element's own style has no visual effect if every child overrides it.
+  Update every descendant that carries the color being described, not just the
+  outermost element.`;
 
       // ── LLM call with clear logging ──────────────────────────────────────────
       console.log('\n┌─ LLM PROMPT ─────────────────────────────────────────────────');
@@ -3102,32 +3622,84 @@ Strict rules:
     // ── Section extraction helpers ────────────────────────────────────────────
     type SectionSlice = { before: string; section: string; after: string; tag: string };
 
-    function extractAllTopLevelSections(src: string): Array<{ start: number; end: number }> {
+    // All three current orientations (web, 16:9 PDF, 9:16 PDF) generate a
+    // <section> per top-level block — only the id-naming convention differs
+    // (semantic names like "hero" vs numbered "slide-1", both handled equally
+    // by every downstream consumer here). A future format (e.g. a pptx-style
+    // import, mirroring the separate slide-deck editor's own <div class="slide">
+    // convention) might not use <section> at all — fall back to scanning for
+    // that shape so section-list/regen/breadcrumb logic degrades gracefully
+    // instead of silently seeing zero sections.
+    function extractTopLevelBlocks(src: string, tag: string, classFilter?: string): Array<{ start: number; end: number }> {
       const out: Array<{ start: number; end: number }> = [];
+      const openTagLen = tag.length + 1; // "<" + tag
+      const closeTag = `</${tag}>`;
       let pos = 0;
       while (pos < src.length) {
-        const openIdx = src.indexOf('<section', pos);
+        const openIdx = src.indexOf(`<${tag}`, pos);
         if (openIdx === -1) break;
         const tagEnd = src.indexOf('>', openIdx);
         if (tagEnd === -1) break;
-        let depth = 1, i = tagEnd + 1, sectionEnd = -1;
-        while (i < src.length && depth > 0) {
-          const nextOpen = src.indexOf('<section', i);
-          const nextClose = src.indexOf('</section>', i);
-          if (nextClose === -1) break;
-          if (nextOpen !== -1 && nextOpen < nextClose) { depth++; i = nextOpen + 8; }
-          else { depth--; i = nextClose + 10; if (depth === 0) sectionEnd = i; }
+        if (classFilter) {
+          const opening = src.slice(openIdx, tagEnd + 1);
+          const classes = (opening.match(/\bclass="([^"]+)"/i)?.[1] ?? '').split(/\s+/);
+          if (!classes.includes(classFilter)) { pos = tagEnd + 1; continue; }
         }
-        if (sectionEnd !== -1) { out.push({ start: openIdx, end: sectionEnd }); pos = sectionEnd; }
+        let depth = 1, i = tagEnd + 1, blockEnd = -1;
+        while (i < src.length && depth > 0) {
+          const nextOpen = src.indexOf(`<${tag}`, i);
+          const nextClose = src.indexOf(closeTag, i);
+          if (nextClose === -1) break;
+          if (nextOpen !== -1 && nextOpen < nextClose) { depth++; i = nextOpen + openTagLen; }
+          else { depth--; i = nextClose + closeTag.length; if (depth === 0) blockEnd = i; }
+        }
+        if (blockEnd !== -1) { out.push({ start: openIdx, end: blockEnd }); pos = blockEnd; }
         else { pos = tagEnd + 1; }
       }
       return out;
+    }
+
+    function extractAllTopLevelSections(src: string): Array<{ start: number; end: number }> {
+      const sections = extractTopLevelBlocks(src, 'section');
+      if (sections.length > 0) return sections;
+      // Fallback for a section-less format — matches the slide-deck editor's
+      // own <div class="slide"> convention.
+      return extractTopLevelBlocks(src, 'div', 'slide');
     }
 
     function extractBestSection(src: string, hint: string): SectionSlice | null {
       const secs = extractAllTopLevelSections(src);
       if (secs.length === 0) return null;
       const hintLower = hint.toLowerCase();
+
+      // Exact id/data-section match — bypass fuzzy scoring entirely when the hint
+      // IS one of the document's actual section identifiers (e.g. the LLM's own
+      // "anchor" field echoing back a value from the "KNOWN SECTIONS: slide-1,
+      // slide-2, ..." list we gave it). This matters because the fuzzy scorer
+      // below tokenizes on \W+ and drops short/numeric tokens — "slide-3" becomes
+      // just "slide" once "3" is filtered out, which every "slide-N" id also
+      // contains, so every section ties and the tie-break always picks the
+      // first one. An exact match is unambiguous and must win outright.
+      for (let i = 0; i < secs.length; i++) {
+        const text = src.slice(secs[i].start, secs[i].end);
+        const idVal = (/\bid="([^"]+)"/.exec(text)?.[1] ?? '').toLowerCase();
+        const dataSection = (/\bdata-section(?:-id)?="([^"]+)"/.exec(text)?.[1] ?? '').toLowerCase();
+        if (hintLower === idVal || hintLower === dataSection) {
+          return { before: src.slice(0, secs[i].start), section: text, after: src.slice(secs[i].end), tag: 'section' };
+        }
+      }
+
+      // Numbered ordinal: "slide 2", "section 3", "slide #2", "2nd slide"
+      const numMatch = hintLower.match(/\b(?:slide|section)\s+#?(\d+)\b/)
+        ?? hintLower.match(/\b(\d+)(?:st|nd|rd|th)\s+(?:slide|section)\b/);
+      if (numMatch) {
+        const idx = parseInt(numMatch[1] ?? '0', 10) - 1;
+        if (idx >= 0 && idx < secs.length) {
+          const s = secs[idx];
+          return { before: src.slice(0, s.start), section: src.slice(s.start, s.end), after: src.slice(s.end), tag: 'section' };
+        }
+      }
+
       const words = hintLower.split(/\W+/).filter(w => w.length > 2);
 
       let best = secs[0], bestScore = -1;
@@ -3204,68 +3776,25 @@ Strict rules:
       return null;
     }
 
-    // ── Pexels shortcut for global image-description prompts (no element selected) ──
-    // Fires when the user types "add [image description] to [section] background"
-    // without a URL and without selecting an element.
-    // Handles both "replace existing background image" and "add new background image".
-    if (!instruction.startsWith('__') && !/https?:\/\//.test(instruction)) {
-      const globalBgImgIntent = /\b(?:background|bg)\b/i.test(instruction) &&
-        /\b(?:image|photo|picture|pic)\b/i.test(instruction);
-      if (globalBgImgIntent) {
-        const targetSlice = extractBestSection(html, instruction);
-        if (targetSlice) {
-          let pexelsQuery = '';
-          try {
-            const extractPrompt = `Extract a concise 2-5 keyword image search query from this instruction. Return ONLY the keywords, nothing else.\n\nInstruction: ${instruction}`;
-            pexelsQuery = (await llmGenerateFn(extractPrompt))
-              .trim().replace(/^["'`]|["'`]$/g, '').trim().slice(0, 80);
-            console.log(`🔍 Global bg-image query: "${pexelsQuery}"`);
-          } catch { /* fall through to LLM */ }
-
-          if (pexelsQuery) {
-            const pexelsUrl = await fetchPexelsImageUrl(pexelsQuery);
-            const imageUrl  = pexelsUrl
-              ?? `https://source.unsplash.com/featured/1200x800/?${encodeURIComponent(pexelsQuery)}`;
-
-            // Replace existing background-image url() or add a new one
-            let patched = targetSlice.section.replace(
-              /\bbackground-image\s*:\s*url\(\s*['"]?[^'")\s]+['"]?\s*\)/gi,
-              () => `background-image: url('${imageUrl}')`,
-            );
-            if (patched === targetSlice.section) {
-              // No existing bg-image → inject into opening tag's style
-              const tagEndIdx = targetSlice.section.indexOf('>');
-              if (tagEndIdx !== -1) {
-                const openTag = targetSlice.section.slice(0, tagEndIdx);
-                const rest    = targetSlice.section.slice(tagEndIdx);
-                const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
-                const sm      = styleRx.exec(openTag);
-                const bgStyle = `background-image:url('${imageUrl}');background-size:cover;background-position:center;background-repeat:no-repeat`;
-                if (sm) {
-                  const existing = sm[1].replace(/background-image[^;]+;?\s*/g, '').trim().replace(/;$/, '');
-                  patched = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}${bgStyle}"`) + rest;
-                } else {
-                  patched = `${openTag} style="${bgStyle}"` + rest;
-                }
-              }
-            }
-            if (patched !== targetSlice.section) {
-              console.log(`⚡ Global bg-image shortcut (${pexelsUrl ? 'Pexels' : 'Unsplash'}): "${pexelsQuery}" → ${imageUrl}`);
-              return saveValidatedEdit(
-                targetSlice.before + patched + targetSlice.after,
-                `Background image updated`,
-              );
-            }
-          }
-        }
-      }
-    }
+    // NOTE: a global bg-image shortcut used to live here — it duplicated the
+    // Pexels URL-resolution below AND separately guessed section placement
+    // itself (bypassing the LLM for the "which section, replace vs add" call).
+    // Removed: the URL-resolution half is covered by the pre-fetch step below,
+    // and the placement half is covered by opPrompt's "patches"/"section_replace"
+    // ops, which get the full document and the LLM's own judgment instead of a
+    // second, independent guess.
 
     // Extract CSS :root block so the LLM knows available design tokens
     const cssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
 
-    // "regenerate/redesign" with explicit intent → still uses single-section regen
-    const isRegenIntent = /\b(?:regenerate|rewrite|rebuild|redesign|redo|remake|recreate)\b/i.test(instruction);
+    // Explicit regen/redesign intent → single-section rewrite path
+    const isPureRegenIntent = /\b(?:regenerate|rewrite|rebuild|redesign|redo|remake|recreate)\b/i.test(instruction);
+    // Structural fix intent — "fix overlapping strip", "repair broken layout", etc.
+    // These need a full section rewrite rather than a targeted text patch.
+    const isStructuralFixIntent = !isPureRegenIntent
+      && /\b(?:fix|repair|correct|resolve)\b/i.test(instruction)
+      && /\b(?:overlap|overlapping|bleed(?:ing)?|overflow(?:ing)?|strip|stripe|z.?index|misalign|broken|cut.?off|clip(?:ped)?|spacing|layout|position|visual|design|gap|layer)\b/i.test(instruction);
+    const isRegenIntent = isPureRegenIntent || isStructuralFixIntent;
     const isHeaderInstruction = /\b(?:logo|brand|icon|favicon|header|nav(?:bar)?)\b/i.test(instruction);
 
     let sectionCtx: SectionSlice | null = null;
@@ -3273,13 +3802,28 @@ Strict rules:
       sectionCtx = (isHeaderInstruction ? extractHeaderBlock(html) : null) ?? extractBestSection(html, instruction);
     }
 
-    // ── Section regeneration helper (explicit regen intent only) ─────────────
+    // ── Section regeneration helper (regen intent + structural fix) ──────────
     async function regenSection(ctx: SectionSlice): Promise<string> {
+      // For pure regeneration with no design-change words, lock down all visual aspects.
+      const designChangeWords = /\b(?:dark|light|color|colour|font|size|background|theme|style|palette|weight|spacing|layout|gradient|border|shadow)\b/i;
+      const isDesignChangeInstruction = designChangeWords.test(instruction ?? '');
+
+      // Extract inline color values from the section so we can explicitly list them
+      const inlineColors = [...new Set(
+        ctx.section.match(/#[0-9a-fA-F]{3,8}\b|rgb\([^)]+\)|rgba\([^)]+\)/g) ?? []
+      )].slice(0, 12).join(', ');
+
+      const modeNote = isStructuralFixIntent
+        ? `\nFIX MODE: Fix the described design issue only. Do NOT change any colors, text content, branding, or visual style — only correct the structural/layout problem described.`
+        : isPureRegenIntent && !isDesignChangeInstruction
+        ? `\nREGENERATION MODE: Refresh the content but preserve ALL visual design exactly — same colors${inlineColors ? ` (${inlineColors})` : ''}, fonts, font sizes, spacing, layout, and visual hierarchy. Do not change any design characteristics.`
+        : '';
+
       const regenPrompt = `You are rewriting one section of an HTML microsite.
 
 Apply the instruction exactly. You may change: text content, headings, body copy, colors, backgrounds, fonts, font sizes, font weights, spacing, layout, images, icons, buttons, links — whatever the instruction requires.
 Preserve: overall section structure unless told otherwise, CSS class names, responsive/grid patterns, and references to CSS design tokens below.
-
+${modeNote}
 Output ONLY the replacement HTML block — start with the opening tag (<section, <header, <nav, or <div), end with its closing tag. No preamble, no explanation, no markdown fences.
 ${cssVarsBlock ? `\nCSS DESIGN TOKENS (use var(--name) for colors/fonts/spacing where applicable):\n${cssVarsBlock}\n` : ''}
 INSTRUCTION: ${instruction}
@@ -3312,7 +3856,8 @@ ${ctx.section}`;
       | { op: 'patches'; patches: Array<{ find: string; replace: string }>; summary: string }
       | { op: 'section_replace'; anchor: string; html: string; summary: string }
       | { op: 'section_insert'; anchor: string; position: 'before' | 'after'; html: string; summary: string }
-      | { op: 'section_delete'; anchor: string; summary: string };
+      | { op: 'section_delete'; anchor: string; summary: string }
+      | { op: 'clarify'; question: string };
 
     function parseOp(raw: string): MicrositeOp | null {
       const start = raw.indexOf('{');
@@ -3339,20 +3884,43 @@ ${ctx.section}`;
     // image without providing a URL. This prevents the LLM from hallucinating
     // Unsplash photo IDs and ensures the placed image actually matches the request.
     let augmentedInstruction = instruction;
+    // Tracks a resolved URL (video embed ID, or Pexels image URL) that we told the
+    // LLM to use exactly, so the post-edit verification step can confirm it was
+    // actually applied instead of trusting a structurally-valid but no-op response.
+    let resolvedUrlToVerify: string | null = null;
+    let resolvedUrlKind = '';
     if (!isRegenIntent && !/https?:\/\//.test(instruction) &&
         /\b(?:image|photo|picture|pic)\b/i.test(instruction)) {
       try {
-        const qPrompt = `Extract a concise 2-5 keyword image search query from this instruction. Return ONLY the keywords, nothing else.\n\nInstruction: ${instruction}`;
+        const qPrompt = `Does this instruction require adding or replacing an image with a new one fetched from the web? Answer "no" if the instruction is about removing, hiding, or deleting an image, or if no new image is needed. Otherwise answer with a concise 2-5 keyword image search query (keywords only, nothing else).\n\nInstruction: ${instruction}`;
         const pexelsQ = (await llmGenerateFn(qPrompt))
           .trim().replace(/^["'`]|["'`]$/g, '').trim().slice(0, 80);
-        if (pexelsQ) {
+        if (pexelsQ && !/^no\b/i.test(pexelsQ)) {
           const pexelsUrl = await fetchPexelsImageUrl(pexelsQ);
           if (pexelsUrl) {
             augmentedInstruction = `${instruction}\n\nIMPORTANT — use this exact image URL (do NOT invent or substitute any other URL): ${pexelsUrl}`;
+            resolvedUrlToVerify = pexelsUrl;
+            resolvedUrlKind = 'image';
             console.log(`📸 Pexels pre-fetch for global edit: "${pexelsQ}" → ${pexelsUrl}`);
           }
         }
       } catch { /* fall through — LLM will handle without a real URL */ }
+    }
+
+    // ── Video URL normalization — a pure format transform, not an intent guess.
+    // Fires whenever the instruction contains a recognizable youtube/vimeo URL,
+    // regardless of surrounding words (add, remove, background, compound
+    // sentences, etc.) — it never decides placement or add-vs-remove itself,
+    // it only hands the LLM a ready-made embed URL instead of letting it invent
+    // embed syntax. Placement/removal decisions are entirely the LLM's, made
+    // from the full instruction + full document below.
+    const videoUrlMatch = instruction.match(/https?:\/\/\S*(?:youtube\.com|youtu\.be|vimeo\.com)\S*/i);
+    if (videoUrlMatch) {
+      const embedUrl = toEmbedUrl(videoUrlMatch[0]);
+      augmentedInstruction = `${augmentedInstruction}\n\nIMPORTANT — if the instruction asks to add/embed a video, use this exact embed URL in an <iframe> (do NOT alter it or invent a different one): ${embedUrl}`;
+      resolvedUrlToVerify = embedUrl;
+      resolvedUrlKind = 'video';
+      console.log(`🎬 Video URL pre-normalized for global edit: ${embedUrl.slice(0, 80)}`);
     }
 
     const opPrompt = isRegenIntent ? '' : `You are editing an HTML microsite. Pick the ONE operation that best fits the instruction and respond with a single JSON object — nothing else.
@@ -3366,7 +3934,15 @@ Rules:
 - Copy each "find" string EXACTLY from the HTML — character-for-character, no paraphrasing
 - Include 15–40 chars of surrounding context so each "find" is unique in the document
 - NEVER put newlines inside "find" or "replace" — single-line strings only
-- Up to 12 patches
+- Include EVERY patch needed to fully and consistently apply the instruction.
+  If the change affects many repeated values (e.g. recalculating percentages
+  and dollar amounts across an entire pricing/breakdown table when the total
+  changes), include one patch per value — ALL of them, not a representative
+  sample. There is no fixed cap: dropping some patches to stay under an
+  arbitrary count leaves the document internally inconsistent (e.g. a headline
+  total that no longer matches the line items or footer beneath it), which is
+  worse than a longer response. Typically well under 40 for a normal edit, but
+  size the count to what the instruction actually requires.
 
 OP section_replace — redesign or restructure an existing section completely:
 { "op": "section_replace", "anchor": "section-id-or-keyword", "html": "<section>...</section>", "summary": "..." }
@@ -3376,6 +3952,30 @@ OP section_insert — add a brand-new section before or after an existing one:
 
 OP section_delete — remove an existing section entirely:
 { "op": "section_delete", "anchor": "section-id-or-keyword", "summary": "..." }
+
+OP clarify — the instruction does not say which section/element to target, AND
+nothing in it (no section name, no distinctive quoted text, no ordinal like
+"first"/"last") narrows it down to one clear match among this document's
+${sectionList.split(',').length} sections. Use this instead of guessing:
+{ "op": "clarify", "question": "Which section should this apply to? (e.g. ${sectionList.split(',').slice(0,3).join(', ')}...)" }
+Only use "clarify" when you are genuinely unsure which section is meant — if
+the instruction names a section, quotes/describes distinctive content, uses an
+ordinal, or there is only one section where this change makes sense, proceed
+with the appropriate op instead of asking.
+
+VIDEO EMBEDS: to ADD a video, use "section_replace" (e.g. wrap it as a full-bleed
+background layer with style="position:absolute;inset:0;width:100%;height:100%;
+pointer-events:none;z-index:0" plus position:relative;overflow:hidden on the
+section itself, when the instruction says "background"; otherwise embed it inline
+in the content flow) or "patches" (inserting a self-contained
+<div style="position:relative;padding-top:56.25%"><iframe .../></div> block right
+after a specific line is enough). To REMOVE a video, use "patches" with "find"
+matching the existing <iframe ...>...</iframe> block (or its opening tag) and
+"replace": "". If the instruction has BOTH a remove-X and an add-Y request (e.g.
+"remove the background image and add this video..."), apply both in the SAME
+response — as two entries in "patches", or as one "section_replace" whose "html"
+both drops the old element and adds the new one. Never silently drop half of a
+compound instruction.
 
 KNOWN SECTIONS: ${sectionList}
 ${cssVarsBlock ? `\nCSS DESIGN TOKENS:\n${cssVarsBlock}\n` : ''}
@@ -3399,13 +3999,40 @@ ${html}`;
     if (isRegenIntent && sectionCtx) {
       try {
         updatedHtml = await regenSection(sectionCtx);
-        summary = 'Section regenerated';
+        summary = isStructuralFixIntent ? 'Section fixed' : 'Section regenerated';
       } catch {
         return reply.code(502).send({ error: 'Could not regenerate section — try providing more detail in your instruction' });
       }
     } else {
       const op = parseOp(raw);
-      if (!op) return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+      if (!op) {
+        // LLM returned raw HTML instead of JSON (common for section rewrites) — treat as section_replace.
+        const fallbackBlock = extractBlockFromResponse(raw);
+        if (fallbackBlock) {
+          const ctx = extractBestSection(html, instruction);
+          if (ctx) {
+            updatedHtml = ctx.before + fallbackBlock.block + ctx.after;
+            summary = 'Section updated';
+            console.log('↩️  parseOp null — used raw HTML block fallback');
+          } else {
+            return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+          }
+        } else {
+          // Last resort: if it looks like a fix/regen ask, rewrite the section directly.
+          const ctx = extractBestSection(html, instruction);
+          if (ctx && /\b(?:fix|repair|regenerate|redesign|rewrite|rebuild|redo|correct)\b/i.test(instruction)) {
+            try {
+              updatedHtml = await regenSection(ctx);
+              summary = 'Section updated';
+              console.log('↩️  parseOp null — fell through to regenSection');
+            } catch {
+              return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+            }
+          } else {
+            return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+          }
+        }
+      } else {
 
       if (op.op === 'patches') {
         const { html: patched, applied, missed } = applyPatches(html, op.patches);
@@ -3435,8 +4062,56 @@ ${html}`;
         updatedHtml = ctx.before + ctx.after;
         summary = op.summary;
 
+      } else if (op.op === 'clarify') {
+        // Refuse to guess which section an ambiguous instruction meant — a wrong
+        // guess silently edits the wrong element and reports success, which is
+        // worse than asking. Select the element directly, or name the section.
+        return reply.code(422).send({
+          error: op.question || 'Which section should this apply to? Select the element directly, or name the section.',
+        });
+
       } else {
         return reply.code(502).send({ error: 'Unknown operation returned by LLM — try rephrasing' });
+      }
+      } // close: else (op !== null)
+    }
+
+    // ── Content-specific verification ─────────────────────────────────────────
+    // validateHtml() (used inside saveValidatedEdit) only checks structural sanity
+    // (truncation, size ratio, section count, CSS tokens) — it can't tell "the LLM
+    // applied the change" apart from "the LLM returned the section unchanged."
+    // When we told the LLM to use a specific resolved URL (video embed or Pexels
+    // image), confirm it actually landed in the result before reporting success.
+    // No automatic retry: fail loud with an actionable message rather than
+    // silently retrying a stronger prompt, which would just move "patch until it
+    // passes" from regex-space into prompt-space.
+    if (resolvedUrlToVerify) {
+      const idMatch = resolvedUrlToVerify.match(/(?:youtube\.com\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i)
+        ?? resolvedUrlToVerify.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
+      const needle = idMatch ? idMatch[1] : resolvedUrlToVerify;
+      if (!updatedHtml.includes(needle)) {
+        return reply.code(422).send({
+          error: `Edit did not apply — the requested ${resolvedUrlKind} was not found in the result. Try rephrasing or naming the section more specifically.`,
+        });
+      }
+    }
+
+    // Removal sanity check — used ONLY as a post-hoc oracle to confirm what the
+    // LLM claims it did actually happened, never to decide routing (that
+    // distinction matters: a false positive here just asks the user to
+    // rephrase; a false positive as a routing gate silently does the wrong
+    // thing, which is the bug class this whole redesign removes elsewhere).
+    // Catches the LLM (or a stray "find" patch that missed its real target,
+    // e.g. duplicate markup elsewhere in the document) reporting a removal
+    // that didn't actually happen.
+    if (/\b(?:remove|delete|clear|hide)\b/i.test(instruction) &&
+        /\b(?:video|iframe|vimeo|youtube)\b/i.test(instruction)) {
+      const before = (html.match(/<iframe\b/gi) ?? []).length;
+      const after  = (updatedHtml.match(/<iframe\b/gi) ?? []).length;
+      if (after >= before) {
+        return reply.code(422).send({
+          error: 'Edit did not apply — the video/iframe is still present in the result. Try rephrasing or naming the section more specifically.',
+        });
       }
     }
 
@@ -3657,6 +4332,687 @@ ${sectionHtml}`;
       return reply.send({ ok: true });
     } catch {
       return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
+  });
+
+  // ── Slide routes ─────────────────────────────────────────────────────────────
+
+  // GET /super-clients/:name/slides  — list saved presentations
+  app.get('/super-clients/:name/slides', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name } = req.params as { name: string };
+    const dir = path.join(superClientsRoot, name);
+    try { await readMeta(dir); } catch { return reply.code(404).send({ error: 'Client not found' }); }
+    try {
+      const raw = await readFile(path.join(dir, 'slides.json'), 'utf-8');
+      return reply.send(JSON.parse(raw));
+    } catch {
+      return reply.send([]);
+    }
+  });
+
+  // GET /super-clients/:name/slides/:id  — get rendered HTML
+  app.get('/super-clients/:name/slides/:id', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+    const dir = path.join(superClientsRoot, name);
+    try { await readMeta(dir); } catch { return reply.code(404).send({ error: 'Client not found' }); }
+    try {
+      const html = await readFile(path.join(dir, 'slides', `${id}.html`), 'utf-8');
+      return reply.header('Cache-Control', 'no-store').type('text/html').send(html);
+    } catch {
+      return reply.code(404).send({ error: 'Presentation not found' });
+    }
+  });
+
+  // GET /super-clients/:name/slides/:id/data  — get JSON AST
+  app.get('/super-clients/:name/slides/:id/data', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+    const dir = path.join(superClientsRoot, name);
+    try { await readMeta(dir); } catch { return reply.code(404).send({ error: 'Client not found' }); }
+    try {
+      const raw = await readFile(path.join(dir, 'slides', `${id}.json`), 'utf-8');
+      return reply.send(JSON.parse(raw));
+    } catch {
+      return reply.code(404).send({ error: 'Presentation not found' });
+    }
+  });
+
+  // DELETE /super-clients/:name/slides/:id
+  app.delete('/super-clients/:name/slides/:id', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+    const dir = path.join(superClientsRoot, name);
+    try { await readMeta(dir); } catch { return reply.code(404).send({ error: 'Client not found' }); }
+    try {
+      await rm(path.join(dir, 'slides', `${id}.json`), { force: true });
+      await rm(path.join(dir, 'slides', `${id}.html`), { force: true });
+      let index: SavedSlide[] = [];
+      try { index = JSON.parse(await readFile(path.join(dir, 'slides.json'), 'utf-8')) as SavedSlide[]; } catch { /* ok */ }
+      await writeFile(path.join(dir, 'slides.json'), JSON.stringify(index.filter(s => s.id !== id), null, 2));
+      return reply.send({ ok: true });
+    } catch {
+      return reply.code(500).send({ error: 'Delete failed' });
+    }
+  });
+
+  // POST /super-clients/:name/slides/:id/edit — LLM patch edit on slide HTML
+  app.post('/super-clients/:name/slides/:id/edit', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+    const body = req.body as { instruction?: string; currentHtml?: string } | undefined;
+    const instruction = body?.instruction?.trim();
+    if (!instruction) return reply.code(400).send({ error: 'Missing instruction' });
+
+    const dir = path.join(superClientsRoot, name);
+    const htmlPath = path.join(dir, 'slides', `${id}.html`);
+    const resolved = path.resolve(htmlPath);
+    if (!resolved.startsWith(path.resolve(path.join(dir, 'slides')))) {
+      return reply.code(400).send({ error: 'Invalid id' });
+    }
+
+    let diskHtml: string;
+    try {
+      diskHtml = await readFile(htmlPath, 'utf-8');
+    } catch {
+      return reply.code(404).send({ error: 'Presentation not found' });
+    }
+
+    const html = body?.currentHtml?.trim() || diskHtml;
+
+    // Deterministic patch — no LLM needed for InlineEditPanel operations.
+    // If patchHtml handles this instruction, skip the LLM entirely.
+    const deterministicResult = patchHtml(html, instruction);
+    if (deterministicResult !== null) {
+      if ('error' in deterministicResult) {
+        return reply.code(deterministicResult.statusCode).send({ error: deterministicResult.error });
+      }
+      await writeFile(htmlPath, deterministicResult.html);
+      console.log(`\n╔══ SLIDE EDIT (DETERMINISTIC) ═══════════════════════════`);
+      console.log(`║ Slide  : ${id}`);
+      console.log(`║ Summary: ${deterministicResult.summary}`);
+      console.log(`╚══════════════════════════════════════════════════════════`);
+      return reply.send({ html: deterministicResult.html, summary: deterministicResult.summary });
+    }
+
+    // Parse element-targeted instruction prefixes emitted by the smart-edit bridge.
+    // __ELEMENT_EDIT__:cssPath||outerHtml||userInstruction  → targeted element edit
+    // __REMOVE_BY_PATH__:cssPath                            → remove element by path
+    // __REMOVE_ELEMENT__:outerHtml                          → remove element by html
+    let resolvedInstruction = instruction;
+    let elementContext = '';
+    let displaySummary = instruction;
+    let selectedElementCssPath = ''; // captured from __ELEMENT_EDIT__ for slide targeting
+
+    if (instruction.startsWith('__ELEMENT_EDIT__:')) {
+      const payload = instruction.slice('__ELEMENT_EDIT__:'.length);
+      const parts = payload.split('||');
+      const cssPath = parts[0] ?? '';
+      const outerHtml = parts[1] ?? '';
+      const userText = parts.slice(2).join('||');
+      resolvedInstruction = userText;
+      selectedElementCssPath = cssPath;
+      elementContext = `\nTARGET ELEMENT (CSS path: ${cssPath}):\n${outerHtml.slice(0, 4000)}\nEdit only this element unless the instruction requires broader changes.`;
+      displaySummary = userText;
+    } else if (instruction.startsWith('__REMOVE_BY_PATH__:')) {
+      const cssPath = instruction.slice('__REMOVE_BY_PATH__:'.length);
+      resolvedInstruction = `Remove the element matching CSS path "${cssPath}" from the document. Keep everything else unchanged.`;
+      displaySummary = `Remove element: ${cssPath}`;
+    } else if (instruction.startsWith('__REMOVE_ELEMENT__:')) {
+      const outerHtml = instruction.slice('__REMOVE_ELEMENT__:'.length);
+      resolvedInstruction = `Remove this element from the document:\n${outerHtml.slice(0, 1000)}\nKeep everything else unchanged.`;
+      displaySummary = 'Remove element';
+    } else if (instruction.startsWith('__REMOVE_BACKGROUND__:')) {
+      const cssPath = instruction.slice('__REMOVE_BACKGROUND__:'.length);
+      resolvedInstruction = `Remove the background image from the element matching CSS path "${cssPath}". Keep all other styles and content unchanged.`;
+      displaySummary = 'Remove background image';
+    } else if (instruction.startsWith('__STYLE_PATCH__:')) {
+      const parts = instruction.slice('__STYLE_PATCH__:'.length).split('||');
+      const cssPath = parts[0] ?? '';
+      const prop = parts[1] ?? '';
+      const value = parts[2] ?? '';
+      const hintHtml = parts[3] ?? '';
+      resolvedInstruction = `Set the CSS property "${prop}" to "${value}" on the element matching CSS path "${cssPath}". Keep everything else unchanged.${hintHtml ? `\nElement hint: ${hintHtml.slice(0, 400)}` : ''}`;
+      displaySummary = `${prop}: ${value}`;
+    } else if (instruction.startsWith('__TEXT_PATCH__:')) {
+      const parts = instruction.slice('__TEXT_PATCH__:'.length).split('||');
+      const cssPath = parts[0] ?? '';
+      const newText = parts[1] ?? '';
+      const hintHtml = parts[2] ?? '';
+      resolvedInstruction = `Replace the text content of the element matching CSS path "${cssPath}" with: "${newText}". Keep all other content, structure, and styles unchanged.${hintHtml ? `\nElement hint: ${hintHtml.slice(0, 400)}` : ''}`;
+      displaySummary = 'Text updated';
+    } else if (instruction.startsWith('__IMAGE_INJECT_SCOPED__:')) {
+      const parts = instruction.slice('__IMAGE_INJECT_SCOPED__:'.length).split('||');
+      const cssPath = parts[0] ?? '';
+      const url = parts[1] ?? '';
+      const hintHtml = parts[2] ?? '';
+      resolvedInstruction = `Replace the image src at CSS path "${cssPath}" with this URL: "${url}". Keep all other attributes and styles unchanged.${hintHtml ? `\nElement hint: ${hintHtml.slice(0, 400)}` : ''}`;
+      displaySummary = 'Image replaced';
+    } else if (instruction.startsWith('__BG_IMAGE_PATCH__:')) {
+      const parts = instruction.slice('__BG_IMAGE_PATCH__:'.length).split('||');
+      const cssPath = parts[0] ?? '';
+      const url = parts[1] ?? '';
+      resolvedInstruction = `Set the background image of the element matching CSS path "${cssPath}" to url("${url}"). Update the inline style or CSS rule — keep all other styles unchanged.`;
+      displaySummary = 'Background image updated';
+    } else if (instruction.startsWith('__VIDEO_INJECT__:')) {
+      const parts = instruction.slice('__VIDEO_INJECT__:'.length).split('||');
+      const cssPath = parts[0] ?? '';
+      const url = parts[1] ?? '';
+      resolvedInstruction = `Replace the video or iframe at CSS path "${cssPath}" with a new iframe or video element pointing to: "${url}". Keep all surrounding styles and structure unchanged.`;
+      displaySummary = 'Video updated';
+    } else if (instruction.startsWith('__ICON_REPLACE__:') || instruction.startsWith('__SVG_REPLACE__:')) {
+      const isIcon = instruction.startsWith('__ICON_REPLACE__:');
+      const payload = instruction.slice((isIcon ? '__ICON_REPLACE__:' : '__SVG_REPLACE__:').length);
+      const parts = payload.split('||');
+      const cssPath = parts[0] ?? '';
+      const content = parts[1] ?? '';
+      resolvedInstruction = `Replace the ${isIcon ? 'icon image' : 'SVG element'} at CSS path "${cssPath}" with: ${content.slice(0, 1000)}. Keep all surrounding styles and structure unchanged.`;
+      displaySummary = 'Icon replaced';
+    }
+
+    console.log(`\n╔══ SLIDE EDIT ════════════════════════════════════════════`);
+    console.log(`║ Slide      : ${id}`);
+    console.log(`║ Instruction: ${resolvedInstruction.slice(0, 120)}`);
+    console.log(`║ HTML source: ${body?.currentHtml ? 'client (in-memory)' : 'disk'} — ${html.length} chars`);
+    console.log(`╚══════════════════════════════════════════════════════════`);
+
+    // ── Structured-operation edit — mirrors the microsite op-picker ──────────
+    // The LLM sees the FULL document (no truncation — the old full-rewrite path
+    // sliced at 50k chars and silently dropped the tail of larger decks) and
+    // responds with a small typed JSON op, never the whole page back. This
+    // handles any free-text instruction at any document size in one pass.
+
+    // Locate each top-level slide container (div whose class list contains the
+    // exact token "slide"). Nested divs are skipped via depth scanning.
+    function extractSlideBounds(src: string): Array<{ start: number; end: number }> {
+      const out: Array<{ start: number; end: number }> = [];
+      const openRe = /<div\b[^>]*\bclass="([^"]*)"[^>]*>/gi;
+      let m: RegExpExecArray | null;
+      while ((m = openRe.exec(src)) !== null) {
+        if (!m[1].split(/\s+/).includes('slide')) continue;
+        let depth = 1, j = m.index + m[0].length;
+        while (j < src.length && depth > 0) {
+          const nO = src.indexOf('<div', j);
+          const nC = src.indexOf('</div>', j);
+          if (nC === -1) { j = src.length; break; }
+          if (nO !== -1 && nO < nC) { depth++; j = nO + 4; }
+          else { depth--; j = nC + 6; }
+        }
+        out.push({ start: m.index, end: j });
+        openRe.lastIndex = j; // skip past this slide — never match nested .slide divs
+      }
+      return out;
+    }
+
+    const slideBounds = extractSlideBounds(html);
+    const slideList = slideBounds.map((b, i) => {
+      const text = html.slice(b.start, b.end);
+      const heading = /<h[1-6][^>]*>\s*([^<]{1,60})/i.exec(text)?.[1]?.trim()
+        ?? />\s*([A-Za-z][^<]{2,60})</.exec(text)?.[1]?.trim()
+        ?? '';
+      return `slide ${i + 1}${heading ? ` — "${heading}"` : ''}`;
+    }).join('\n');
+
+    // CSS :root token block (for design-preserving regen)
+    const slideCssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
+
+    // Detect regen/fix intent from the resolved (user-typed) instruction.
+    // Works for both free-text and element-selected cases — resolvedInstruction
+    // is always the user's actual text (stripped of __ELEMENT_EDIT__ prefix).
+    const isSlideRegenIntent = (
+      /\b(?:regenerate|rewrite|rebuild|redesign|redo|remake|recreate)\b/i.test(resolvedInstruction)
+      || (/\b(?:fix|repair|correct|resolve)\b/i.test(resolvedInstruction)
+          && /\b(?:overlap|overlapping|bleed(?:ing)?|overflow(?:ing)?|strip|stripe|z.?index|misalign|broken|cut.?off|clip(?:ped)?|spacing|layout|position|visual|design|gap|layer)\b/i.test(resolvedInstruction))
+    );
+    const isSlideStructuralFix = isSlideRegenIntent
+      && /\b(?:fix|repair|correct|resolve)\b/i.test(resolvedInstruction);
+    const isPureSlideRegen = isSlideRegenIntent && !isSlideStructuralFix;
+
+    // Determine which slide to target for regen.
+    // Priority: (1) enclosing slide of the selected element, (2) "slide N" in text, (3) first slide.
+    function targetSlideIdx(instr: string): number {
+      // When an element was selected, find its enclosing slide by CSS path bounds
+      if (selectedElementCssPath && slideBounds.length > 0) {
+        const elBounds = findByPath(html, selectedElementCssPath);
+        if (elBounds) {
+          const idx = slideBounds.findIndex(b => b.start <= elBounds.start && elBounds.end <= b.end);
+          if (idx !== -1) return idx;
+        }
+      }
+      // Fall back to ordinal in text: "slide 2", "2nd slide"
+      const m = instr.toLowerCase().match(/\bslide\s+#?(\d+)\b/)
+        ?? instr.toLowerCase().match(/\b(\d+)(?:st|nd|rd|th)\s+slide\b/);
+      if (m) {
+        const idx = parseInt(m[1] ?? '0', 10) - 1;
+        if (idx >= 0 && idx < slideBounds.length) return idx;
+      }
+      return 0;
+    }
+
+    // Slide regeneration helper — rewrites one slide, optionally locking design
+    async function regenSlide(idx: number): Promise<string> {
+      const b = slideBounds[idx];
+      const slideHtml = html.slice(b.start, b.end);
+      const designChangeWords = /\b(?:dark|light|color|colour|font|size|background|theme|style|palette|weight|spacing|layout|gradient|border|shadow)\b/i;
+      const inlineColors = [...new Set(slideHtml.match(/#[0-9a-fA-F]{3,8}\b|rgb\([^)]+\)|rgba\([^)]+\)/g) ?? [])].slice(0, 12).join(', ');
+      const modeNote = isSlideStructuralFix
+        ? '\nFIX MODE: Fix the described design issue only. Do NOT change colors, text content, branding, or visual style — only correct the structural/layout problem.'
+        : isPureSlideRegen && !designChangeWords.test(resolvedInstruction)
+        ? `\nREGENERATION MODE: Preserve ALL visual design — same colors${inlineColors ? ` (${inlineColors})` : ''}, fonts, sizes, spacing, and layout. Only refresh content.`
+        : '';
+      const prompt = `You are rewriting one slide of an HTML slide presentation.
+
+Apply the instruction exactly. You may change: text content, headings, colors, backgrounds, fonts, spacing, layout, images, icons, buttons — whatever the instruction requires.
+Preserve: the outer <div class="slide"> wrapper and its id/data attributes, CSS class names, responsive patterns, and design token references.
+${modeNote}
+Output ONLY the replacement slide HTML — starting with <div class="slide"..., ending with </div>. No preamble, no markdown fences.
+${slideCssVarsBlock ? `\nCSS DESIGN TOKENS:\n${slideCssVarsBlock}\n` : ''}
+INSTRUCTION: ${resolvedInstruction}
+
+CURRENT SLIDE (slide ${idx + 1}):
+${slideHtml}`;
+      const raw = await llmGenerateFn(prompt);
+      const stripped = extractHtmlFromResponseGlobal(raw);
+      const startIdx = stripped.search(/<div\b/i);
+      const endIdx = stripped.lastIndexOf('</div>');
+      if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) throw new Error('LLM did not return a valid slide block');
+      const newSlide = stripped.slice(startIdx, endIdx + 6);
+      return html.slice(0, b.start) + newSlide + html.slice(b.end);
+    }
+
+    // ── Pre-resolve real asset URLs so the LLM never invents them ────────────
+    let augmentedInstruction = resolvedInstruction;
+    let resolvedUrlToVerify: string | null = null;
+    let resolvedUrlKind = '';
+
+    // Descriptive image request (no URL given) → fetch a real Pexels URL
+    if (!/https?:\/\//.test(resolvedInstruction) &&
+        /\b(?:image|photo|picture|pic)\b/i.test(resolvedInstruction)) {
+      try {
+        const qPrompt = `Does this instruction require adding or replacing an image with a new one fetched from the web? Answer "no" if the instruction is about removing, hiding, or deleting an image, or if no new image is needed. Otherwise answer with a concise 2-5 keyword image search query (keywords only, nothing else).\n\nInstruction: ${resolvedInstruction}`;
+        const pexelsQ = (await llmGenerateFn(qPrompt)).trim().replace(/^["'`]|["'`]$/g, '').trim().slice(0, 80);
+        if (pexelsQ && !/^no\b/i.test(pexelsQ)) {
+          const pexelsUrl = await fetchPexelsImageUrl(pexelsQ);
+          if (pexelsUrl) {
+            augmentedInstruction = `${resolvedInstruction}\n\nIMPORTANT — use this exact image URL (do NOT invent or substitute any other URL): ${pexelsUrl}`;
+            resolvedUrlToVerify = pexelsUrl;
+            resolvedUrlKind = 'image';
+            console.log(`📸 Pexels pre-fetch for slide edit: "${pexelsQ}" → ${pexelsUrl}`);
+          }
+        }
+      } catch { /* fall through — LLM will handle without a real URL */ }
+    }
+
+    // Video URL → hand the LLM a ready-made embed URL (watch-page URLs are
+    // blocked from iframes by X-Frame-Options)
+    const slideVideoUrlMatch = resolvedInstruction.match(/https?:\/\/\S*(?:youtube\.com|youtu\.be|vimeo\.com)\S*/i);
+    if (slideVideoUrlMatch) {
+      const embedUrl = toVideoEmbedUrl(slideVideoUrlMatch[0].replace(/['"<>)\],.]+$/, ''));
+      augmentedInstruction = `${augmentedInstruction}\n\nIMPORTANT — if the instruction asks to add/embed a video, use this exact embed URL in an <iframe> (do NOT alter it or invent a different one): ${embedUrl}`;
+      resolvedUrlToVerify = embedUrl;
+      resolvedUrlKind = 'video';
+      console.log(`🎬 Video URL pre-normalized for slide edit: ${embedUrl.slice(0, 80)}`);
+    }
+
+    type SlideOp =
+      | { op: 'patches'; patches: Array<{ find: string; replace: string }>; summary: string }
+      | { op: 'slide_replace'; slide: number; html: string; summary: string }
+      | { op: 'slide_insert'; slide: number; position: 'before' | 'after'; html: string; summary: string }
+      | { op: 'slide_delete'; slide: number; summary: string }
+      | { op: 'clarify'; question: string };
+
+    function parseSlideOp(rawText: string): SlideOp | null {
+      const start = rawText.indexOf('{');
+      if (start === -1) return null;
+      let depth = 0, end = -1, inStr = false, esc = false;
+      for (let i = start; i < rawText.length; i++) {
+        const c = rawText[i];
+        if (esc) { esc = false; continue; }
+        if (c === '\\' && inStr) { esc = true; continue; }
+        if (c === '"') { inStr = !inStr; continue; }
+        if (inStr) continue;
+        if (c === '{') depth++;
+        else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
+      }
+      if (end === -1) return null;
+      try {
+        const slice = rawText.slice(start, end + 1)
+          .replace(/("(?:[^"\\]|\\.)*")/gs, s => s.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
+        return JSON.parse(slice) as SlideOp;
+      } catch { return null; }
+    }
+
+    function applySlidePatches(base: string, patches: Array<{ find: string; replace: string }>): { html: string; applied: number; missed: number } {
+      let result = base;
+      let applied = 0, missed = 0;
+      for (const p of patches) {
+        if (!p.find || p.replace === undefined) continue;
+        if (!result.includes(p.find)) {
+          console.warn(`⚠️  Slide patch MISS: find="${p.find.slice(0, 80)}"`);
+          missed++;
+          continue;
+        }
+        result = result.split(p.find).join(p.replace);
+        applied++;
+      }
+      return { html: result, applied, missed };
+    }
+
+    const opPrompt = `You are editing an HTML slide presentation — a single scrollable page where each slide is a <div class="slide">. Pick the ONE operation that best fits the instruction and respond with a single JSON object — nothing else.
+
+OPERATION TYPES:
+
+OP patches — targeted changes to existing content (text, values, colors, images, styles, adding or removing an element inside a slide).
+{ "op": "patches", "patches": [{ "find": "exact substring", "replace": "new value" }], "summary": "..." }
+Rules:
+- Copy each "find" string EXACTLY from the HTML — character-for-character, no paraphrasing
+- Include 15–40 chars of surrounding context so each "find" is unique in the document
+- NEVER put newlines inside "find" or "replace" — single-line strings only
+- Include EVERY patch needed to fully and consistently apply the instruction.
+  If the change affects many repeated values (e.g. recalculating percentages
+  and dollar amounts across an entire pricing/breakdown table when the total
+  changes), include one patch per value — ALL of them, not a representative
+  sample. There is no fixed cap: dropping some patches to stay under an
+  arbitrary count leaves the document internally inconsistent (e.g. a headline
+  total that no longer matches the line items or footer beneath it), which is
+  worse than a longer response. Typically well under 40 for a normal edit, but
+  size the count to what the instruction actually requires.
+
+OP slide_replace — redesign or restructure one slide completely:
+{ "op": "slide_replace", "slide": <1-based slide number>, "html": "<div class=\\"slide\\" ...>...</div>", "summary": "..." }
+
+OP slide_insert — add a brand-new slide before or after an existing one:
+{ "op": "slide_insert", "slide": <anchor slide number>, "position": "before|after", "html": "<div class=\\"slide\\" ...>...</div>", "summary": "..." }
+
+OP slide_delete — remove one slide entirely:
+{ "op": "slide_delete", "slide": <slide number>, "summary": "..." }
+
+OP clarify — a TARGET ELEMENT context section below means the instruction is
+already scoped — never use "clarify" when one is present. Otherwise, if the
+instruction names no slide, quotes no distinctive content, and gives no
+ordinal ("first"/"last"), and more than one slide could plausibly be meant,
+use this instead of guessing which slide to touch:
+{ "op": "clarify", "question": "Which slide should this apply to?" }
+
+VIDEO EMBEDS: to ADD a video, place a self-contained block
+<div style="position:relative;padding-top:56.25%;width:100%"><iframe src="..." style="position:absolute;inset:0;width:100%;height:100%;border:0" allow="autoplay; fullscreen" allowfullscreen></iframe></div>
+at the position inside the slide that the instruction asks for (or the most natural spot if it says to choose) — via "patches" (insert right after an existing line) or "slide_replace". For a full-bleed background video, give the slide position:relative;overflow:hidden and add the iframe as its first child with style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;border:0;z-index:0". To REMOVE a video, use "patches" with "find" matching the existing <iframe ...> block and "replace": "". If the instruction has BOTH a remove-X and an add-Y request, apply both in the SAME response. Never silently drop half of a compound instruction.
+
+SLIDES IN THIS DECK (1-based):
+${slideList || '(no <div class="slide"> containers detected — use "patches" only)'}
+
+INSTRUCTION: ${augmentedInstruction}${elementContext}
+
+FULL HTML:
+${html}`;
+
+    // For regen/fix intents, skip the JSON op path entirely and go straight to slide rewrite.
+    let updatedHtml = html;
+    let summary = displaySummary;
+
+    if (isSlideRegenIntent && slideBounds.length > 0) {
+      const idx = targetSlideIdx(resolvedInstruction);
+      try {
+        updatedHtml = await regenSlide(idx);
+        summary = isSlideStructuralFix ? `Slide ${idx + 1} fixed` : `Slide ${idx + 1} regenerated`;
+        console.log(`↩️  isSlideRegenIntent — rewrote slide ${idx + 1} directly`);
+      } catch {
+        return reply.code(502).send({ error: 'Could not regenerate slide — try providing more detail' });
+      }
+    } else {
+    const raw = await llmGenerateFn(opPrompt);
+    console.log(`┌─ SLIDE EDIT LLM raw (first 500): ${(raw ?? '').slice(0, 500)}`);
+
+    const op = parseSlideOp(raw ?? '');
+    if (!op) {
+      // Fallback: LLM returned raw HTML instead of JSON
+      const stripped = extractHtmlFromResponseGlobal(raw ?? '');
+      const startIdx = stripped.search(/<div\b/i);
+      const endIdx = stripped.lastIndexOf('</div>');
+      if (startIdx !== -1 && endIdx > startIdx && slideBounds.length > 0) {
+        const idx = targetSlideIdx(resolvedInstruction);
+        const b = slideBounds[idx];
+        updatedHtml = html.slice(0, b.start) + stripped.slice(startIdx, endIdx + 6) + html.slice(b.end);
+        summary = displaySummary;
+        console.log('↩️  parseSlideOp null — used raw HTML block fallback');
+      } else if (/\b(?:fix|repair|regenerate|redesign|rewrite|rebuild|redo|correct)\b/i.test(resolvedInstruction) && slideBounds.length > 0) {
+        const idx = targetSlideIdx(resolvedInstruction);
+        try {
+          updatedHtml = await regenSlide(idx);
+          summary = `Slide ${idx + 1} updated`;
+          console.log('↩️  parseSlideOp null — fell through to regenSlide');
+        } catch {
+          return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+        }
+      } else {
+        return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+      }
+    } else {
+
+    if (op.op === 'patches') {
+      const { html: patched, applied, missed } = applySlidePatches(html, op.patches);
+      if (applied === 0) return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
+      updatedHtml = patched;
+      summary = op.summary || summary;
+      if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+    } else if (op.op === 'slide_replace' || op.op === 'slide_insert' || op.op === 'slide_delete') {
+      const idx = Math.trunc(op.slide) - 1;
+      if (idx < 0 || idx >= slideBounds.length) {
+        return reply.code(422).send({ error: `Slide ${op.slide} not found — this deck has ${slideBounds.length} slide${slideBounds.length === 1 ? '' : 's'}` });
+      }
+      const b = slideBounds[idx];
+      if (op.op === 'slide_replace') {
+        updatedHtml = html.slice(0, b.start) + op.html + html.slice(b.end);
+      } else if (op.op === 'slide_insert') {
+        updatedHtml = op.position === 'before'
+          ? html.slice(0, b.start) + op.html + '\n' + html.slice(b.start)
+          : html.slice(0, b.end) + '\n' + op.html + html.slice(b.end);
+      } else {
+        updatedHtml = html.slice(0, b.start) + html.slice(b.end);
+      }
+      summary = op.summary || summary;
+    } else if (op.op === 'clarify') {
+      return reply.code(422).send({
+        error: op.question || 'Which slide should this apply to? Select the element directly, or name the slide.',
+      });
+    } else {
+      return reply.code(502).send({ error: 'Unknown operation returned by LLM — try rephrasing' });
+    }
+    } // close: else (op !== null)
+    } // close: outer else (not isSlideRegenIntent)
+
+    // Guard: closing tags must survive (patches can't remove them; slide html splices could)
+    if (!/(<\/body>|<\/html>)/i.test(updatedHtml)) {
+      return reply.code(502).send({ error: 'Edit produced incomplete HTML — missing closing tags. Try rephrasing.' });
+    }
+
+    // Content verification: when we told the LLM to use a specific resolved URL,
+    // confirm it actually landed instead of trusting a no-op response.
+    if (resolvedUrlToVerify) {
+      const idMatch = resolvedUrlToVerify.match(/(?:youtube\.com\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i)
+        ?? resolvedUrlToVerify.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
+      const needle = idMatch ? idMatch[1] : resolvedUrlToVerify;
+      if (!updatedHtml.includes(needle)) {
+        return reply.code(422).send({
+          error: `Edit did not apply — the requested ${resolvedUrlKind} was not found in the result. Try rephrasing or naming the slide more specifically.`,
+        });
+      }
+    }
+
+    if (updatedHtml === html) {
+      return reply.code(422).send({ error: 'Edit produced no change — try being more specific' });
+    }
+
+    await writeFile(htmlPath, updatedHtml);
+    const finalSummary = summary.length > 80 ? summary.slice(0, 77) + '…' : summary;
+    return reply.send({ html: updatedHtml, summary: finalSummary });
+  });
+
+  // PATCH /super-clients/:name/slides/:id/html — direct HTML overwrite (undo/redo sync)
+  app.patch('/super-clients/:name/slides/:id/html', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+    const body = req.body as { html?: string } | undefined;
+    const html = body?.html?.trim();
+    if (!html) return reply.code(400).send({ error: 'Missing html' });
+
+    const dir = path.join(superClientsRoot, name);
+    const htmlPath = path.join(dir, 'slides', `${id}.html`);
+    const resolved = path.resolve(htmlPath);
+    if (!resolved.startsWith(path.resolve(path.join(dir, 'slides')))) {
+      return reply.code(400).send({ error: 'Invalid id' });
+    }
+
+    try {
+      await writeFile(htmlPath, html);
+      return reply.send({ ok: true });
+    } catch {
+      return reply.code(500).send({ error: 'Save failed' });
+    }
+  });
+
+  // GET /super-clients/:name/slides/:id/export?format=pdf|pptx
+  // PDF  → Chrome CLI --print-to-pdf (real text layer, fully selectable/editable, no Puppeteer lib)
+  // PPTX → python-pptx with HTML text extraction (editable text boxes in PowerPoint)
+  app.get('/super-clients/:name/slides/:id/export', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { name, id } = req.params as { name: string; id: string };
+    const { format = 'pdf' } = req.query as { format?: string };
+
+    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+    if (!['pdf', 'pptx'].includes(format)) return reply.code(400).send({ error: 'Format must be pdf or pptx' });
+
+    const dir = path.join(superClientsRoot, name);
+    try { await readMeta(dir); } catch { return reply.code(404).send({ error: 'Client not found' }); }
+
+    let html: string;
+    try {
+      html = await readFile(path.join(dir, 'slides', `${id}.html`), 'utf-8');
+    } catch {
+      return reply.code(404).send({ error: 'Presentation not found' });
+    }
+
+    let title = 'Presentation';
+    let orientation: 'landscape' | 'portrait' = 'landscape';
+    try {
+      const idx = JSON.parse(await readFile(path.join(dir, 'slides.json'), 'utf-8')) as { id: string; title: string; orientation?: 'landscape' | 'portrait' }[];
+      const rec = idx.find(s => s.id === id);
+      title = rec?.title ?? title;
+      orientation = rec?.orientation === 'portrait' ? 'portrait' : 'landscape';
+    } catch { /* ok */ }
+    const isPortrait = orientation === 'portrait';
+
+    const safeTitle = title.replace(/[^\w\s\-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60);
+    const fileName = `${safeTitle || 'presentation'}-${id.slice(0, 8)}`;
+
+    const { spawn } = await import('node:child_process');
+    const { tmpdir } = await import('node:os');
+    const { rm: rmTmp } = await import('node:fs/promises');
+
+    if (format === 'pdf') {
+      // ── Chrome CLI print-to-PDF ──────────────────────────────────────────
+      // Uses the Chrome binary that Puppeteer already downloaded to ~/.cache/puppeteer.
+      // Chrome's native PDF renderer produces real text (selectable, editable) — not images.
+      const chromeBin = await findChromeBinary();
+      if (!chromeBin) return reply.code(503).send({ error: 'Chrome binary not found — run `npm install` to let Puppeteer download it' });
+
+      // Inject print CSS that forces one PDF page per .slide element.
+      // Landscape = 13.333in × 7.5in (16:9); portrait = 7.5in × 13.333in (9:16).
+      const pageW = isPortrait ? '7.5in' : '13.333in';
+      const pageH = isPortrait ? '13.333in' : '7.5in';
+      const PRINT_CSS = `<style id="prodeck-print">
+@page { size: ${pageW} ${pageH}; margin: 0; }
+html, body { margin: 0 !important; padding: 0 !important; }
+.deck,.slides,.slide-container,.presentation-container,.slideshow {
+  display: block !important; flex-direction: unset !important; gap: 0 !important;
+  padding: 0 !important; margin: 0 !important; overflow: visible !important;
+  height: auto !important; min-height: unset !important; position: static !important;
+}
+.slide,.page,.slide-page,section {
+  display: block !important; position: relative !important;
+  width: ${pageW} !important; height: ${pageH} !important; max-height: ${pageH} !important;
+  aspect-ratio: unset !important; box-shadow: none !important;
+  margin: 0 !important; padding: 0 !important; overflow: hidden !important;
+  flex-shrink: 0 !important; break-after: page !important; page-break-after: always !important;
+}
+/* Never break a word across two lines — wrap only at spaces */
+.slide *,.page *,.slide-page *,section * { word-break: normal !important; overflow-wrap: normal !important; hyphens: none !important; }
+/* Cancel trailing page break on the last slide to avoid a blank final page */
+.slide:last-child,.page:last-child,.slide-page:last-child,section:last-child {
+  break-after: auto !important; page-break-after: auto !important;
+}
+.nav-prev,.nav-next,.nav-zone,.keyboard-hint { display: none !important; }
+</style>`;
+
+      // Strip the browser-only scroll enforcer before printing
+      const STRIP = [
+        /<style[^>]*\bid="prodeck-scroll-enforcer"[^>]*>[\s\S]*?<\/style>/g,
+        /<script[^>]*\bid="prodeck-theme-apply"[^>]*>[\s\S]*?<\/script>/g,
+      ];
+      let printHtml = html;
+      for (const re of STRIP) printHtml = printHtml.replace(re, '');
+      const headClose = printHtml.indexOf('</head>');
+      printHtml = headClose !== -1
+        ? printHtml.slice(0, headClose) + PRINT_CSS + printHtml.slice(headClose)
+        : PRINT_CSS + printHtml;
+
+      const tmpId = `slide-export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const tmpHtml = path.join(tmpdir(), `${tmpId}.html`);
+      const tmpPdf  = path.join(tmpdir(), `${tmpId}.pdf`);
+
+      try {
+        await writeFile(tmpHtml, printHtml, 'utf-8');
+
+        await new Promise<void>((resolve, reject) => {
+          const proc = spawn(chromeBin, [
+            '--headless=new',
+            '--disable-gpu',
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+            `--print-to-pdf=${tmpPdf}`,
+            '--no-pdf-header-footer',
+            `file://${tmpHtml}`,
+          ], { stdio: 'ignore' });
+          proc.on('error', reject);
+          proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`Chrome exited ${code}`)));
+        });
+
+        const pdfBytes = await readFile(tmpPdf);
+        reply.header('Content-Type', 'application/pdf');
+        reply.header('Content-Disposition', `attachment; filename="${fileName}.pdf"`);
+        return reply.send(pdfBytes);
+      } finally {
+        await rmTmp(tmpHtml, { force: true });
+        await rmTmp(tmpPdf, { force: true });
+      }
+    } else {
+      // ── python-pptx text extraction ──────────────────────────────────────
+      const venvRoot  = path.resolve(import.meta.dirname ?? '', '../../../../.venv');
+      const pythonBin = path.join(venvRoot, 'bin', 'python3');
+      const script    = path.resolve(import.meta.dirname ?? '', 'slide-to-pptx.py');
+
+      const pptxBytes = await new Promise<Buffer>((resolve, reject) => {
+        const proc = spawn(pythonBin, [script, orientation], { stdio: ['pipe', 'pipe', 'pipe'] });
+        const chunks: Buffer[] = [];
+        const errChunks: Buffer[] = [];
+        proc.stdout.on('data', (d: Buffer) => chunks.push(d));
+        proc.stderr.on('data', (d: Buffer) => errChunks.push(d));
+        proc.on('error', reject);
+        proc.on('close', (code) => {
+          if (code !== 0) {
+            reject(new Error(`slide-to-pptx.py exited ${code}: ${Buffer.concat(errChunks).toString('utf-8').slice(0, 400)}`));
+          } else {
+            resolve(Buffer.concat(chunks));
+          }
+        });
+        proc.stdin.write(html, 'utf-8');
+        proc.stdin.end();
+      });
+
+      reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
+      reply.header('Content-Disposition', `attachment; filename="${fileName}.pptx"`);
+      return reply.send(pptxBytes);
     }
   });
 

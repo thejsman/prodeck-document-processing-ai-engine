@@ -267,6 +267,13 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
           style.textContent = [
             `@page { size: ${w}px ${h}px; margin: 0; }`,
             `html, body { margin: 0 !important; padding: 0 !important; width: ${w}px !important; background: #fff; }`,
+            // Chrome ignores break-after:page on flex children — the microsite's baked-in
+            // constraint style makes body (and any section wrapper) a flex column, so
+            // force block flow here or pagination falls back to raw slicing and content
+            // drifts across page boundaries. Higher specificity than the baked-in rules
+            // (html body / body :has) because that style sits later in document order.
+            `html body { display: block !important; }`,
+            `body :has(> section[data-section-id]) { display: block !important; }`,
             `section[data-section-id] {`,
             `  width: ${w}px !important; height: ${h}px !important;`,
             `  min-width: ${w}px !important; max-width: none !important;`,

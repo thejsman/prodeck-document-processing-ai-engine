@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth-context';
 import { NamespaceProvider } from '@/lib/namespace-context';
 import { ApiKeyGate } from '@/components/ApiKeyGate';
 import { ShellLayout } from '@/components/shell/ShellLayout';
+import { TransitionOverlay } from '@/components/system/TransitionOverlay';
 
 export default function ShellRouteLayout({
   children,
@@ -28,6 +29,8 @@ export default function ShellRouteLayout({
   return (
     <NamespaceProvider>
       <ShellLayout>{children}</ShellLayout>
+      {/* Persists across route changes — pages hand off loading states to it */}
+      <TransitionOverlay />
     </NamespaceProvider>
   );
 }

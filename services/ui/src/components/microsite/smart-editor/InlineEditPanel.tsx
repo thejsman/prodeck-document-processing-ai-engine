@@ -89,8 +89,9 @@ const ICON_LIST: Array<{ name: string; C: LucideComp }> = [
 ];
 
 // ── Lucide icon picker popup ────────────────────────────────────────────────
-function LucideIconPicker({ disabled, onSelect, onClose }: {
+function LucideIconPicker({ disabled, openBelow, onSelect, onClose }: {
   disabled: boolean;
+  openBelow?: boolean;
   onSelect: (svgHtml: string) => void;
   onClose: () => void;
 }) {
@@ -103,7 +104,7 @@ function LucideIconPicker({ disabled, onSelect, onClose }: {
     <div
       style={{
         position: 'absolute',
-        bottom: 'calc(100% + 10px)',
+        ...(openBelow ? { top: 'calc(100% + 10px)' } : { bottom: 'calc(100% + 10px)' }),
         left: '50%',
         transform: 'translateX(-50%)',
         width: 336,
@@ -596,17 +597,22 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
   // 1. Element IS an iframe with a recognised video src (youtube/vimeo).
   // 2. Element's opening-tag class/id OR CSS path contains a video-wrapper naming pattern
   //    (e.g. div.video-wrap, div#video-container).
-  //
-  // We deliberately do NOT scan deep outerHtml for iframe descendants here.
-  // A section that *contains* a video-wrap inside it would otherwise also trigger
-  // video controls, hiding its own bg-color / bg-image controls incorrectly.
-  const selfIframeSrc = tag === 'iframe' ? parseIframeSrc(selected.outerHtml) : '';
+  // 3. Element is a tightly-scoped wrapper whose content STARTS with a video
+  //    iframe (e.g. <div style="..."><iframe src="youtube...">) — the exact
+  //    unlabeled shape the video-insert flow generates, which carries no class
+  //    or id at all. Scoped to the first 300 chars of outerHtml (not a full
+  //    deep scan) so a large section that merely *contains* a video somewhere
+  //    among many other elements doesn't also trigger video-only controls,
+  //    hiding its own bg-color / bg-image controls.
+  const selfIframeSrc    = tag === 'iframe' ? parseIframeSrc(selected.outerHtml) : '';
+  const leadingIframeSrc = tag !== 'iframe' ? parseIframeSrc(selected.outerHtml.slice(0, 300)) : '';
   const openTag       = selected.outerHtml.match(/^<\w+[^>]*>/)?.[0] ?? '';
   const VIDEO_WRAP_RE = /\bvideo[-_]?(?:wrap|container|section|holder|block|player|embed|bg|area)\b/i;
   const isVideoLike   = (tag === 'iframe' && isVideoSrc(selfIframeSrc)) ||
+                        (leadingIframeSrc !== '' && isVideoSrc(leadingIframeSrc)) ||
                         VIDEO_WRAP_RE.test(openTag) ||
                         VIDEO_WRAP_RE.test(selected.path ?? '');
-  const currentVideoSrc = selfIframeSrc || parseIframeSrc(selected.outerHtml);
+  const currentVideoSrc = selfIframeSrc || leadingIframeSrc || parseIframeSrc(selected.outerHtml);
   const isNavLogo = isNavLogoEl(selected.path ?? '', tag, selected.outerHtml ?? '');
 
   // Detect background containers: divs/sections whose purpose is to hold a background image.
@@ -623,7 +629,16 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
   const hasChildElements = /<\w/.test(
     selected.outerHtml.replace(/^<[^>]+>/, '').replace(/<\/[^>]+>$/, ''),
   );
-  const isText = (isTextEl(tag) || (!isImg && !isIcon && !hasChildElements)) && !isBgContainer;
+  // A childless, non-img, non-icon element is only "text" if it actually HAS
+  // text to edit. Without this, an empty decorative div — a gradient/tint
+  // overlay sitting over an image, a spacer, an accent bar — trivially
+  // matches "no children, not an image, not an icon" and gets a useless empty
+  // text-edit box instead of the background/container controls that would
+  // actually do something. A genuine text tag (h1/p/span/etc, via isTextEl)
+  // still counts even when momentarily empty — that's the OTHER branch below,
+  // deliberately not covered by this guard.
+  const hasTextContent = (selected.text ?? '').trim().length > 0;
+  const isText = (isTextEl(tag) || (!isImg && !isIcon && !hasChildElements && hasTextContent)) && !isBgContainer;
   const isLeaf = isText && isLeafEl(selected.outerHtml);
 
   const [localFontSize,   setLocalFontSize]   = useState(16);
@@ -744,10 +759,11 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
         userSelect: 'none',
       }}
     >
-      {/* Lucide icon picker — floats above toolbar when toggled */}
+      {/* Lucide icon picker — floats above toolbar, or below when toolbar is near the top */}
       {isIcon && showIconPicker && (
         <LucideIconPicker
           disabled={dis}
+          openBelow={floatTop < 300}
           onSelect={(svgHtml) => {
             setShowIconPicker(false);
             void onSvgReplace(svgHtml);

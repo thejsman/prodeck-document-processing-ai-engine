@@ -1,0 +1,61 @@
+{
+  "sections": [
+    {
+      "id": "release-header",
+      "title": "Release Header",
+      "order": 1,
+      "required": true,
+      "promptHint": "Output 'FOR IMMEDIATE RELEASE' (or 'EMBARGOED UNTIL [DATE]' if a release date was provided). Then the headline in bold — present tense, active voice, specific. Optionally add a one-line subheadline.",
+      "maxWords": 50,
+      "useRagContext": false
+    },
+    {
+      "id": "lead-paragraph",
+      "title": "Lead Paragraph",
+      "order": 2,
+      "required": true,
+      "promptHint": "Start with: [CITY, State, Date] — Then write a single paragraph (3–4 sentences) answering who, what, when, where, and why. This paragraph must stand alone — a reader who only reads this should get the full story.",
+      "maxWords": 150,
+      "useRagContext": true,
+      "ragQuery": "announcement news launch product partnership funding company"
+    },
+    {
+      "id": "body",
+      "title": "Body",
+      "order": 3,
+      "required": true,
+      "promptHint": "2–3 additional paragraphs expanding on the lead. Include: background context, key details of the announcement, supporting facts or metrics, and how this benefits customers or the market. Most important details first.",
+      "maxWords": 400,
+      "useRagContext": true,
+      "ragQuery": "product features benefits metrics impact details context"
+    },
+    {
+      "id": "executive-quote",
+      "title": "Executive Quote",
+      "order": 4,
+      "required": true,
+      "promptHint": "One quote from the company executive spokesperson. The quote must add perspective or human context not already in the body — not restate facts. Sound like a real person said it. Format: \"[Quote],\" said [Name], [Title] of [Company].",
+      "maxWords": 100,
+      "useRagContext": false
+    },
+    {
+      "id": "about-company",
+      "title": "About [Company]",
+      "order": 5,
+      "required": true,
+      "promptHint": "A 2–3 sentence boilerplate 'About' paragraph: what the company does, who it serves, when it was founded (if known), and one key differentiator. This is reused on every press release.",
+      "maxWords": 100,
+      "useRagContext": true,
+      "ragQuery": "company overview mission founded customers differentiator"
+    },
+    {
+      "id": "media-contact",
+      "title": "Media Contact",
+      "order": 6,
+      "required": true,
+      "promptHint": "Output a contact block with: 'Media Contact:' as the heading, then: [CONTACT NAME], [TITLE], [COMPANY], [EMAIL], [PHONE]. Use these placeholder values if the information was not provided. End the document with '###'.",
+      "maxWords": 60,
+      "useRagContext": false
+    }
+  ]
+}

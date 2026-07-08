@@ -13,6 +13,7 @@
 //   5. Ambiguous messages get project interpretation — handled upstream by classifier
 
 import type { ChatResponse } from './response-builder.js';
+import type { Intent } from './intents.js';
 
 // ---------------------------------------------------------------------------
 // GENERAL_CHAT — pattern-matched decline + redirect
@@ -187,6 +188,45 @@ export function buildUnknownResponse(): ChatResponse {
       "I didn't quite understand that. I can help with creating proposals, " +
       'editing proposal sections, generating templates, building microsites, ' +
       'or answering questions about your project documents. What would you like to do?',
+    actionCards: [],
+    requirementsUpdated: false,
+    toolsCalled: [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// NEEDS CLARIFICATION — LLM matched a generative intent but wasn't sure which
+// ---------------------------------------------------------------------------
+//
+// Reached when the intent classifier's LLM fallback lands on a generative
+// intent without enough confidence to commit (Stage 1 short-circuit). Instead
+// of generating a possibly-wrong artifact, we ask the user which one they meant.
+// Zero LLM tokens — the candidate list drives a deterministic menu.
+
+const GENERATIVE_INTENT_LABELS: Partial<Record<Intent, string>> = {
+  GENERATE_PROPOSAL: 'a full client **proposal**',
+  GENERATE_DOCUMENT: 'a standalone **document** (e.g. strategy doc, report, brief, or blog post)',
+  GENERATE_MICROSITE: 'a one-page **presentation microsite**',
+  GENERATE_TEMPLATE: 'a reusable **proposal template**',
+};
+
+export function buildClarificationChoiceResponse(candidates: Intent[]): ChatResponse {
+  const labels = candidates
+    .map((c) => GENERATIVE_INTENT_LABELS[c])
+    .filter((l): l is string => Boolean(l));
+
+  // Fall back to the full generative menu if the candidate list is unusable.
+  const options = labels.length > 0 ? labels : Object.values(GENERATIVE_INTENT_LABELS);
+
+  const list = options.map((o, i) => `${i + 1}. ${o}`).join('\n');
+  const text =
+    'I can build that a few different ways, and I want to get it right before I start. ' +
+    'Did you mean:\n\n' +
+    `${list}\n\n` +
+    'Which one should I create? Feel free to add any details — client, audience, or style.';
+
+  return {
+    text,
     actionCards: [],
     requirementsUpdated: false,
     toolsCalled: [],

@@ -1,0 +1,80 @@
+{
+  "sections": [
+    {
+      "id": "overview-goals",
+      "title": "Overview & Goals",
+      "order": 1,
+      "required": true,
+      "promptHint": "Describe what this PRD covers: feature name, the team that owns it, the business goal it serves, and how success is measured. Include a one-sentence 'north star' — the single most important outcome.",
+      "maxWords": 300,
+      "useRagContext": true,
+      "ragQuery": "feature goals objectives success metrics business goal"
+    },
+    {
+      "id": "problem-statement",
+      "title": "Problem Statement",
+      "order": 2,
+      "required": true,
+      "promptHint": "Describe the user problem in the user's own language. Include: who is affected, what they're trying to do, what gets in their way today, and the cost of that friction. Avoid describing the solution here.",
+      "maxWords": 300,
+      "useRagContext": true,
+      "ragQuery": "problem user pain friction challenge current state"
+    },
+    {
+      "id": "user-stories",
+      "title": "User Stories",
+      "order": 3,
+      "required": true,
+      "promptHint": "Write 3–8 user stories in the format: 'As a [user type], I want to [action], so that [benefit].' Follow each story with 2–5 acceptance criteria as a numbered checklist.",
+      "maxWords": 600,
+      "useRagContext": true,
+      "ragQuery": "user stories use cases user flows scenarios"
+    },
+    {
+      "id": "functional-requirements",
+      "title": "Functional Requirements",
+      "order": 4,
+      "required": true,
+      "promptHint": "List specific, testable behaviors the system must have. Number each requirement. Use 'shall' for mandatory, 'should' for preferred. Each requirement must be independently testable. Include error states and edge cases.",
+      "maxWords": 600,
+      "useRagContext": false
+    },
+    {
+      "id": "non-functional-requirements",
+      "title": "Non-Functional Requirements",
+      "order": 5,
+      "required": true,
+      "promptHint": "Define performance, security, accessibility, reliability, and scalability requirements. Each must have a measurable target (e.g. 'p95 latency under 200ms', 'WCAG 2.1 AA compliant').",
+      "maxWords": 300,
+      "useRagContext": false
+    },
+    {
+      "id": "out-of-scope",
+      "title": "Out of Scope",
+      "order": 6,
+      "required": true,
+      "promptHint": "Explicitly list what this PRD does NOT cover. This prevents scope creep and clarifies what will be addressed in future iterations. Be specific.",
+      "maxWords": 200,
+      "useRagContext": false
+    },
+    {
+      "id": "success-metrics",
+      "title": "Success Metrics",
+      "order": 7,
+      "required": true,
+      "promptHint": "Define 3–6 KPIs that will be used to measure whether this feature succeeded. Each metric should have: name, current baseline (if known), target, and measurement method.",
+      "maxWords": 300,
+      "useRagContext": true,
+      "ragQuery": "metrics KPIs success measurement baseline target"
+    },
+    {
+      "id": "open-questions",
+      "title": "Open Questions",
+      "order": 8,
+      "required": false,
+      "promptHint": "List unresolved design or product decisions that need input before build begins. For each: the question, why it matters, and who needs to answer it.",
+      "maxWords": 200,
+      "useRagContext": false
+    }
+  ]
+}

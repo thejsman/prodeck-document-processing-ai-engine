@@ -1,0 +1,63 @@
+{
+  "slug": "competitive-analysis",
+  "displayName": "Competitive Analysis",
+  "description": "For generating structured competitive analyses that map the landscape, profile key competitors, and produce actionable strategic recommendations.",
+  "type": "document",
+  "structureMode": "guided",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["competitive analysis", "competitor analysis", "market analysis", "competitive landscape", "strategy"],
+  "toneDescription": "Analytical and balanced. Use tables for comparisons. Be specific about evidence sources. Opinions must follow from data.",
+  "triggers": [
+    "competitive analysis",
+    "write a competitive analysis",
+    "competitor analysis",
+    "analyze competitors",
+    "competitor research",
+    "competitive research",
+    "competitive landscape",
+    "competitive intelligence",
+    "compare competitors",
+    "competitor comparison",
+    "how do we stack up",
+    "who are our competitors",
+    "what are competitors doing",
+    "market analysis",
+    "market research",
+    "market overview",
+    "landscape analysis",
+    "industry landscape",
+    "benchmark analysis",
+    "competitive benchmarking",
+    "compare alternatives",
+    "who else is in this space",
+    "research the market",
+    "analyze the market",
+    "market competitive analysis",
+    "compare with competitors"
+  ],
+  "outputFormats": ["md", "pdf", "docx"],
+  "clarifyingQuestions": [
+    {
+      "id": "competitors",
+      "question": "Who are the key competitors to analyze?",
+      "required": false
+    },
+    {
+      "id": "dimensions",
+      "question": "What dimensions matter most? (e.g. pricing, features, positioning, target market)",
+      "required": false
+    },
+    {
+      "id": "context",
+      "question": "What decision or strategy will this analysis inform?",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z"
+}

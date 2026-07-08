@@ -1,0 +1,81 @@
+{
+  "sections": [
+    {
+      "id": "overview",
+      "title": "Overview",
+      "order": 1,
+      "required": true,
+      "promptHint": "One paragraph: what this spec covers, the problem it solves, and the key design constraints. Include a link to the related PRD or ticket if applicable.",
+      "maxWords": 200,
+      "useRagContext": true,
+      "ragQuery": "system overview objectives constraints requirements"
+    },
+    {
+      "id": "architecture",
+      "title": "Architecture",
+      "order": 2,
+      "required": true,
+      "promptHint": "Describe the system architecture. Include a Mermaid diagram showing components, data flow, and key interfaces. Describe each component's responsibility in 1–2 sentences. If relevant, include a sequence diagram for the primary flow.",
+      "maxWords": 600,
+      "useRagContext": true,
+      "ragQuery": "architecture components services data flow system design"
+    },
+    {
+      "id": "data-models",
+      "title": "Data Models",
+      "order": 3,
+      "required": true,
+      "promptHint": "Define the key entities and their schemas. Use tables or TypeScript interfaces. Include: field name, type, required/optional, description. Show relationships between entities.",
+      "maxWords": 500,
+      "useRagContext": true,
+      "ragQuery": "data models schema entities fields relationships database"
+    },
+    {
+      "id": "api-contracts",
+      "title": "API Contracts",
+      "order": 4,
+      "required": false,
+      "promptHint": "Define all APIs being built or consumed. For each endpoint: method, path, request shape, response shape, status codes, and authentication requirements. Use code blocks for request/response examples.",
+      "maxWords": 600,
+      "useRagContext": true,
+      "ragQuery": "API endpoints routes request response schema authentication"
+    },
+    {
+      "id": "dependencies",
+      "title": "Dependencies",
+      "order": 5,
+      "required": true,
+      "promptHint": "List external services, libraries, and infrastructure this system depends on. For each: name, purpose, version or contract assumed, and what happens if it is unavailable.",
+      "maxWords": 300,
+      "useRagContext": false
+    },
+    {
+      "id": "security-considerations",
+      "title": "Security Considerations",
+      "order": 6,
+      "required": true,
+      "promptHint": "Cover: authentication and authorization model, sensitive data handling, threat vectors considered, and any compliance requirements (PII, HIPAA, SOC 2 controls). Note what is explicitly out of scope for security.",
+      "maxWords": 400,
+      "useRagContext": true,
+      "ragQuery": "security authentication authorization data privacy compliance threat"
+    },
+    {
+      "id": "testing-strategy",
+      "title": "Testing Strategy",
+      "order": 7,
+      "required": true,
+      "promptHint": "Define what is tested at each layer: unit tests (what logic), integration tests (what contracts), E2E tests (what user flows). Specify coverage targets where relevant. Note what is explicitly not tested and why.",
+      "maxWords": 300,
+      "useRagContext": false
+    },
+    {
+      "id": "deployment-rollout",
+      "title": "Deployment & Rollout",
+      "order": 8,
+      "required": true,
+      "promptHint": "Describe how this ships: feature flags used, migration steps (schema changes, data backfills), rollback procedure, and monitoring/alerting required at launch.",
+      "maxWords": 300,
+      "useRagContext": false
+    }
+  ]
+}

@@ -40,6 +40,8 @@ import { clientDataRoutes } from './client-data-routes.js';
 import { registerSuperClientRoutes } from './super-client-routes.js';
 import { registerOrgContextRoutes } from './inspiration/org-context-routes.js';
 import { registerPdfExportRoutes } from './pdf-export-routes.js';
+import { registerDocumentRoutes } from './documents/document-routes.js';
+
 import { registerExtractionRoutes } from './ingestion/extraction-routes.js';
 import { registerTraceRoutes } from './trace/trace-routes.js';
 import { registerExecutionStreamRoutes } from './execution-stream-routes.js';
@@ -151,6 +153,7 @@ export async function createServer(opts: ServerOptions) {
   registerSuperClientRoutes(app, opts.workdir);
   registerOrgContextRoutes(app, opts.workdir, llmGenerateFn);
   registerPdfExportRoutes(app, opts.workdir);
+  registerDocumentRoutes(app, opts.workdir);
   app.register(clientDataRoutes);
   registerErrorLogRoutes(app);
 

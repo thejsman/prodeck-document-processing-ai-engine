@@ -608,3 +608,50 @@ export async function buildLLMContext(
     taskInstruction,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Inline detection utilities — used by the document generation path
+// ---------------------------------------------------------------------------
+
+/**
+ * detectInlineDocument
+ * Returns the pasted text if the message looks like a document dump (>500 chars,
+ * not a question). The extracted content is passed to the document generator as
+ * additional context rather than persisted to the knowledge base.
+ */
+export function detectInlineDocument(message: string): string | null {
+  if (message.length < 500) return null
+  // Likely a question if it ends with '?' or starts with a question word
+  const trimmed = message.trim()
+  if (/^(what|how|when|who|why|can|could|should|would|is|are|do|does|did|tell me)/i.test(trimmed)) return null
+  if (trimmed.endsWith('?')) return null
+  // Must have some paragraph structure to qualify as a document
+  const paragraphCount = (trimmed.match(/\n\n/g) ?? []).length
+  const wordCount = trimmed.split(/\s+/).length
+  if (wordCount < 80 && paragraphCount < 2) return null
+  return trimmed
+}
+
+/**
+ * detectInlineStructure
+ * Returns the detected heading/outline if the message contains structural markers.
+ * Detected structure is used as a directive: the LLM follows it exactly.
+ */
+export function detectInlineStructure(message: string): string | null {
+  const lines = message.split('\n')
+
+  // Explicit structural cue phrases
+  const hasStructureCue = /\b(use these (headings?|sections?|structure)|follow this (structure|outline|format)|with these sections?|these sections?:|these headings?:)/i.test(message)
+
+  // Count heading-style lines
+  const headingLines = lines.filter(
+    (l) => /^#{1,3}\s+\S/.test(l) || /^\d+\.\s+[A-Z]/.test(l),
+  )
+
+  if (!hasStructureCue && headingLines.length < 2) return null
+
+  // Extract the structural part — heading lines + up to 2 lines of context each
+  const structural = headingLines.join('\n').trim()
+  return structural.length > 0 ? structural : null
+}
+
