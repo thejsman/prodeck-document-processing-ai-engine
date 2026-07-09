@@ -3663,7 +3663,15 @@ export default function SuperClientPage() {
       content: "",
       streaming: true,
       createdAt: now,
-      ...(proposalGenId ? { generationId: proposalGenId } : {}),
+      // generationId is intentionally NOT pre-attached here (unlike the eager
+      // generationStore.start() above) — the card must only become visible once
+      // the server's "planning" event confirms generation is actually happening
+      // (see the evt.type === "planning" handler below, which attaches
+      // proposalGenId at that point). Attaching it eagerly made the card flash
+      // and then vanish whenever the readiness gate declines a bare request
+      // against a context-less client — that gate returns before ever emitting
+      // "planning". Document/slide already follow this pattern; proposal was
+      // the one path attaching it upfront.
       ...(proposalEditActive ? { editContext: "proposal" as const } : {}),
     };
 
