@@ -15,7 +15,14 @@
 
 import { z } from 'zod';
 import { detectPresentationIntent, parseRequestedFormat } from '../documents/format-detector.js';
-import { PROPOSAL_ARTIFACT, MICROSITE_ARTIFACT, isMicrositeRequest, isBareArtifactRequest } from '../chat/vocabulary.js';
+import {
+  PROPOSAL_ARTIFACT,
+  PRESENTATION_ARTIFACT,
+  MICROSITE_ARTIFACT,
+  CREATE_VERB,
+  isMicrositeRequest,
+  isBareArtifactRequest,
+} from '../chat/vocabulary.js';
 import { detectDomainViolation } from '../chat/boundary-response.js';
 import type { OutputFormat } from '../skills/skill.types.js';
 
@@ -43,20 +50,8 @@ const KNOWN_FORMATS: ReadonlySet<string> = new Set<OutputFormat>([
   'md', 'txt', 'pdf', 'docx', 'rtf', 'pptx', 'notion',
 ]);
 
-/**
- * A create/produce verb — the primary signal that a message is a generation
- * request. Includes informal synonyms ("whip up", "spin up") and transform
- * leads ("turn/convert ... into ...") so common phrasings keep the fast,
- * free, high-confidence path instead of falling through to the LLM.
- *
- * A bare transform verb without an artifact ("turn left", "we should convert
- * more leads") is harmless: `explicitGenerationIntent` only generates when it
- * also finds an artifact, otherwise it returns null and the message goes to the
- * LLM. Typos are NOT handled here on purpose — fuzzy/deterministic matching is
- * brittle and prone to false positives. Mis-typed requests ("propsal") are
- * absorbed by the LLM classifier, which is naturally typo-robust.
- */
-const CREATE_VERB = /\b(generate|create|make|build|write|draft|produce|prepare|design|compose|put\s+together|whip\s+(?:up|together)|throw\s+together|knock\s+out|spin\s+up|mock\s+up|cook\s+up|work\s+up|pull\s+together|draw\s+up|turn|convert|transform|repurpose|rework)\b/i;
+// CREATE_VERB and PRESENTATION_ARTIFACT now live in ../chat/vocabulary.ts (the
+// vocabulary source-of-truth module) so the readiness gate can reuse them.
 
 /** Transform lead ("turn X into Y") — the target artifact is the noun AFTER "into". */
 const TRANSFORM_INTO = /\b(?:turn|convert|transform|repurpose|rework|make)\b.*?\binto\b\s*(.+)$/i;
@@ -72,9 +67,6 @@ function artifactScope(message: string): string {
   const m = message.match(TRANSFORM_INTO);
   return m && m[1].trim() ? m[1] : message;
 }
-
-/** Presentation/deck nouns — used for "bare artifact" detection (mirrors the pptx vocabulary). */
-const PRESENTATION_ARTIFACT = /\b(pitch\s+decks?|slide\s*decks?|presentations?|keynote|decks?|slides?|pptx?)\b/i;
 
 const CONFIDENCE_FLOOR = 0.6;
 

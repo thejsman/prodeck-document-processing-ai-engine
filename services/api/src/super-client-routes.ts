@@ -14,6 +14,7 @@ import { validateSlideHtml, countSlides, extractTitle, resolveSlideOrientation }
 import type { SavedSlide } from './slides/slide-generator.js';
 import { patchHtml, toVideoEmbedUrl, findByPath, locateElement, hideCoveringImage } from './html-patch.js';
 import { classifyChatIntent, type IntentDecision, type PendingClarification } from './super-client/intent-gate.js';
+import { isBareGenerationRequest } from './chat/vocabulary.js';
 
 // Strip preview-only injections that the UI adds to srcdoc iframes.
 // These must never be saved to disk — if the client sends currentHtml that
@@ -1098,6 +1099,41 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           await persistTurn(text);
           send({ type: 'done', text, isMicrosite: true, hasProposals: proposalsList.length > 0 });
           return;
+        }
+
+        // ── Context-readiness gate ─────────────────────────────────────────
+        // A generation request against a client with NO stored context
+        // (context.md, ingested docs, memory) would leave the LLM with only
+        // the display name — it hallucinates a generic artifact. Decline bare
+        // requests with guidance (mirrors the microsite "need a proposal
+        // first" gate). A request that carries its own project details
+        // bypasses the gate: the message itself is the context.
+        const GATED_INTENTS: ReadonlySet<string> = new Set([
+          'generate_proposal',
+          'generate_document',
+          'generate_presentation',
+        ]);
+        if (GATED_INTENTS.has(decision.intent)) {
+          // Same emptiness conditions the prompt builder uses below — when all
+          // three are empty, every fact-bearing prompt section would be skipped.
+          const hasStoredContext =
+            contextMd.trim().length > 0 ||
+            extractedFiles.length > 0 ||
+            (memResult.found &&
+              (Object.keys(memResult.stableFields).length > 0 ||
+                memResult.knowledge.length > 0 ||
+                memResult.stakeholders.length > 0));
+          if (!hasStoredContext && isBareGenerationRequest(message, matchedDocumentSkill?.triggers)) {
+            const artifactLabel =
+              decision.intent === 'generate_proposal' ? 'proposal'
+              : decision.intent === 'generate_presentation' ? 'presentation'
+              : 'document';
+            const text = `I don't have any context for ${meta.displayName} yet, so anything I draft would be generic. Add notes in the Context tab, upload documents (briefs, transcripts, emails), or describe the project in your message — e.g. "create a ${artifactLabel} for their website redesign, 3 phases, $50k budget" — and I'll draft from that.`;
+            await streamAssistant(text);
+            await persistTurn(text);
+            send({ type: 'done', text });
+            return;
+          }
         }
       }
 

@@ -740,6 +740,14 @@ export default function SuperClientPage() {
   // the artifacts tab + generation card, and the user opens it from there.
   const artifactOpenRef = useRef(false);
   artifactOpenRef.current = !!(viewingProposal || viewingDocument || viewingMicrosite || viewingSlide);
+  // Like artifactOpenRef, but ignores an open proposal. Microsites are usually
+  // generated from an open proposal (the composer's Generate button is shown
+  // while a proposal is viewed), so a newly created microsite must still slide
+  // in over its source proposal — matching how proposals/documents auto-open on
+  // completion. Only a microsite/document/slide the user is actively working on
+  // blocks the auto-open (that would be a genuine hijack).
+  const nonProposalArtifactOpenRef = useRef(false);
+  nonProposalArtifactOpenRef.current = !!(viewingDocument || viewingMicrosite || viewingSlide);
 
   // Cache last-seen content so panels render content during close animation (prevents content flash)
   const lastMicrositeRef = useRef(viewingMicrosite);
@@ -3416,10 +3424,11 @@ export default function SuperClientPage() {
             if (isPdfMode) ast = { ...ast, pdfPresentation: true, pdfOrientation };
             const tempId = `preview-${msGenId}`;
             // Open the panel immediately with the stream AST (don't block on
-            // save) — but never hijack an artifact the user is viewing or
-            // editing; then the microsite stays reachable via the generation
-            // card and the artifacts tab instead.
-            if (!artifactOpenRef.current) {
+            // save) so the finished microsite auto-slides in — same as
+            // proposals/documents on completion. The source proposal (the
+            // common case) is replaced; only another microsite/document/slide
+            // the user is actively working on blocks it (a genuine hijack).
+            if (!nonProposalArtifactOpenRef.current) {
               const genHtml = buildHtml(ast);
               setActiveSrcDoc(computeSrcDoc(genHtml, false));
               setViewingMicrosite({
@@ -3817,9 +3826,17 @@ export default function SuperClientPage() {
                 );
               }
             } else if (proposalGenId) {
-              // Proposal intent matched but LLM didn't generate one — remove the capsule
+              // Proposal intent matched but LLM didn't generate one — remove the
+              // capsule, but keep any text the backend streamed (e.g. the
+              // no-context decline guidance) by stripping the generationId
+              // instead of deleting a content-bearing bubble.
               generationStore.dismiss(proposalGenId);
-              setMessages((prev) => prev.filter((m) => m.generationId !== proposalGenId));
+              const gid = proposalGenId;
+              setMessages((prev) =>
+                prev
+                  .map((m) => (m.generationId === gid && m.content.trim() ? { ...m, generationId: undefined } : m))
+                  .filter((m) => m.generationId !== gid),
+              );
             }
             if (evt.proposalUpdated) {
               setProposals((prev) =>
@@ -3886,9 +3903,13 @@ export default function SuperClientPage() {
               // viewing/editing — it stays reachable via the generation card.
               if (!artifactOpenRef.current) void openDocument(evt.documentSaved);
             } else if (documentGenId) {
+              // Keep any streamed text (e.g. no-context decline) — drop only the card.
               generationStore.dismiss(documentGenId);
+              const gid = documentGenId;
               setMessages((prev) =>
-                prev.filter((m) => m.generationId !== documentGenId),
+                prev
+                  .map((m) => (m.generationId === gid && m.content.trim() ? { ...m, generationId: undefined } : m))
+                  .filter((m) => m.generationId !== gid),
               );
             }
             if (evt.slideSaved) {
@@ -3930,10 +3951,14 @@ export default function SuperClientPage() {
                 openSlide(evt.slideSaved);
               }
             } else if (slideGenId) {
-              // Intent matched but LLM didn't generate a presentation — remove the capsule
+              // Intent matched but LLM didn't generate a presentation — remove the
+              // capsule, keeping any streamed text (e.g. no-context decline).
               generationStore.dismiss(slideGenId);
+              const gid = slideGenId;
               setMessages((prev) =>
-                prev.filter((m) => m.generationId !== slideGenId),
+                prev
+                  .map((m) => (m.generationId === gid && m.content.trim() ? { ...m, generationId: undefined } : m))
+                  .filter((m) => m.generationId !== gid),
               );
             }
             if (evt.documentUpdated) {
