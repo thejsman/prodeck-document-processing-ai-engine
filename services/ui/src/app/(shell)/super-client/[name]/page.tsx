@@ -2386,7 +2386,7 @@ export default function SuperClientPage() {
 
   async function handleSvgReplace(svgMarkup: string) {
     if (!selectedElement?.path) return;
-    await applyMicrositeInstruction(`__SVG_REPLACE__:${selectedElement.path}||${svgMarkup}`, 'Icon replaced');
+    await applyMicrositeInstruction(`__SVG_REPLACE__:${selectedElement.path}||${svgMarkup}||${hint()}`, 'Icon replaced');
   }
 
   // ── Slide InlineEditPanel handlers ───────────────────────────────────────
@@ -2457,7 +2457,7 @@ export default function SuperClientPage() {
   };
   const handleSlideSvgReplace = async (svgMarkup: string) => {
     if (!selectedSlideElement?.path) return;
-    await applySlideInstruction(`__SVG_REPLACE__:${selectedSlideElement.path}||${svgMarkup}`, 'Icon replaced');
+    await applySlideInstruction(`__SVG_REPLACE__:${selectedSlideElement.path}||${svgMarkup}||${slideHint()}`, 'Icon replaced');
   };
 
   // Instant client-side undo — no server round-trip, no loading spinner.

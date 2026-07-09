@@ -83,39 +83,59 @@ export function findByPath(src: string, path: string): { start: number; end: num
 
     let count = 0, pos = searchFrom, foundStart = -1, foundEnd = -1;
 
-    // Walk direct children only: skip over entire sibling elements so nested
-    // occurrences of `tag` are never counted as if they were direct children.
-    while (pos < searchTo) {
-      const lt = src.indexOf('<', pos);
-      if (lt === -1 || lt >= searchTo) break;
-
-      // Closing tag at depth 0 — stop (malformed HTML guard)
-      if (src[lt + 1] === '/') { pos = lt + 1; continue; }
-
-      const te = src.indexOf('>', lt);
-      if (te === -1) break;
-      const opening = src.slice(lt, te + 1);
-      const curTag  = opening.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
-      if (!curTag) { pos = lt + 1; continue; }
-
-      if (curTag === tag) {
+    if (i === 0) {
+      // First segment: scan anywhere in the document. The target is typically
+      // nested inside <html><body>; restricting to direct children would skip
+      // <html> and never reach any descendant elements.
+      while (pos < searchTo) {
+        const ti = src.indexOf(`<${tag}`, pos);
+        if (ti === -1 || ti >= searchTo) break;
+        const te = src.indexOf('>', ti);
+        if (te === -1) break;
+        const opening = src.slice(ti, te + 1);
+        const curTag  = opening.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+        if (curTag !== tag) { pos = ti + 1; continue; } // partial match e.g. <sectionFoo>
         const mId  = !idVal  || opening.includes(`id="${idVal}"`);
         const mCls = !clsVal || (opening.match(/\bclass="([^"]+)"/)?.[1] ?? '')
                                   .split(/\s+/).includes(clsVal);
         if (mId && mCls) {
           count++;
-          if (count === nth) {
-            foundStart = lt;
-            foundEnd   = skipPast(tag, opening, te);
-            break;
-          }
+          if (count === nth) { foundStart = ti; foundEnd = skipPast(tag, opening, te); break; }
         }
-        // Skip past this element (match or not) so nested same-tag siblings
-        // inside it are not counted as direct children.
-        pos = skipPast(curTag, opening, te);
-      } else {
-        // Different element — skip entirely to avoid counting target tags nested inside it.
-        pos = skipPast(curTag, opening, te);
+        pos = ti + 1;
+      }
+    } else {
+      // Subsequent segments: walk direct children only — skip over entire
+      // sibling elements so nested same-tag elements are not counted.
+      while (pos < searchTo) {
+        const lt = src.indexOf('<', pos);
+        if (lt === -1 || lt >= searchTo) break;
+
+        // Closing tag at depth 0 — stop (malformed HTML guard)
+        if (src[lt + 1] === '/') { pos = lt + 1; continue; }
+
+        const te = src.indexOf('>', lt);
+        if (te === -1) break;
+        const opening = src.slice(lt, te + 1);
+        const curTag  = opening.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+        if (!curTag) { pos = lt + 1; continue; }
+
+        if (curTag === tag) {
+          const mId  = !idVal  || opening.includes(`id="${idVal}"`);
+          const mCls = !clsVal || (opening.match(/\bclass="([^"]+)"/)?.[1] ?? '')
+                                    .split(/\s+/).includes(clsVal);
+          if (mId && mCls) {
+            count++;
+            if (count === nth) {
+              foundStart = lt;
+              foundEnd   = skipPast(tag, opening, te);
+              break;
+            }
+          }
+          pos = skipPast(curTag, opening, te);
+        } else {
+          pos = skipPast(curTag, opening, te);
+        }
       }
     }
 
@@ -308,11 +328,10 @@ export function patchHtml(html: string, instruction: string): PatchResult | null
     const cssPath = bgImagePatchMatch[1].trim();
     const imgUrl  = bgImagePatchMatch[2].trim().replace(/['"<>]/g, (c) => bgImagePatchMatch[2].startsWith('data:') ? c : '');
 
-    const bounds = findByPath(html, cssPath);
-    if (!bounds) return { error: 'Target element not found — click it again to re-select', statusCode: 422 };
+    let bounds = findByPath(html, cssPath);
 
-    const elementHtml = html.slice(bounds.start, bounds.end);
-
+    // CSS-rule scan does not need element bounds — run it before the bounds gate so
+    // it works even when findByPath fails (e.g. on a server with the old i=0 scan bug).
     const sectionId = cssPath.match(/#([\w-]+)/)?.[1] ?? '';
     if (sectionId) {
       const esc = sectionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -325,6 +344,43 @@ export function patchHtml(html: string, instruction: string): PatchResult | null
       );
       if (patchedHtml !== html) return { html: patchedHtml, summary: 'Background image updated' };
     }
+
+    // Need element bounds for the inline-style fallback paths.
+    // When findByPath failed, rescue via direct id= attribute scan — works regardless
+    // of the findByPath i=0 regression because it never calls findByPath at all.
+    if (!bounds && sectionId) {
+      const idIdx = html.indexOf(`id="${sectionId}"`);
+      if (idIdx !== -1) {
+        let s = idIdx;
+        while (s > 0 && html[s] !== '<') s--;
+        const tagName = html.slice(s).match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+        if (tagName) {
+          const tagEndPos = html.indexOf('>', s);
+          if (tagEndPos !== -1) {
+            const opening = html.slice(s, tagEndPos + 1);
+            const VOID_TAGS = new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
+            if (VOID_TAGS.has(tagName) || opening.trimEnd().endsWith('/>')) {
+              bounds = { start: s, end: tagEndPos + 1 };
+            } else {
+              const close = `</${tagName}>`;
+              let depth = 1, j = tagEndPos + 1;
+              while (j < html.length && depth > 0) {
+                const nO = html.indexOf(`<${tagName}`, j);
+                const nC = html.indexOf(close, j);
+                if (nC === -1) break;
+                if (nO !== -1 && nO < nC) { depth++; j = nO + tagName.length + 1; }
+                else { depth--; j = nC + close.length; }
+              }
+              bounds = { start: s, end: j };
+            }
+          }
+        }
+      }
+    }
+
+    if (!bounds) return { error: 'Target element not found — click it again to re-select', statusCode: 422 };
+
+    const elementHtml = html.slice(bounds.start, bounds.end);
 
     const bgReplaceRe = /\bbackground-image\s*:\s*url\([^)]*\)/gi;
     if (bgReplaceRe.test(elementHtml)) {
@@ -619,12 +675,36 @@ export function patchHtml(html: string, instruction: string): PatchResult | null
   }
 
   // ── __SVG_REPLACE__ ──────────────────────────────────────────────────────────
-  const svgReplaceMatch = instruction.match(/^__SVG_REPLACE__:([\s\S]+?)\|\|([\s\S]+)$/s);
+  const svgReplaceMatch = instruction.match(/^__SVG_REPLACE__:([\s\S]+?)\|\|([\s\S]+?)(?:\|\|([\s\S]*))?$/s);
   if (svgReplaceMatch) {
-    const cssPath = svgReplaceMatch[1].trim();
-    let svgMarkup = svgReplaceMatch[2].trim();
+    const cssPath  = svgReplaceMatch[1].trim();
+    let svgMarkup  = svgReplaceMatch[2].trim();
+    const hintHtml = (svgReplaceMatch[3] ?? '').trim();
     if (!svgMarkup.startsWith('<svg')) return { error: 'Payload must be an SVG element', statusCode: 400 };
-    const bounds = findByPath(html, cssPath);
+    let bounds = findByPath(html, cssPath);
+    if (!bounds && hintHtml) {
+      const hintStart = locateElement(html, hintHtml);
+      if (hintStart !== -1) {
+        const tagEnd = html.indexOf('>', hintStart);
+        if (tagEnd !== -1) {
+          const opening = html.slice(hintStart, tagEnd + 1);
+          if (opening.trimEnd().endsWith('/>')) {
+            bounds = { start: hintStart, end: tagEnd + 1 };
+          } else {
+            const close = '</svg>';
+            let depth = 1, j = tagEnd + 1;
+            while (j < html.length && depth > 0) {
+              const nO = html.indexOf('<svg', j);
+              const nC = html.indexOf(close, j);
+              if (nC === -1) break;
+              if (nO !== -1 && nO < nC) { depth++; j = nO + 4; }
+              else { depth--; j = nC + close.length; }
+            }
+            bounds = { start: hintStart, end: j };
+          }
+        }
+      }
+    }
     if (!bounds) return { error: 'Target element not found — click it again to re-select', statusCode: 422 };
     const originalHtml = html.slice(bounds.start, bounds.end);
     const cls   = originalHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '';

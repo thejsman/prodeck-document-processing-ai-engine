@@ -3877,10 +3877,17 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // and the two standard placements, so any phrasing — background fill,
       // inline embed, "choose the best position" — produces a working iframe.
       const elVideoUrlMatch = editInstruction.match(/https?:\/\/\S*(?:youtube\.com|youtu\.be|vimeo\.com)\S*/i);
-      const videoGuidance = elVideoUrlMatch
+      // Replace the watch URL with the embed URL inside the instruction so the LLM only
+      // ever sees ONE URL — having both watch + embed in the same prompt causes two iframes.
+      const elVideoRawUrl = elVideoUrlMatch ? elVideoUrlMatch[0].replace(/['"<>)\],.]+$/, '') : '';
+      const elVideoEmbedUrl = elVideoRawUrl ? toEmbedUrl(elVideoRawUrl) : '';
+      const editInstructionForPrompt = elVideoRawUrl
+        ? editInstruction.replace(elVideoRawUrl, elVideoEmbedUrl)
+        : editInstruction;
+      const videoGuidance = elVideoEmbedUrl
         ? `
 VIDEO-SPECIFIC RULES (the instruction contains a video URL):
-- Use this exact embed URL as the iframe src (do NOT alter it or invent another): ${toEmbedUrl(elVideoUrlMatch[0].replace(/['"<>)\],.]+$/, ''))}
+- Use this exact embed URL as the iframe src (do NOT alter it or invent another): ${elVideoEmbedUrl}
 - Background/full-bleed placement: add position:relative;overflow:hidden to this element's inline style and insert as its FIRST child:
   <iframe src="[embed URL]" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;border:0;z-index:0" allow="autoplay; fullscreen" frameborder="0"></iframe>
   (then make sure the element's direct content children have position:relative and a higher z-index so they stay visible above the video)
@@ -3911,7 +3918,7 @@ IMAGE-SPECIFIC RULES (this element contains an image):
 SECTION TO REGENERATE:
 ${targetHtml}
 
-INSTRUCTION: ${editInstruction}
+INSTRUCTION: ${editInstructionForPrompt}
 ${regenModeNote}
 Output rules (strictly enforced):
 - Start your output with the opening tag (<${regenRootTag}...) and end with </${regenRootTag}>
@@ -3930,7 +3937,7 @@ CONTEXT: ${breadcrumb}
 ELEMENT TO EDIT:
 ${targetHtml}
 
-INSTRUCTION: ${editInstruction}
+INSTRUCTION: ${editInstructionForPrompt}
 ${imageGuidance}${videoGuidance}
 Strict rules:
 - Return ONLY this element starting with its opening tag and ending with its closing tag
@@ -4418,8 +4425,11 @@ ${ctx.section}`;
     // from the full instruction + full document below.
     const videoUrlMatch = instruction.match(/https?:\/\/\S*(?:youtube\.com|youtu\.be|vimeo\.com)\S*/i);
     if (videoUrlMatch) {
-      const embedUrl = toEmbedUrl(videoUrlMatch[0]);
-      augmentedInstruction = `${augmentedInstruction}\n\nIMPORTANT — if the instruction asks to add/embed a video, use this exact embed URL in an <iframe> (do NOT alter it or invent a different one): ${embedUrl}`;
+      const rawVideoUrl = videoUrlMatch[0].replace(/['"<>)\],.]+$/, '');
+      const embedUrl = toEmbedUrl(rawVideoUrl);
+      // Replace the watch URL with the embed URL in-place so the LLM sees only ONE URL.
+      // Appending a second URL causes two iframes to be added.
+      augmentedInstruction = augmentedInstruction.replace(rawVideoUrl, embedUrl);
       resolvedUrlToVerify = embedUrl;
       resolvedUrlKind = 'video';
       console.log(`🎬 Video URL pre-normalized for global edit: ${embedUrl.slice(0, 80)}`);
@@ -4541,14 +4551,29 @@ ${html}`;
       } else {
         if (op.op === 'patches') {
           const { html: patched, applied, missed } = applyPatches(html, op.patches);
-          if (applied === 0)
-            return reply
-              .code(502)
-              .send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
-          updatedHtml = patched;
-          summary = op.summary;
-          changedTexts = op.patches.filter((p) => p.replace !== undefined).map((p) => p.replace);
-          if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+          if (applied === 0) {
+            // Patches couldn't find their target — LLM-generated find string doesn't
+            // match the stored HTML (common after a section_replace restructured the DOM,
+            // e.g. the user tries to edit/remove an element the LLM just added).
+            // Fall back to a direct section rewrite so the instruction still applies.
+            const fbCtx = extractBestSection(html, instruction);
+            if (fbCtx) {
+              try {
+                updatedHtml = await regenSection(fbCtx);
+                summary = op.summary || 'Section updated';
+                console.log('↩️  patches applied=0 — fell through to regenSection');
+              } catch {
+                return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
+              }
+            } else {
+              return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
+            }
+          } else {
+            updatedHtml = patched;
+            summary = op.summary;
+            changedTexts = op.patches.filter((p) => p.replace !== undefined).map((p) => p.replace);
+            if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+          }
         } else if (op.op === 'section_replace') {
           const ctx = extractBestSection(html, op.anchor);
           if (!ctx) return reply.code(502).send({ error: `Section "${op.anchor}" not found` });
@@ -5273,8 +5298,10 @@ ${slideHtml}`;
     // blocked from iframes by X-Frame-Options)
     const slideVideoUrlMatch = resolvedInstruction.match(/https?:\/\/\S*(?:youtube\.com|youtu\.be|vimeo\.com)\S*/i);
     if (slideVideoUrlMatch) {
-      const embedUrl = toVideoEmbedUrl(slideVideoUrlMatch[0].replace(/['"<>)\],.]+$/, ''));
-      augmentedInstruction = `${augmentedInstruction}\n\nIMPORTANT — if the instruction asks to add/embed a video, use this exact embed URL in an <iframe> (do NOT alter it or invent a different one): ${embedUrl}`;
+      const rawSlideVideoUrl = slideVideoUrlMatch[0].replace(/['"<>)\],.]+$/, '');
+      const embedUrl = toVideoEmbedUrl(rawSlideVideoUrl);
+      // Replace watch URL with embed URL in-place — two URLs in one prompt → two iframes.
+      augmentedInstruction = augmentedInstruction.replace(rawSlideVideoUrl, embedUrl);
       resolvedUrlToVerify = embedUrl;
       resolvedUrlKind = 'video';
       console.log(`🎬 Video URL pre-normalized for slide edit: ${embedUrl.slice(0, 80)}`);
@@ -5444,13 +5471,21 @@ ${html}`;
       } else {
         if (op.op === 'patches') {
           const { html: patched, applied, missed } = applySlidePatches(html, op.patches);
-          if (applied === 0)
-            return reply
-              .code(502)
-              .send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
-          updatedHtml = patched;
-          summary = op.summary || summary;
-          if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+          if (applied === 0) {
+            // Patches couldn't find their target — fall back to direct slide rewrite.
+            const idx = targetSlideIdx(resolvedInstruction);
+            try {
+              updatedHtml = await regenSlide(idx);
+              summary = `Slide ${idx + 1} updated`;
+              console.log('↩️  patches applied=0 — fell through to regenSlide');
+            } catch {
+              return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
+            }
+          } else {
+            updatedHtml = patched;
+            summary = op.summary || summary;
+            if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+          }
         } else if (op.op === 'slide_replace' || op.op === 'slide_insert' || op.op === 'slide_delete') {
           const idx = Math.trunc(op.slide) - 1;
           if (idx < 0 || idx >= slideBounds.length) {
