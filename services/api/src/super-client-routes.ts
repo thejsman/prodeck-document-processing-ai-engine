@@ -2,11 +2,11 @@ import { mkdir, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply, FastifyBaseLogger } from 'fastify';
-import { llmGenerateFn } from './agent-routes.js';
+import { llmGenerateFn, withLlmTemperature } from './agent-routes.js';
 import { fetchPexelsImageUrl } from './image-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
 import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
-import { readOrgContextSettings, resolveVoiceBlock, superClientWorkdir, getMimeType } from '@ai-engine/runtime';
+import { readOrgContextSettings, resolveVoiceBlock, resolveDesignKit, superClientWorkdir, getMimeType } from '@ai-engine/runtime';
 import { findBestDocumentSkill, loadSkill, formatSkillForSlides, listSkills } from './skills/skill.service.js';
 import { saveDocumentDirect, getDocumentContent, getDocumentMeta } from './documents/document-generator.js';
 import { parseRequestedFormat, detectPresentationIntent, detectSlideOrientation } from './documents/format-detector.js';
@@ -977,12 +977,13 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     };
 
     try {
-      const [contextMd, history, memResult, scFiles, authorVoiceBlock, orgSettings] = await Promise.all([
+      const [contextMd, history, memResult, scFiles, authorVoiceBlock, designKit, orgSettings] = await Promise.all([
         readContext(dir),
         readHistory(dir),
         new ClientMemoryService(workdir).prepopulate(name),
         readScFiles(dir),
         resolveVoiceBlock(workdir, superClientWorkdir(workdir, name)),
+        resolveDesignKit(workdir, superClientWorkdir(workdir, name)),
         readOrgContextSettings(workdir),
       ]);
 
@@ -1137,6 +1138,30 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const portraitDesignNote =
         `- PORTRAIT FORMAT (9:16): every slide is tall and narrow like a phone screen / story frame. Stack content vertically with generous spacing; prefer justify-content:space-between or flex-start over always centering. Keep one focused idea per slide, oversized headlines, and design for a vertical mobile reading experience.`;
 
+      // Fresh microsite generation only (never edits — those must stay precise and
+      // reproducible). Drives both the per-generation art direction and the raised
+      // sampling temperature below.
+      const isMicrositeGeneration = !isEdit && decision?.intent === 'generate_presentation';
+
+      // Per-generation art direction — the deck framing is otherwise identical every
+      // run, which (at temperature 0) made every microsite converge on the same
+      // default aesthetic. Picking a distinct creative lens each time forces variety
+      // ACROSS decks. It is a starting lens, not a content constraint — the model
+      // still adapts it to the client's industry and brand.
+      const ART_DIRECTIONS: string[] = [
+        `ART DIRECTION FOR THIS DECK — EDITORIAL / MAGAZINE: treat each slide like a spread in a high-end print magazine. Strong typographic hierarchy, a real grid, pull-quotes, generous margins, refined serif or serif+grotesque pairing, restrained accent colour.`,
+        `ART DIRECTION FOR THIS DECK — SWISS / INTERNATIONAL MINIMAL: rigorous grid, a single confident sans-serif, lots of white space, precise alignment, one accent colour used sparingly, information-first with quiet elegance.`,
+        `ART DIRECTION FOR THIS DECK — BOLD BRUTALIST: raw, high-contrast, oversized type, hard edges, visible structure, unexpected asymmetry, mono or grotesque type, deliberate tension. Confident and loud, never messy.`,
+        `ART DIRECTION FOR THIS DECK — DARK CINEMATIC / PREMIUM: deep dark backgrounds, dramatic lighting and depth, luminous accents, spacious composition, elegant contrast, a premium high-trust mood.`,
+        `ART DIRECTION FOR THIS DECK — GEOMETRIC / BAUHAUS: primary shapes, bold geometry, blocky colour fields, strong diagonals, playful-yet-structured composition, functional clarity.`,
+        `ART DIRECTION FOR THIS DECK — WARM ORGANIC / SOFT: rounded forms, soft shadows, warm approachable palette, friendly humanist type, gentle gradients, generous curves — inviting and human.`,
+        `ART DIRECTION FOR THIS DECK — DATA-DRIVEN / DASHBOARD: crisp, structured, metric-forward. Confident numbers, clean charts/stat blocks, tight modular cards, technical-but-refined type — reads as authoritative and precise.`,
+        `ART DIRECTION FOR THIS DECK — LUXURY / REFINED: understated opulence, elegant serif display type, fine hairline rules, muted sophisticated palette with a metallic or jewel accent, lots of breathing room.`,
+      ];
+      const artDirection = isMicrositeGeneration
+        ? ART_DIRECTIONS[Math.floor(Math.random() * ART_DIRECTIONS.length)]
+        : null;
+
       // Build combined prompt — llmGenerateFn takes a single string and routes through
       // the Python LLM bridge which respects LLM_PROVIDER / provider-specific model config.
       const promptParts: string[] = isPresentationRequest ? [
@@ -1151,6 +1176,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         `You are a world-class senior UI, brand, and product designer creating a bespoke slide presentation for a team that manages the client "${meta.displayName}".`,
         ``,
         `Read the client context, ingested documents, and memory below and infer this client's industry, brand, and audience. Then design a visual language that genuinely fits THEM — a fintech or consulting client wants refined, restrained, high-trust design; a consumer or creative brand wants bold, expressive, unexpected design. Every deck you make should look custom-designed for this specific client, not like a template. Aim for award-winning, magazine-grade craft: intentional typography, confident use of colour and space, and real visual hierarchy.`,
+        ...(artDirection ? [``, artDirection, `Commit to this art direction across the whole deck, but bend it to fit the client — if it clashes with their industry or brand, adapt it rather than abandon coherence.`] : []),
         ``,
         `NEVER ask the user to re-upload files listed in the Ingested Documents section — their content is already extracted into memory below.`,
         ``,
@@ -1296,6 +1322,33 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         if (toneOverride) {
           promptParts.push(
             `\n⚡ USER TONE OVERRIDE ACTIVE: The user has requested "${toneOverride}". This takes absolute priority over every tone, voice, and style directive in the Author Voice block above. Ignore those style directives entirely and apply the user's requested style instead. You may still use structural patterns (section order, headings) from the Author Voice if they don't conflict with the user's request.`,
+          );
+        }
+      }
+
+      // Org-level Design Kit — VISUAL guidance only, presentation mode only.
+      // Injected as a soft brand anchor (NOT a mandate) so it nudges palette /
+      // typography toward the org's house style while preserving the designer's
+      // freedom to adapt to THIS client. Gated by the applyDesignKit toggle.
+      if (isMicrositeGeneration && orgSettings.applyDesignKit && designKit) {
+        const kitLines: string[] = [];
+        if (designKit.primaryColor) {
+          kitLines.push(`- Preferred brand accent: ${designKit.primaryColor}. Use it as the primary accent unless this client's own brand clearly calls for something else.`);
+        }
+        if (designKit.palette?.length) {
+          kitLines.push(`- House palette to draw from: ${designKit.palette.join(', ')}.`);
+        }
+        if (designKit.fontHints?.length) {
+          kitLines.push(`- Typography leanings: ${designKit.fontHints.join(', ')}.`);
+        }
+        if (designKit.designBrief?.trim()) {
+          kitLines.push(`- Design brief: ${designKit.designBrief.trim()}`);
+        }
+        if (kitLines.length) {
+          promptParts.push(
+            `\n## Org Brand Design Kit (visual anchor — not a mandate)`,
+            `This org has a learned house style from past brand assets. Treat it as the starting point for the deck's visual language, then adapt it so the result still feels custom-designed for ${meta.displayName} and their industry. It informs color, palette, and typography only — never invent facts from it.`,
+            ...kitLines,
           );
         }
       }
@@ -1455,10 +1508,16 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }, 6000);
       }
 
-      // Call provider-agnostic LLM bridge — respects LLM_PROVIDER + model config
+      // Call provider-agnostic LLM bridge — respects LLM_PROVIDER + model config.
+      // Fresh microsite generation runs at a raised temperature so decks vary
+      // between generations instead of collapsing onto one deterministic look
+      // (extraction/memory/edit calls keep the default temperature 0). All other
+      // turns are unchanged.
       let fullResponse: string;
       try {
-        fullResponse = await llmGenerateFn(combinedPrompt);
+        fullResponse = isMicrositeGeneration
+          ? await withLlmTemperature(0.9, () => llmGenerateFn(combinedPrompt))
+          : await llmGenerateFn(combinedPrompt);
       } finally {
         if (hbTimer) clearInterval(hbTimer);
       }
