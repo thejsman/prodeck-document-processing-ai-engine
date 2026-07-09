@@ -2456,7 +2456,7 @@ Always write descriptive alt attributes. Never use placeholder services.`;
 
 When asked to create a website or microsite:
 - Use your full frontend skills: CSS custom properties, smooth scroll, parallax, scroll-driven animations, glassmorphism, gradients, blur effects, micro-interactions
-- Choose fonts, colors, and layouts that feel intentional and high-end
+- Choose fonts, colors, and layouts that feel intentional and high-end. NEVER use the font "Syne" — pick a different Google Font instead.
 - Write clean, semantic HTML5 with all CSS and JS embedded inline
 - For scroll-driven text reveals, animate each word or character individually using GSAP ScrollTrigger or IntersectionObserver
 - For sticky card stacking effects, use position:sticky with GSAP ScrollTrigger scale transforms
