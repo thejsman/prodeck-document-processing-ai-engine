@@ -328,11 +328,10 @@ export function patchHtml(html: string, instruction: string): PatchResult | null
     const cssPath = bgImagePatchMatch[1].trim();
     const imgUrl  = bgImagePatchMatch[2].trim().replace(/['"<>]/g, (c) => bgImagePatchMatch[2].startsWith('data:') ? c : '');
 
-    const bounds = findByPath(html, cssPath);
-    if (!bounds) return { error: 'Target element not found — click it again to re-select', statusCode: 422 };
+    let bounds = findByPath(html, cssPath);
 
-    const elementHtml = html.slice(bounds.start, bounds.end);
-
+    // CSS-rule scan does not need element bounds — run it before the bounds gate so
+    // it works even when findByPath fails (e.g. on a server with the old i=0 scan bug).
     const sectionId = cssPath.match(/#([\w-]+)/)?.[1] ?? '';
     if (sectionId) {
       const esc = sectionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -345,6 +344,43 @@ export function patchHtml(html: string, instruction: string): PatchResult | null
       );
       if (patchedHtml !== html) return { html: patchedHtml, summary: 'Background image updated' };
     }
+
+    // Need element bounds for the inline-style fallback paths.
+    // When findByPath failed, rescue via direct id= attribute scan — works regardless
+    // of the findByPath i=0 regression because it never calls findByPath at all.
+    if (!bounds && sectionId) {
+      const idIdx = html.indexOf(`id="${sectionId}"`);
+      if (idIdx !== -1) {
+        let s = idIdx;
+        while (s > 0 && html[s] !== '<') s--;
+        const tagName = html.slice(s).match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
+        if (tagName) {
+          const tagEndPos = html.indexOf('>', s);
+          if (tagEndPos !== -1) {
+            const opening = html.slice(s, tagEndPos + 1);
+            const VOID_TAGS = new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
+            if (VOID_TAGS.has(tagName) || opening.trimEnd().endsWith('/>')) {
+              bounds = { start: s, end: tagEndPos + 1 };
+            } else {
+              const close = `</${tagName}>`;
+              let depth = 1, j = tagEndPos + 1;
+              while (j < html.length && depth > 0) {
+                const nO = html.indexOf(`<${tagName}`, j);
+                const nC = html.indexOf(close, j);
+                if (nC === -1) break;
+                if (nO !== -1 && nO < nC) { depth++; j = nO + tagName.length + 1; }
+                else { depth--; j = nC + close.length; }
+              }
+              bounds = { start: s, end: j };
+            }
+          }
+        }
+      }
+    }
+
+    if (!bounds) return { error: 'Target element not found — click it again to re-select', statusCode: 422 };
+
+    const elementHtml = html.slice(bounds.start, bounds.end);
 
     const bgReplaceRe = /\bbackground-image\s*:\s*url\([^)]*\)/gi;
     if (bgReplaceRe.test(elementHtml)) {
