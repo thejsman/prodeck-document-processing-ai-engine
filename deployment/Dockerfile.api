@@ -47,10 +47,12 @@ RUN python3 -m pip install --break-system-packages --no-cache-dir \
         numpy \
         faiss-cpu \
         pyyaml \
-        anthropic \
+        "anthropic>=0.116.0" \
         openai \
         voyageai \
-        "qdrant-client>=1.9.0"
+        "qdrant-client>=1.9.0" \
+        "python-pptx>=1.0.0" \
+        "lxml>=5.0.0"
 
 # Config and data directories
 RUN mkdir -p /engine/data/templates /engine/output /app/config
