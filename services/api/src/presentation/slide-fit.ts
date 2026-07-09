@@ -65,21 +65,34 @@ export function extractSectionBlocks(reply: string): string | null {
   return block;
 }
 
+export type SlideOrientation = 'portrait' | 'landscape';
+
 /**
  * Prompt asking the LLM to reflow one overfull page. Content must be preserved
  * — the page count grows instead. Added pages get derived ids so they stay
  * unique without renumbering the rest of the deck.
  */
-export function buildReflowPrompt(sectionId: string, overflowPx: number, sectionHtml: string): string {
-  return `One page of a 9:16 PDF presentation is overfull: its content extends ~${overflowPx}px past the page boundary and would be clipped in the exported PDF. Clipped content is never acceptable.
+export function buildReflowPrompt(
+  sectionId: string,
+  overflowPx: number,
+  sectionHtml: string,
+  orientation: SlideOrientation = 'portrait',
+): string {
+  const ratio = orientation === 'portrait' ? '9:16' : '16:9';
+  const canvas = orientation === 'portrait' ? '540×960 CSS px (9:16 portrait)' : '1280×720 CSS px (16:9 landscape)';
+  const template =
+    orientation === 'portrait'
+      ? '<section data-section-id="..." id="..." style="aspect-ratio:9/16;overflow:hidden;position:relative;width:100%;max-width:540px;box-sizing:border-box;margin:0 auto 12px">'
+      : '<section data-section-id="..." id="..." style="aspect-ratio:16/9;overflow:hidden;position:relative;width:100%;box-sizing:border-box;margin:0 0 12px">';
+  return `One page of a ${ratio} PDF presentation is overfull: its content extends ~${overflowPx}px past the page boundary and would be clipped in the exported PDF. Clipped content is never acceptable.
 
 HARD FACTS (immutable):
-- The page canvas is EXACTLY 540×960 CSS px (9:16 portrait).
+- The page canvas is EXACTLY ${canvas}.
 - All content must sit fully inside the canvas — nothing may touch or cross the boundary.
 
 Rewrite this ONE <section> so everything fits comfortably. Prefer redistributing the content across TWO OR MORE consecutive pages of the exact same format over shrinking type or spacing — never cram, never drop or truncate any text. Keep the page's visual language (palette, typography, styling) unchanged.
 
-Technical frame for every page (unchanged): <section data-section-id="..." id="..." style="aspect-ratio:9/16;overflow:hidden;position:relative;width:100%;max-width:540px;box-sizing:border-box;margin:0 auto 12px">. Keep id "${sectionId}" for the first page; name added pages "${sectionId}-2", "${sectionId}-3", … (data-section-id and id identical). Static output only, px font sizes only.
+Technical frame for every page (unchanged): ${template}. Keep id "${sectionId}" for the first page; name added pages "${sectionId}-2", "${sectionId}-3", … (data-section-id and id identical). Static output only, px font sizes only.
 
 Output ONLY the replacement <section> element(s) — no commentary, no markdown fences, no <html>/<head>/<body>.
 
@@ -89,10 +102,15 @@ ${sectionHtml}`;
 
 /**
  * Render the deck headlessly and return the pages whose text (or mostly-hidden
- * imagery) crosses their own 9:16 boundary. `html` must already contain the
- * portrait constraint CSS so pages are measured at their locked size.
+ * imagery) crosses their own fixed-ratio boundary. `html` must already contain
+ * the orientation's constraint CSS so pages are measured at their locked size.
+ * Default viewport is the portrait canvas (720×1280); landscape passes
+ * 1280×720 so full-width 16:9 pages resolve to their authored size.
  */
-export async function findOverflowingSlides(html: string): Promise<SlideOverflow[]> {
+export async function findOverflowingSlides(
+  html: string,
+  viewport: { width: number; height: number } = { width: 720, height: 1280 },
+): Promise<SlideOverflow[]> {
   const browser = await puppeteer.launch({
     headless: true,
     ...(process.env.PUPPETEER_EXECUTABLE_PATH
@@ -103,7 +121,7 @@ export async function findOverflowingSlides(html: string): Promise<SlideOverflow
 
   try {
     const page = await browser.newPage();
-    await page.setViewport({ width: 720, height: 1280, deviceScaleFactor: 1 });
+    await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 1 });
 
     // document.write() instead of setContent() — same rationale as the PDF export:
     // setContent() can hang on slow external resources under Puppeteer 24.x.

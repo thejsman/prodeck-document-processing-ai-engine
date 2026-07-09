@@ -2376,18 +2376,32 @@ export async function getSuperClientGenerations(apiKey: string, name: string): P
 }
 
 export async function upsertSuperClientGeneration(apiKey: string, name: string, gen: SuperClientGenerationEntry): Promise<void> {
-  await fetch(`/api/super-clients/${name}/generations/${gen.id}`, {
-    method: 'PUT',
-    headers: authHeaders(apiKey),
-    body: JSON.stringify(gen),
-  });
+  // Best-effort background sync (callers invoke with `void`). A transient network
+  // failure (server restart, wifi drop, sleep) must not surface as an unhandled
+  // rejection / error overlay — swallow and log instead.
+  try {
+    const res = await fetch(`/api/super-clients/${name}/generations/${gen.id}`, {
+      method: 'PUT',
+      headers: authHeaders(apiKey),
+      body: JSON.stringify(gen),
+    });
+    if (!res.ok) console.warn(`upsertSuperClientGeneration: server responded ${res.status}`);
+  } catch (err) {
+    console.warn('upsertSuperClientGeneration: network error, skipped', err);
+  }
 }
 
 export async function deleteSuperClientGeneration(apiKey: string, name: string, id: string): Promise<void> {
-  await fetch(`/api/super-clients/${name}/generations/${id}`, {
-    method: 'DELETE',
-    headers: authHeadersNoBody(apiKey),
-  });
+  // Best-effort background sync — see upsertSuperClientGeneration.
+  try {
+    const res = await fetch(`/api/super-clients/${name}/generations/${id}`, {
+      method: 'DELETE',
+      headers: authHeadersNoBody(apiKey),
+    });
+    if (!res.ok) console.warn(`deleteSuperClientGeneration: server responded ${res.status}`);
+  } catch (err) {
+    console.warn('deleteSuperClientGeneration: network error, skipped', err);
+  }
 }
 
 export async function deleteSuperClient(apiKey: string, name: string): Promise<void> {

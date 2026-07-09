@@ -87,6 +87,7 @@ class NvidiaProvider(LLMProvider):
                 model=self._generation_model,
                 messages=[{"role": "user", "content": prompt}],
                 stream=True,
+                max_tokens=8000,
                 temperature=temp,
             )
         except Exception as exc:

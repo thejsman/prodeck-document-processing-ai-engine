@@ -86,4 +86,23 @@ describe('buildReflowPrompt', () => {
     expect(p).toContain('540×960');
     expect(p).toContain('<section data-section-id="slide-4">x</section>');
   });
+
+  it('defaults to the portrait canvas and template', () => {
+    const p = buildReflowPrompt('slide-1', 50, '<section data-section-id="slide-1">x</section>');
+    expect(p).toContain('9:16');
+    expect(p).toContain('540×960 CSS px (9:16 portrait)');
+    expect(p).toContain('aspect-ratio:9/16');
+    expect(p).toContain('max-width:540px');
+    expect(p).toContain('margin:0 auto 12px');
+  });
+
+  it('describes the landscape canvas and template for landscape decks', () => {
+    const p = buildReflowPrompt('slide-1', 50, '<section data-section-id="slide-1">x</section>', 'landscape');
+    expect(p).toContain('16:9');
+    expect(p).toContain('1280×720 CSS px (16:9 landscape)');
+    expect(p).toContain('aspect-ratio:16/9');
+    expect(p).toContain('margin:0 0 12px');
+    expect(p).not.toContain('max-width:540px');
+    expect(p).not.toContain('9:16');
+  });
 });

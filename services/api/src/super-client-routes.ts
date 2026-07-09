@@ -20,6 +20,7 @@ import { validateSlideHtml, countSlides, extractTitle, resolveSlideOrientation }
 import type { SavedSlide } from './slides/slide-generator.js';
 import { patchHtml, toVideoEmbedUrl, findByPath, locateElement, hideCoveringImage } from './html-patch.js';
 import { classifyChatIntent, type IntentDecision, type PendingClarification } from './super-client/intent-gate.js';
+import { extractSlidesTag, stripSlidesTag, hasRawArtifactMarkup, resolveSlideCount } from './super-client/slide-parsing.js';
 import { isBareGenerationRequest } from './chat/vocabulary.js';
 
 // Strip preview-only injections that the UI adds to srcdoc iframes.
@@ -190,6 +191,27 @@ async function writeGenerations(dir: string, gens: GenerationEntry[]): Promise<v
   await writeFile(path.join(dir, 'generations.json'), JSON.stringify(gens, null, 2));
 }
 
+// A generation that is still 'generating' this long after it started is dead —
+// the browser that owned it errored, aborted, or was closed before the card
+// could be resolved. Generations finish in well under ~2 min, so 5 min never
+// drops a legitimately in-progress one.
+export const STALE_GENERATION_MS = 5 * 60 * 1000;
+
+// Drop dead 'generating' entries (stale or missing timestamp). Terminal
+// (complete/error) entries are always kept. Pure + exported for unit testing.
+export function pruneStaleGenerations(
+  gens: GenerationEntry[],
+  now: number = Date.now(),
+): GenerationEntry[] {
+  return gens.filter((g) => {
+    if (g.phase !== 'generating') return true;
+    if (!g.createdAt) return false;
+    const started = Date.parse(g.createdAt);
+    if (Number.isNaN(started)) return false;
+    return now - started < STALE_GENERATION_MS;
+  });
+}
+
 async function readMeta(dir: string): Promise<SuperClientMeta> {
   const raw = await readFile(path.join(dir, 'meta.json'), 'utf-8');
   return JSON.parse(raw) as SuperClientMeta;
@@ -353,15 +375,6 @@ function stripDocumentTag(text: string): string {
     .trim();
 }
 
-function extractSlidesTag(text: string): { html: string } | null {
-  const m = text.match(/<slides>([\s\S]*?)<\/slides>/i);
-  if (!m) return null;
-  return { html: m[1].trim() };
-}
-
-function stripSlidesTag(text: string): string {
-  return text.replace(/<slides>[\s\S]*?<\/slides>/i, '').trim();
-}
 
 async function saveSlide(
   dir: string,
@@ -826,7 +839,6 @@ Return ONLY valid JSON (null for fields not found):
 {
   "stableFields": {
     "clientIndustry": "string or null",
-    "projectType": "string or null",
     "contactName": "string or null"
   },
   "knowledge": [
@@ -839,13 +851,12 @@ Return ONLY valid JSON (null for fields not found):
     const raw = await llmGenerateFn(extractPrompt);
     const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
     const extracted = JSON.parse(json) as {
-      stableFields?: { clientIndustry?: string | null; projectType?: string | null; contactName?: string | null };
+      stableFields?: { clientIndustry?: string | null; contactName?: string | null };
       knowledge?: { content: string; category: string; confidence: number }[];
       stakeholders?: { name: string; role: string; email?: string; notes?: string }[];
     };
     const sf = extracted.stableFields ?? {};
     if (sf.clientIndustry?.trim()) await memService.updateField(name, 'clientIndustry', sf.clientIndustry.trim());
-    if (sf.projectType?.trim()) await memService.updateField(name, 'projectType', sf.projectType.trim());
     if (sf.contactName?.trim()) await memService.updateField(name, 'contactName', sf.contactName.trim());
     for (const k of extracted.knowledge ?? []) {
       if (k.content?.trim()) {
@@ -1267,6 +1278,14 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         ? ART_DIRECTIONS[Math.floor(Math.random() * ART_DIRECTIONS.length)]
         : null;
 
+      // Slide count is resolved once here (from the raw user message) so both
+      // the prompt and the planning/ack text downstream agree on the actual,
+      // capped number — a single-shot presentation call must fit the whole
+      // deck's HTML inside the provider's output-token ceiling, so an
+      // unclamped large count is a leading cause of truncated generation.
+      const { requested: requestedSlideCount, resolved: resolvedSlideCount, wasCapped: slideCountWasCapped } =
+        resolveSlideCount(message);
+
       // Build combined prompt — llmGenerateFn takes a single string and routes through
       // the Python LLM bridge which respects LLM_PROVIDER / provider-specific model config.
       const promptParts: string[] = isPresentationRequest
@@ -1309,7 +1328,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             `CONTENT:`,
             `- Draw ALL facts from client context, ingested documents, and conversation. Never invent facts.`,
             `- Slide titles are insights, not labels — "Revenue grew 3× in 12 months" beats "Revenue Growth".`,
-            `- Use the slide count the user specified, or 10–12 if not mentioned.`,
+            resolvedSlideCount
+              ? `- Create exactly ${resolvedSlideCount} slides.`
+              : `- Create 6–8 slides unless the content genuinely needs more — favor fewer, richer slides over many thin ones.`,
             ``,
             `Output: ONLY the <slides>...</slides> tag with the full HTML document inside. After the tag, write ONE plain sentence (MAX 25 words) describing only WHAT the deck covers — the subject and message — as if telling a colleague over the phone. It must contain NO visual or design detail. BANNED words: slide, deck, 16:9, cover, hero, headline, panel, grid, card, column, CTA, footer, bar, layout, SVG, palette, and every colour name. Example: "A quick overview of your services and why clients trust you, ending with an invitation to book a consultation."`,
           ]
@@ -1605,12 +1626,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           : `Creating a ${artifactLabel} for ${meta.displayName}, give me a moment…`;
         await streamAssistant(ackText);
 
-        const countMatch = message.match(/\b(\d+)[\s\-]*(page|slide|screen)s?\b/i);
-        const count = countMatch ? countMatch[1] : null;
         const planText =
           artifactType === 'slide'
-            ? count
-              ? `Building a ${count}-slide presentation for ${meta.displayName}…`
+            ? resolvedSlideCount
+              ? slideCountWasCapped
+                ? `Building a ${resolvedSlideCount}-slide presentation for ${meta.displayName} (capped from ${requestedSlideCount} for reliable generation)…`
+                : `Building a ${resolvedSlideCount}-slide presentation for ${meta.displayName}…`
               : `Building a presentation for ${meta.displayName}…`
             : artifactType === 'proposal'
               ? `Drafting a proposal for ${meta.displayName}…`
@@ -1701,6 +1722,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       let documentUpdated: import('./skills/skill.types.js').GeneratedDocumentMeta | undefined;
       let slideSaved: SavedSlide | undefined;
       let displayResponse = fullResponse;
+      // Set when a Tier-3 save/update throws so the generation-turn guard below
+      // can surface a retry message instead of a fake confirmation.
+      let artifactSaveFailed = false;
 
       const activeEditId = activeProposalId ?? activeDocumentId;
       const textReplacements = activeEditId ? extractTextReplacements(fullResponse) : [];
@@ -1762,6 +1786,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
               proposalSaved = await saveProposal(dir, proposalMatch.title, proposalMatch.content);
             }
           } catch (err) {
+            artifactSaveFailed = true;
             app.log.warn({ err }, '[SuperClient] Failed to save/update proposal');
           }
           displayResponse = stripProposalTag(fullResponse);
@@ -1783,6 +1808,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
               );
             }
           } catch (err) {
+            artifactSaveFailed = true;
             app.log.warn({ err }, '[SuperClient] Failed to save/update document');
           }
           displayResponse = stripDocumentTag(fullResponse);
@@ -1795,10 +1821,36 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             const html = validateSlideHtml(slidesTagMatch.html, finalOrientation);
             slideSaved = await saveSlide(dir, name, html, finalOrientation);
           } catch (err) {
+            artifactSaveFailed = true;
             app.log.warn({ err }, '[SuperClient] Failed to save slides');
           }
           displayResponse = stripSlidesTag(fullResponse);
         }
+      }
+
+      // Safety guard: a generation turn that produced no artifact must never
+      // stream or persist raw markup. This fires when the model's response was
+      // truncated/malformed (extraction failed, raw <slides>/<!DOCTYPE… still
+      // present) or a save threw — in both cases the user gets a deterministic
+      // retry message instead of a wall of leaked HTML or a fake confirmation.
+      // A legitimate plain-text reply (no markup, no failed save) is left alone.
+      const artifactProduced = !!(
+        slideSaved ||
+        proposalSaved ||
+        documentSaved ||
+        proposalUpdated ||
+        documentUpdated
+      );
+      if (
+        isGenerationTurn &&
+        !artifactProduced &&
+        (artifactSaveFailed || hasRawArtifactMarkup(fullResponse))
+      ) {
+        app.log.warn(
+          { name, artifactType, artifactSaveFailed },
+          '[SuperClient] Generation turn produced no artifact — suppressing raw output',
+        );
+        displayResponse = `I ran into a problem finishing this ${artifactLabel} — the generation may have been too large and got cut off. Please try again, or ask for a shorter version (e.g. fewer slides).`;
       }
 
       // Generation turns: the raw response was never fake-streamed (only the ack
@@ -2184,7 +2236,14 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const dir = path.join(superClientsRoot, name);
     try {
       await readMeta(dir); // 404 guard
-      return reply.send(await readGenerations(dir));
+      const gens = await readGenerations(dir);
+      const pruned = pruneStaleGenerations(gens);
+      // Self-heal: persist the cleaned list so dead 'generating' cards (from a
+      // browser that errored/closed mid-stream) stop rehydrating as stuck spinners.
+      if (pruned.length !== gens.length) {
+        await writeGenerations(dir, pruned);
+      }
+      return reply.send(pruned);
     } catch {
       return reply.code(404).send({ error: `Super client "${name}" not found` });
     }
@@ -3818,10 +3877,17 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // and the two standard placements, so any phrasing — background fill,
       // inline embed, "choose the best position" — produces a working iframe.
       const elVideoUrlMatch = editInstruction.match(/https?:\/\/\S*(?:youtube\.com|youtu\.be|vimeo\.com)\S*/i);
-      const videoGuidance = elVideoUrlMatch
+      // Replace the watch URL with the embed URL inside the instruction so the LLM only
+      // ever sees ONE URL — having both watch + embed in the same prompt causes two iframes.
+      const elVideoRawUrl = elVideoUrlMatch ? elVideoUrlMatch[0].replace(/['"<>)\],.]+$/, '') : '';
+      const elVideoEmbedUrl = elVideoRawUrl ? toEmbedUrl(elVideoRawUrl) : '';
+      const editInstructionForPrompt = elVideoRawUrl
+        ? editInstruction.replace(elVideoRawUrl, elVideoEmbedUrl)
+        : editInstruction;
+      const videoGuidance = elVideoEmbedUrl
         ? `
 VIDEO-SPECIFIC RULES (the instruction contains a video URL):
-- Use this exact embed URL as the iframe src (do NOT alter it or invent another): ${toEmbedUrl(elVideoUrlMatch[0].replace(/['"<>)\],.]+$/, ''))}
+- Use this exact embed URL as the iframe src (do NOT alter it or invent another): ${elVideoEmbedUrl}
 - Background/full-bleed placement: add position:relative;overflow:hidden to this element's inline style and insert as its FIRST child:
   <iframe src="[embed URL]" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;border:0;z-index:0" allow="autoplay; fullscreen" frameborder="0"></iframe>
   (then make sure the element's direct content children have position:relative and a higher z-index so they stay visible above the video)
@@ -3852,7 +3918,7 @@ IMAGE-SPECIFIC RULES (this element contains an image):
 SECTION TO REGENERATE:
 ${targetHtml}
 
-INSTRUCTION: ${editInstruction}
+INSTRUCTION: ${editInstructionForPrompt}
 ${regenModeNote}
 Output rules (strictly enforced):
 - Start your output with the opening tag (<${regenRootTag}...) and end with </${regenRootTag}>
@@ -3871,7 +3937,7 @@ CONTEXT: ${breadcrumb}
 ELEMENT TO EDIT:
 ${targetHtml}
 
-INSTRUCTION: ${editInstruction}
+INSTRUCTION: ${editInstructionForPrompt}
 ${imageGuidance}${videoGuidance}
 Strict rules:
 - Return ONLY this element starting with its opening tag and ending with its closing tag
@@ -4359,8 +4425,11 @@ ${ctx.section}`;
     // from the full instruction + full document below.
     const videoUrlMatch = instruction.match(/https?:\/\/\S*(?:youtube\.com|youtu\.be|vimeo\.com)\S*/i);
     if (videoUrlMatch) {
-      const embedUrl = toEmbedUrl(videoUrlMatch[0]);
-      augmentedInstruction = `${augmentedInstruction}\n\nIMPORTANT — if the instruction asks to add/embed a video, use this exact embed URL in an <iframe> (do NOT alter it or invent a different one): ${embedUrl}`;
+      const rawVideoUrl = videoUrlMatch[0].replace(/['"<>)\],.]+$/, '');
+      const embedUrl = toEmbedUrl(rawVideoUrl);
+      // Replace the watch URL with the embed URL in-place so the LLM sees only ONE URL.
+      // Appending a second URL causes two iframes to be added.
+      augmentedInstruction = augmentedInstruction.replace(rawVideoUrl, embedUrl);
       resolvedUrlToVerify = embedUrl;
       resolvedUrlKind = 'video';
       console.log(`🎬 Video URL pre-normalized for global edit: ${embedUrl.slice(0, 80)}`);
@@ -4482,14 +4551,29 @@ ${html}`;
       } else {
         if (op.op === 'patches') {
           const { html: patched, applied, missed } = applyPatches(html, op.patches);
-          if (applied === 0)
-            return reply
-              .code(502)
-              .send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
-          updatedHtml = patched;
-          summary = op.summary;
-          changedTexts = op.patches.filter((p) => p.replace !== undefined).map((p) => p.replace);
-          if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+          if (applied === 0) {
+            // Patches couldn't find their target — LLM-generated find string doesn't
+            // match the stored HTML (common after a section_replace restructured the DOM,
+            // e.g. the user tries to edit/remove an element the LLM just added).
+            // Fall back to a direct section rewrite so the instruction still applies.
+            const fbCtx = extractBestSection(html, instruction);
+            if (fbCtx) {
+              try {
+                updatedHtml = await regenSection(fbCtx);
+                summary = op.summary || 'Section updated';
+                console.log('↩️  patches applied=0 — fell through to regenSection');
+              } catch {
+                return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
+              }
+            } else {
+              return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
+            }
+          } else {
+            updatedHtml = patched;
+            summary = op.summary;
+            changedTexts = op.patches.filter((p) => p.replace !== undefined).map((p) => p.replace);
+            if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+          }
         } else if (op.op === 'section_replace') {
           const ctx = extractBestSection(html, op.anchor);
           if (!ctx) return reply.code(502).send({ error: `Section "${op.anchor}" not found` });
@@ -5214,8 +5298,10 @@ ${slideHtml}`;
     // blocked from iframes by X-Frame-Options)
     const slideVideoUrlMatch = resolvedInstruction.match(/https?:\/\/\S*(?:youtube\.com|youtu\.be|vimeo\.com)\S*/i);
     if (slideVideoUrlMatch) {
-      const embedUrl = toVideoEmbedUrl(slideVideoUrlMatch[0].replace(/['"<>)\],.]+$/, ''));
-      augmentedInstruction = `${augmentedInstruction}\n\nIMPORTANT — if the instruction asks to add/embed a video, use this exact embed URL in an <iframe> (do NOT alter it or invent a different one): ${embedUrl}`;
+      const rawSlideVideoUrl = slideVideoUrlMatch[0].replace(/['"<>)\],.]+$/, '');
+      const embedUrl = toVideoEmbedUrl(rawSlideVideoUrl);
+      // Replace watch URL with embed URL in-place — two URLs in one prompt → two iframes.
+      augmentedInstruction = augmentedInstruction.replace(rawSlideVideoUrl, embedUrl);
       resolvedUrlToVerify = embedUrl;
       resolvedUrlKind = 'video';
       console.log(`🎬 Video URL pre-normalized for slide edit: ${embedUrl.slice(0, 80)}`);
@@ -5385,13 +5471,21 @@ ${html}`;
       } else {
         if (op.op === 'patches') {
           const { html: patched, applied, missed } = applySlidePatches(html, op.patches);
-          if (applied === 0)
-            return reply
-              .code(502)
-              .send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
-          updatedHtml = patched;
-          summary = op.summary || summary;
-          if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+          if (applied === 0) {
+            // Patches couldn't find their target — fall back to direct slide rewrite.
+            const idx = targetSlideIdx(resolvedInstruction);
+            try {
+              updatedHtml = await regenSlide(idx);
+              summary = `Slide ${idx + 1} updated`;
+              console.log('↩️  patches applied=0 — fell through to regenSlide');
+            } catch {
+              return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
+            }
+          } else {
+            updatedHtml = patched;
+            summary = op.summary || summary;
+            if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+          }
         } else if (op.op === 'slide_replace' || op.op === 'slide_insert' || op.op === 'slide_delete') {
           const idx = Math.trunc(op.slide) - 1;
           if (idx < 0 || idx >= slideBounds.length) {

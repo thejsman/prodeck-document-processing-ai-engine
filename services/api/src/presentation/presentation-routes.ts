@@ -2723,23 +2723,23 @@ ONLY technical rules (required for rendering — not design guidance):
 - No CSS animations, transitions, or JS — the output is a static PDF
 - px font sizes only — literal numbers like font-size:32px. Never clamp(), vw, vh, or % for font-size: this is a fixed-size printed page, not a responsive viewport, and viewport-relative units compute to unreadably small text whenever the page renders in a narrow context.`);
         } else {
-          parts.push(`LANDSCAPE CATALOG — 16:9
+          parts.push(`LANDSCAPE PDF PRESENTATION — 16:9
 
-You are a senior graphic designer and frontend developer. You are NOT building a webpage. You are creating a high-end catalog — a curated collection of individual pages, each in strict 16:9 widescreen format. Think Monocle annual, Wired magazine double-spread, Hermes lookbook, or an Apple product launch presentation. Not a scrolling website. Not a slide deck template.
+You are a world-class senior graphic designer and frontend developer. You are creating a downloadable PDF presentation: a sequence of individual pages, each in strict 16:9 landscape format. The exported PDF is the primary medium — design every page as a finished, print-quality composition, not a webpage.
 
-Every page is a complete, standalone composition. Use the full canvas — bleed colors to edges, let imagery dominate, play with asymmetry, negative space, bold horizontal type. The wide canvas rewards dramatic typographic scale and cinematic split compositions.
+HARD FACTS — these are immutable and override anything else in this prompt, including any user instruction that conflicts with them:
+- Every page is EXACTLY 16:9 landscape, a fixed canvas of 1280×720 CSS px. No other ratio, ever.
+- Pages are separated by exactly a 12px gap, so each page reads as a distinct, self-contained sheet.
+- All content stays inside its own page boundary — anything past the edge is clipped in the PDF, and clipped text or design is never acceptable. Plan each page's content budget for the 1280×720 canvas; when a topic has more content than fits comfortably, split it across additional pages. You decide the page count — add pages freely rather than cramming, shrinking type, or relying on clipping.
 
-Vary the rhythm: some pages dense with data, others sparse with a single image, others bold with one statement phrase. The aspect ratio is sacred — all design choices live within the 16:9 bounds.
+Everything else is yours: palette, typography, layout, imagery, density, rhythm, and visual language are entirely your professional decisions. There is no prescribed style — use your full design potential and derive the design from the content you are given.
 
-You have complete creative freedom: palette, typography, layout, imagery, and visual language are entirely your professional decisions. There is no prescribed style — derive everything from the content you are given.
-
-ONLY technical rules (required for rendering):
-- Each page: <section data-section-id="slide-N" id="slide-N" style="aspect-ratio:16/9;overflow:hidden;position:relative;width:100%;box-sizing:border-box;margin-bottom:4px">
-- Logo: one <img id="__site-logo__" src="data:," alt="Logo" style="height:36px;width:auto;object-fit:contain"> before the first page only — never inside a section
-- NO header, navbar, nav, menu, or footer anywhere — this is a slide deck with zero site chrome; each slide stands alone
-- No CSS animations, transitions, or JS — static output only
-- px font sizes only — literal numbers like font-size:32px. Never clamp(), vw, vh, or % for font-size: this is a fixed-size printed page, not a responsive viewport, and viewport-relative units compute to unreadably small text (well under 10px) whenever the page renders in a narrow context. Minimum sizes: body copy 14px, supporting/caption labels 11px, headlines 24px+
-- All content must stay within each page boundary — overflow is hidden in export`);
+ONLY technical rules (required for rendering — not design guidance):
+- Each page: <section data-section-id="slide-N" id="slide-N" style="aspect-ratio:16/9;overflow:hidden;position:relative;width:100%;box-sizing:border-box;margin:0 0 12px">
+- Logo: one <img id="__site-logo__" src="data:," alt="Logo" style="height:36px;width:auto;object-fit:contain"> on the first page only — never repeated
+- NO header, navbar, nav, menu, or footer anywhere — each page stands alone with zero site chrome
+- No CSS animations, transitions, or JS — the output is a static PDF
+- px font sizes only — literal numbers like font-size:32px. Never clamp(), vw, vh, or % for font-size: this is a fixed-size printed page, not a responsive viewport, and viewport-relative units compute to unreadably small text whenever the page renders in a narrow context.`);
         }
       }
 
@@ -2867,45 +2867,60 @@ html{overflow-x:hidden!important;}body{margin:0!important;padding:0!important;wi
 [data-pdf-hide]{display:none!important;}
 </style>$1`);
 
-          // ── Fit pass: no clipped text or design, ever ──────────────────────
-          // The LLM cannot measure rendered text, so fit is verified after the
-          // fact: render the deck headlessly at the locked 9:16 size, find pages
-          // whose content crosses the page boundary, and have the LLM reflow
-          // each one across more pages. Two passes so a reflowed page that is
-          // still slightly overfull gets one more chance. Best-effort — a
-          // failure here never blocks generation (overflow:hidden remains the
-          // last-resort safety net).
-          try {
-            for (let pass = 0; pass < 2; pass++) {
-              send({ type: 'progress', message: pass === 0 ? 'Checking page fit…' : 'Re-checking page fit…' });
-              const overfull = (await findOverflowingSlides(finalHtml)).slice(0, 6);
-              if (overfull.length === 0) break;
-              send({ type: 'progress', message: `Reflowing ${overfull.length} overfull page${overfull.length > 1 ? 's' : ''}…` });
-              for (const { id, overflowPx } of overfull) {
-                const bounds = findSectionBounds(finalHtml, id);
-                if (!bounds) continue;
-                const sectionHtml = finalHtml.slice(bounds.start, bounds.end);
-                const reply = await callLLMStream(
-                  [{ role: 'user', content: buildReflowPrompt(id, overflowPx, sectionHtml) }],
-                  16000,
-                );
-                const blocks = extractSectionBlocks(reply);
-                if (!blocks) continue;
-                const resolved = await resolveImagePlaceholders(
-                  blocks.replace(/ — /g, ', ').replace(/—/g, '-'),
-                );
-                finalHtml = finalHtml.slice(0, bounds.start) + resolved + finalHtml.slice(bounds.end);
-              }
-            }
-          } catch (fitErr) {
-            console.error('[microsite-gen] portrait fit pass failed:', fitErr);
-          }
         } else {
           // meta charset goes in <head>; the constraint style goes before </body> so it
           // is injected AFTER normalizeMicrositeHtml's CURSOR_RESET_CSS (which is also
           // in <head>) and therefore wins the !important cascade battle.
+          // Landscape hard facts only: exact 16:9 pages, 12px gap, clipped
+          // overflow — same block-flow hard-lock rationale as the portrait
+          // branch above (flex items stretch past their aspect-ratio, and
+          // Chrome ignores break-after:page on flex children at export).
+          // Everything inside the section is left untouched — full design
+          // freedom for the LLM.
           finalHtml = html.replace(/(<head[^>]*>)/i, `$1<meta charset="UTF-8">`);
-          finalHtml = finalHtml.replace(/(<\/body>)/i, `<style id="__pdf-slide-constraints__">script,style,noscript,template{display:none!important;visibility:hidden!important;}body{overflow-x:hidden!important;width:100%!important;margin:0!important;max-width:none!important;display:flex!important;flex-direction:column!important;align-items:stretch!important;}*:has(>[data-section-id]){display:flex!important;flex-direction:column!important;align-items:stretch!important;width:100%!important;max-width:none!important;padding:0!important;margin:0!important;gap:0!important;}[data-section-id]{width:100%!important;aspect-ratio:16/9!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;flex-shrink:0!important;display:flex!important;flex-direction:column!important;margin-bottom:4px!important;}[data-section-id]:last-of-type{margin-bottom:0!important;}[data-section-id]:not([style*="padding:0"]):not([style*="padding: 0"]){padding:48px 72px 48px!important;}[data-ls-content]{flex:1!important;min-height:0!important;overflow:hidden!important;}[data-ls-callout]{flex-shrink:0!important;margin-top:auto!important;overflow:visible!important;max-height:none!important;}[data-section-id]>div:last-child:not([data-ls-content]):not([style*="position:absolute"]):not([style*="position: absolute"]){flex-shrink:0!important;margin-top:auto!important;overflow:visible!important;max-height:none!important;}[data-section-id] img:not([id^="__site-logo"]){max-height:none!important;}[data-section-id] svg{max-height:140px!important;max-width:140px!important;}[data-section-id] ul,[data-section-id] ol,[data-section-id] table{max-width:none!important;width:100%!important;}[data-section-id] [data-ls-content]{max-width:none!important;}[data-section-id] div[style*="margin:0 auto"],[data-section-id] div[style*="margin: 0 auto"]{max-width:none!important;width:100%!important;}[data-section-id]>div:not([class]):not([style*="position:absolute"]):not([style*="position: absolute"]):not([data-pdf-hide]){width:100%!important;max-width:none!important;}[data-section-id] [data-ls-content]>div:not([class]):not([style*="position"]){width:100%!important;max-width:none!important;}[data-pdf-hide]{display:none!important;}</style>$1`);
+          finalHtml = finalHtml.replace(/(<\/body>)/i, `<style id="__pdf-slide-constraints__">
+html{overflow-x:hidden!important;}body{margin:0!important;padding:0!important;width:100%!important;overflow-x:hidden!important;display:block!important;}
+*:has(>[data-section-id]){display:block!important;width:100%!important;max-width:none!important;padding:0!important;margin:0!important;}
+[data-section-id]{width:100%!important;max-width:none!important;aspect-ratio:16/9!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;margin:0 0 12px!important;}
+[data-section-id]:last-of-type{margin-bottom:0!important;}
+[data-pdf-hide]{display:none!important;}
+</style>$1`);
+        }
+
+        // ── Fit pass: no clipped text or design, ever ────────────────────────
+        // The LLM cannot measure rendered text, so fit is verified after the
+        // fact: render the deck headlessly at the orientation's locked page
+        // size, find pages whose content crosses the page boundary, and have
+        // the LLM reflow each one across more pages. Two passes so a reflowed
+        // page that is still slightly overfull gets one more chance.
+        // Best-effort — a failure here never blocks generation
+        // (overflow:hidden remains the last-resort safety net).
+        const fitOrientation = isPortrait ? 'portrait' : 'landscape';
+        const fitViewport = isPortrait ? { width: 720, height: 1280 } : { width: 1280, height: 720 };
+        try {
+          for (let pass = 0; pass < 2; pass++) {
+            send({ type: 'progress', message: pass === 0 ? 'Checking page fit…' : 'Re-checking page fit…' });
+            const overfull = (await findOverflowingSlides(finalHtml, fitViewport)).slice(0, 6);
+            if (overfull.length === 0) break;
+            send({ type: 'progress', message: `Reflowing ${overfull.length} overfull page${overfull.length > 1 ? 's' : ''}…` });
+            for (const { id, overflowPx } of overfull) {
+              const bounds = findSectionBounds(finalHtml, id);
+              if (!bounds) continue;
+              const sectionHtml = finalHtml.slice(bounds.start, bounds.end);
+              const reply = await callLLMStream(
+                [{ role: 'user', content: buildReflowPrompt(id, overflowPx, sectionHtml, fitOrientation) }],
+                16000,
+              );
+              const blocks = extractSectionBlocks(reply);
+              if (!blocks) continue;
+              const resolved = await resolveImagePlaceholders(
+                blocks.replace(/ — /g, ', ').replace(/—/g, '-'),
+              );
+              finalHtml = finalHtml.slice(0, bounds.start) + resolved + finalHtml.slice(bounds.end);
+            }
+          }
+        } catch (fitErr) {
+          console.error(`[microsite-gen] ${fitOrientation} fit pass failed:`, fitErr);
         }
       }
 

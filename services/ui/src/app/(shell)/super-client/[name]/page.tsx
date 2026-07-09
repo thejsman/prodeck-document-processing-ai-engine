@@ -2386,7 +2386,7 @@ export default function SuperClientPage() {
 
   async function handleSvgReplace(svgMarkup: string) {
     if (!selectedElement?.path) return;
-    await applyMicrositeInstruction(`__SVG_REPLACE__:${selectedElement.path}||${svgMarkup}`, 'Icon replaced');
+    await applyMicrositeInstruction(`__SVG_REPLACE__:${selectedElement.path}||${svgMarkup}||${hint()}`, 'Icon replaced');
   }
 
   // ── Slide InlineEditPanel handlers ───────────────────────────────────────
@@ -2457,7 +2457,7 @@ export default function SuperClientPage() {
   };
   const handleSlideSvgReplace = async (svgMarkup: string) => {
     if (!selectedSlideElement?.path) return;
-    await applySlideInstruction(`__SVG_REPLACE__:${selectedSlideElement.path}||${svgMarkup}`, 'Icon replaced');
+    await applySlideInstruction(`__SVG_REPLACE__:${selectedSlideElement.path}||${svgMarkup}||${slideHint()}`, 'Icon replaced');
   };
 
   // Instant client-side undo — no server round-trip, no loading spinner.
@@ -3663,7 +3663,15 @@ export default function SuperClientPage() {
       content: "",
       streaming: true,
       createdAt: now,
-      ...(proposalGenId ? { generationId: proposalGenId } : {}),
+      // generationId is intentionally NOT pre-attached here (unlike the eager
+      // generationStore.start() above) — the card must only become visible once
+      // the server's "planning" event confirms generation is actually happening
+      // (see the evt.type === "planning" handler below, which attaches
+      // proposalGenId at that point). Attaching it eagerly made the card flash
+      // and then vanish whenever the readiness gate declines a bare request
+      // against a context-less client — that gate returns before ever emitting
+      // "planning". Document/slide already follow this pattern; proposal was
+      // the one path attaching it upfront.
       ...(proposalEditActive ? { editContext: "proposal" as const } : {}),
     };
 
@@ -4024,6 +4032,17 @@ export default function SuperClientPage() {
       }
     } finally {
       setStreaming(false);
+      // Resolve any card this turn started that never reached a terminal state.
+      // The done-handler branches already complete/dismiss cards on success and
+      // on a failed generation; this catches the error/abort/timeout paths,
+      // which otherwise leave the card stuck 'generating' — and persisted on the
+      // server as a permanent spinner. Dismiss triggers the server DELETE via the
+      // generationStore subscribe sync. No-op if already complete or gone.
+      for (const gid of [slideGenId, proposalGenId, documentGenId]) {
+        if (gid && generationStore.get(gid)?.phase === 'generating') {
+          generationStore.dismiss(gid);
+        }
+      }
     }
   }
 
@@ -4246,11 +4265,15 @@ export default function SuperClientPage() {
                   const visibleContent = (() => {
                     if (msg.role !== 'assistant') return msg.content;
                     if (msg.streaming) {
-                      return msg.content.replace(/<(proposal|section-update)[^>]*>[\s\S]*$/, '').trim();
+                      return msg.content.replace(/<(slides|proposal|section-update)[^>]*>[\s\S]*$/, '').trim();
                     }
                     return msg.content
                       .replace(/<text-replace\b[^>]*?\/?>/gi, '')
                       .replace(/<\/?(?:proposal|section-update)\b[^>]*>/gi, '')
+                      // Defense-in-depth: raw artifact/full-document markup must
+                      // never render as a chat bubble even if the backend leaks
+                      // it — strip from the first such marker to end of message.
+                      .replace(/<(?:slides|!DOCTYPE|html|proposal|document)\b[\s\S]*$/i, '')
                       .replace(/\n{3,}/g, '\n\n')
                       .trim();
                   })();
