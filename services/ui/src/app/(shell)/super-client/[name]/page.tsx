@@ -1954,7 +1954,23 @@ export default function SuperClientPage() {
   }
 
   function computeSrcDoc(html: string, forEditMode = editModeActive): string {
-    const normalized = normalizeMicrositeHtml(html);
+    let normalized = normalizeMicrositeHtml(html);
+    // Presentation decks (16:9 / 9:16, detected by their baked constraint style) must
+    // render ONLY their slide sections. Older generations emitted a logo strip before
+    // slide 1, which shows as stray chrome escaping above the first slide in the viewer
+    // and breaks one-page-per-slide PDF pagination. Hide any non-section element that
+    // precedes a slide; the :has(~) guard leaves runtime-appended nodes (edit-bridge
+    // overlays after the last section) untouched. Newly generated decks carry this rule
+    // in their own constraints — this covers decks saved before the rule existed.
+    if (normalized.includes('__pdf-slide-constraints__') && !normalized.includes('__pdf-chrome-hide')) {
+      const chromeHide =
+        '<style id="__pdf-chrome-hide">*:has(>[data-section-id])>*:not([data-section-id]):not(script):not(style):not(link):not(meta):has(~[data-section-id]){display:none!important;}</style>';
+      const bodyClose = normalized.lastIndexOf('</body>');
+      normalized =
+        bodyClose !== -1
+          ? normalized.slice(0, bodyClose) + chromeHide + normalized.slice(bodyClose)
+          : normalized + chromeHide;
+    }
     return forEditMode ? injectBridgeScript(normalized) : normalized;
   }
 
