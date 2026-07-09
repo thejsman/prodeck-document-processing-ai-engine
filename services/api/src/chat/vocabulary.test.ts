@@ -3,6 +3,7 @@ import {
   MICROSITE_ARTIFACT,
   PROPOSAL_ARTIFACT,
   isBareArtifactRequest,
+  isBareGenerationRequest,
   isMicrositeRequest,
   strippedRemainder,
 } from './vocabulary.js';
@@ -116,5 +117,50 @@ describe('strippedRemainder', () => {
   });
   it('returns empty for a bare request', () => {
     expect(strippedRemainder('make a microsite', MICROSITE_ARTIFACT)).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bare GENERATION request detection (context-readiness gate)
+// ---------------------------------------------------------------------------
+
+describe('isBareGenerationRequest', () => {
+  const BARE = [
+    'create proposal',
+    'create a proposal',
+    'draft a proposal for them',
+    'make me a presentation',
+    'generate a pitch deck',
+    'write a document',
+    'whip up a report',
+    'Yes, create a proposal', // resume-after-clarify chip
+    'Yes, create a presentation',
+    'yes create it',
+    'sure, go ahead',
+  ];
+  for (const msg of BARE) {
+    it(`"${msg}" is bare`, () => {
+      expect(isBareGenerationRequest(msg)).toBe(true);
+    });
+  }
+
+  const NOT_BARE = [
+    'create a proposal for a $50k website redesign',
+    'draft a proposal covering the Q3 rollout',
+    'create a proposal for their mobile app, 3 phases, React Native',
+    'make a presentation about our onboarding flow',
+    'write a document on the migration timeline',
+  ];
+  for (const msg of NOT_BARE) {
+    it(`"${msg}" is not bare`, () => {
+      expect(isBareGenerationRequest(msg)).toBe(false);
+    });
+  }
+
+  it('a matched skill trigger counts as part of the artifact ("create a marketing brief")', () => {
+    expect(isBareGenerationRequest('create a marketing brief', ['marketing brief'])).toBe(true);
+  });
+  it('skill trigger plus real detail is not bare', () => {
+    expect(isBareGenerationRequest('create a marketing brief for the summer campaign', ['marketing brief'])).toBe(false);
   });
 });

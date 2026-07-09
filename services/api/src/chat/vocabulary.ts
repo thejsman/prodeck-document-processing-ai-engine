@@ -71,6 +71,27 @@ export const MICROSITE_ARTIFACT = new RegExp(
 /** Matches the bare word "proposal" (singular — plural leans towards "list proposals"). */
 export const PROPOSAL_ARTIFACT = /\bproposal\b/i;
 
+/** Presentation/deck nouns — used for "bare artifact" detection (mirrors the pptx vocabulary). */
+export const PRESENTATION_ARTIFACT = /\b(pitch\s+decks?|slide\s*decks?|presentations?|keynote|decks?|slides?|pptx?)\b/i;
+
+/** Generic document nouns — used only for bare-generation detection. */
+export const DOCUMENT_ARTIFACT = /\b(documents?|docs?|reports?|briefs?|one[\s-]?pagers?|write[\s-]?ups?)\b/i;
+
+/**
+ * A create/produce verb — the primary signal that a message is a generation
+ * request. Includes informal synonyms ("whip up", "spin up") and transform
+ * leads ("turn/convert ... into ...") so common phrasings keep the fast,
+ * free, high-confidence path instead of falling through to the LLM.
+ *
+ * A bare transform verb without an artifact ("turn left", "we should convert
+ * more leads") is harmless: `explicitGenerationIntent` only generates when it
+ * also finds an artifact, otherwise it returns null and the message goes to the
+ * LLM. Typos are NOT handled here on purpose — fuzzy/deterministic matching is
+ * brittle and prone to false positives. Mis-typed requests ("propsal") are
+ * absorbed by the LLM classifier, which is naturally typo-robust.
+ */
+export const CREATE_VERB = /\b(generate|create|make|build|write|draft|produce|prepare|design|compose|put\s+together|whip\s+(?:up|together)|throw\s+together|knock\s+out|spin\s+up|mock\s+up|cook\s+up|work\s+up|pull\s+together|draw\s+up|turn|convert|transform|repurpose|rework)\b/i;
+
 // ---------------------------------------------------------------------------
 // "Bare request" detection
 // ---------------------------------------------------------------------------
@@ -108,4 +129,54 @@ export function strippedRemainder(message: string, artifact: RegExp): string {
  */
 export function isBareArtifactRequest(message: string, artifact: RegExp): boolean {
   return artifact.test(message) && strippedRemainder(message, artifact).length === 0;
+}
+
+// ---------------------------------------------------------------------------
+// Bare GENERATION request detection (context-readiness gate)
+// ---------------------------------------------------------------------------
+
+// Affirmations a user sends to confirm a pending clarification ("Yes, create a
+// proposal"). Stripped ONLY by isBareGenerationRequest — deliberately NOT added
+// to FILLER_TOKENS, which would change isBareArtifactRequest behaviour for the
+// microsite/presentation clarify paths.
+const AFFIRMATION_TOKENS = new Set<string>([
+  'yes', 'yeah', 'yep', 'yup', 'sure', 'confirm', 'confirmed', 'proceed',
+  'ahead', 'go', 'them', 'their', 'it',
+]);
+
+/**
+ * True when a generation request carries no requirement context of its own —
+ * i.e. after removing create verbs, every known artifact noun (proposal,
+ * presentation, document, microsite), any extra phrases (e.g. the matched
+ * document skill's trigger phrases), fillers, and affirmations, nothing
+ * meaningful remains. "create proposal" and "Yes, create a presentation" are
+ * bare; "create a proposal for a $50k website redesign" is not.
+ *
+ * Used by the super-client chat readiness gate: a bare request against a
+ * client with NO stored context (context.md / memory / ingested docs) is
+ * declined with guidance instead of hallucinating a generic artifact.
+ */
+export function isBareGenerationRequest(message: string, extraPhrases?: string[]): boolean {
+  // Multi-word extra phrases (skill triggers like "marketing brief") must be
+  // stripped BEFORE the generic artifact nouns — otherwise DOCUMENT_ARTIFACT
+  // removes "brief" first and the phrase no longer matches, leaving
+  // "marketing" as a false remainder.
+  let scrubbed = message;
+  for (const phrase of extraPhrases ?? []) {
+    const escaped = phrase.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ +/g, '\\s+');
+    if (escaped) scrubbed = scrubbed.replace(new RegExp(`\\b${escaped}\\b`, 'gi'), ' ');
+  }
+  scrubbed = scrubbed
+    .replace(new RegExp(CREATE_VERB.source, 'gi'), ' ')
+    .replace(new RegExp(PROPOSAL_ARTIFACT.source, 'gi'), ' ')
+    .replace(new RegExp(PRESENTATION_ARTIFACT.source, 'gi'), ' ')
+    .replace(new RegExp(DOCUMENT_ARTIFACT.source, 'gi'), ' ')
+    .replace(new RegExp(MICROSITE_ARTIFACT.source, 'gi'), ' ');
+  const remainder = scrubbed
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length > 0 && !FILLER_TOKENS.has(t) && !AFFIRMATION_TOKENS.has(t))
+    .join(' ');
+  return remainder.length === 0;
 }
