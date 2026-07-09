@@ -2,11 +2,17 @@ import { mkdir, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply, FastifyBaseLogger } from 'fastify';
-import { llmGenerateFn } from './agent-routes.js';
+import { llmGenerateFn, withLlmTemperature } from './agent-routes.js';
 import { fetchPexelsImageUrl } from './image-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
 import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
-import { readOrgContextSettings, resolveVoiceBlock, superClientWorkdir, getMimeType } from '@ai-engine/runtime';
+import {
+  readOrgContextSettings,
+  resolveVoiceBlock,
+  resolveDesignKit,
+  superClientWorkdir,
+  getMimeType,
+} from '@ai-engine/runtime';
 import { findBestDocumentSkill, loadSkill, formatSkillForSlides, listSkills } from './skills/skill.service.js';
 import { saveDocumentDirect, getDocumentContent, getDocumentMeta } from './documents/document-generator.js';
 import { parseRequestedFormat, detectPresentationIntent, detectSlideOrientation } from './documents/format-detector.js';
@@ -29,10 +35,7 @@ const PREVIEW_INJECTION_IDS = [
 function stripPreviewInjections(html: string): string {
   let out = html;
   for (const id of PREVIEW_INJECTION_IDS) {
-    out = out.replace(
-      new RegExp(`<(?:style|script)[^>]*\\bid="${id}"[\\s\\S]*?</(?:style|script)>\\s*`, 'g'),
-      '',
-    );
+    out = out.replace(new RegExp(`<(?:style|script)[^>]*\\bid="${id}"[\\s\\S]*?</(?:style|script)>\\s*`, 'g'), '');
   }
   return out;
 }
@@ -40,13 +43,13 @@ function stripPreviewInjections(html: string): string {
 // Strip constructs that would render source code as visible text in the microsite.
 // Called on every LLM response before it is written into customHtml.
 function sanitizeHtmlOutput(html: string): string {
-  return html
-    // Embedded markdown code fence blocks inside HTML body → remove entirely
-    .replace(/```(?:html|css|js|javascript|typescript|text|xml)?\s*\r?\n([\s\S]*?)\r?\n```/g, '')
-    // <pre> blocks containing HTML entities (escaped HTML/CSS/JS code) → remove
-    .replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/gi, (match) =>
-      /&lt;|&gt;|&amp;lt;/.test(match) ? '' : match,
-    );
+  return (
+    html
+      // Embedded markdown code fence blocks inside HTML body → remove entirely
+      .replace(/```(?:html|css|js|javascript|typescript|text|xml)?\s*\r?\n([\s\S]*?)\r?\n```/g, '')
+      // <pre> blocks containing HTML entities (escaped HTML/CSS/JS code) → remove
+      .replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/gi, (match) => (/&lt;|&gt;|&amp;lt;/.test(match) ? '' : match))
+  );
 }
 
 // Strip markdown fences and leading/trailing prose from an LLM HTML response.
@@ -85,8 +88,24 @@ async function findChromeBinary(): Promise<string | null> {
   for (const v of versions.sort().reverse()) {
     const candidates = [
       // macOS
-      path.join(cacheDir, v, 'chrome-mac-x64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
-      path.join(cacheDir, v, 'chrome-mac-arm64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+      path.join(
+        cacheDir,
+        v,
+        'chrome-mac-x64',
+        'Google Chrome for Testing.app',
+        'Contents',
+        'MacOS',
+        'Google Chrome for Testing',
+      ),
+      path.join(
+        cacheDir,
+        v,
+        'chrome-mac-arm64',
+        'Google Chrome for Testing.app',
+        'Contents',
+        'MacOS',
+        'Google Chrome for Testing',
+      ),
       // Linux
       path.join(cacheDir, v, 'chrome-linux64', 'chrome'),
       path.join(cacheDir, v, 'chrome-linux', 'chrome'),
@@ -95,7 +114,9 @@ async function findChromeBinary(): Promise<string | null> {
       try {
         await stat(candidate);
         return candidate;
-      } catch { /* try next */ }
+      } catch {
+        /* try next */
+      }
     }
   }
   return null;
@@ -282,7 +303,9 @@ async function updateDocumentContent(
     const idx = index.findIndex((e) => e['id'] === id);
     if (idx !== -1) index[idx] = { ...index[idx], updatedAt: updatedMeta.updatedAt };
     await writeFile(indexPath, JSON.stringify(index, null, 2), 'utf-8');
-  } catch { /* index update is best-effort */ }
+  } catch {
+    /* index update is best-effort */
+  }
   return updatedMeta;
 }
 
@@ -294,7 +317,8 @@ async function updateProposal(dir: string, fileName: string, title: string, cont
   const entry: ScProposal = { fileName, title, savedAt: updatedAt };
   const existing = await readProposals(dir);
   const idx = existing.findIndex((p) => p.fileName === fileName);
-  if (idx !== -1) existing[idx] = entry; else existing.unshift(entry);
+  if (idx !== -1) existing[idx] = entry;
+  else existing.unshift(entry);
   await writeFile(path.join(dir, 'proposals.json'), JSON.stringify(existing, null, 2));
 
   return entry;
@@ -310,9 +334,7 @@ function stripProposalTag(text: string): string {
   return text.replace(/<proposal\s+title="[^"]*">[\s\S]*?<\/proposal>/i, '').trim();
 }
 
-function extractDocumentTag(
-  text: string,
-): { title: string; type: string; format: string; content: string } | null {
+function extractDocumentTag(text: string): { title: string; type: string; format: string; content: string } | null {
   const match = text.match(
     /<document\s+title="([^"]+)"(?:\s+type="([^"]*)")?(?:\s+format="([^"]*)")?>([\s\S]*?)<\/document>/i,
   );
@@ -368,7 +390,9 @@ async function saveSlide(
   try {
     const raw = await readFile(path.join(dir, 'slides.json'), 'utf-8');
     index = JSON.parse(raw) as SavedSlide[];
-  } catch { /* first slide */ }
+  } catch {
+    /* first slide */
+  }
   index.unshift(entry);
   await writeFile(path.join(dir, 'slides.json'), JSON.stringify(index, null, 2));
 
@@ -415,12 +439,38 @@ const TONE_PATTERNS = [
 ];
 
 const TONE_WORDS = new Set([
-  'casual', 'informal', 'friendly', 'warm', 'conversational', 'relaxed',
-  'formal', 'professional', 'corporate', 'serious', 'authoritative', 'assertive',
-  'confident', 'direct', 'concise', 'aggressive', 'bold',
-  'consultative', 'empathetic', 'collaborative', 'inclusive',
-  'enthusiastic', 'energetic', 'passionate', 'neutral', 'objective',
-  'technical', 'simple', 'plain', 'persuasive', 'compelling', 'playful',
+  'casual',
+  'informal',
+  'friendly',
+  'warm',
+  'conversational',
+  'relaxed',
+  'formal',
+  'professional',
+  'corporate',
+  'serious',
+  'authoritative',
+  'assertive',
+  'confident',
+  'direct',
+  'concise',
+  'aggressive',
+  'bold',
+  'consultative',
+  'empathetic',
+  'collaborative',
+  'inclusive',
+  'enthusiastic',
+  'energetic',
+  'passionate',
+  'neutral',
+  'objective',
+  'technical',
+  'simple',
+  'plain',
+  'persuasive',
+  'compelling',
+  'playful',
 ]);
 
 /**
@@ -429,10 +479,7 @@ const TONE_WORDS = new Set([
  * Checks the current message first (highest recency), then walks back through
  * the last 5 user turns so a tone set earlier in the conversation still wins.
  */
-function detectToneOverride(
-  currentMessage: string,
-  history: Array<{ role: string; content: string }>,
-): string | null {
+function detectToneOverride(currentMessage: string, history: Array<{ role: string; content: string }>): string | null {
   const recentUserMessages = history
     .filter((h) => h.role === 'user')
     .slice(-5)
@@ -450,10 +497,7 @@ function detectToneOverride(
   return null;
 }
 
-function patchProposalSections(
-  original: string,
-  updates: Array<{ heading: string; content: string }>,
-): string {
+function patchProposalSections(original: string, updates: Array<{ heading: string; content: string }>): string {
   const lines = original.split('\n');
   const sections: Array<{ heading: string; bodyLines: string[] }> = [];
   let cur: { heading: string; bodyLines: string[] } = { heading: '', bodyLines: [] };
@@ -469,11 +513,20 @@ function patchProposalSections(
   sections.push(cur);
 
   const updateMap = new Map(
-    updates.map((u) => [u.heading.replace(/^#+\s*/, '').toLowerCase().trim(), u]),
+    updates.map((u) => [
+      u.heading
+        .replace(/^#+\s*/, '')
+        .toLowerCase()
+        .trim(),
+      u,
+    ]),
   );
 
   const patched = sections.map((s) => {
-    const key = s.heading.replace(/^#+\s*/, '').toLowerCase().trim();
+    const key = s.heading
+      .replace(/^#+\s*/, '')
+      .toLowerCase()
+      .trim();
     const update = updateMap.get(key);
     if (update) {
       return [update.heading || s.heading, update.content].filter(Boolean).join('\n');
@@ -516,7 +569,9 @@ async function extractFileToMemory(
   try {
     let text = '';
     if (fileName.endsWith('.pdf')) {
-      const { default: pdfParse } = await import('pdf-parse') as { default: (buf: Buffer) => Promise<{ text: string }> };
+      const { default: pdfParse } = (await import('pdf-parse')) as {
+        default: (buf: Buffer) => Promise<{ text: string }>;
+      };
       const buf = await readFile(filePath);
       const parsed = await pdfParse(buf);
       text = parsed.text;
@@ -584,7 +639,13 @@ Return ONLY valid JSON (null for fields not found in the document):
     await memService.removeKnowledgeByDocument(clientSlug, fileName);
     for (const k of extracted.knowledge ?? []) {
       if (k.content?.trim()) {
-        await memService.addKnowledge(clientSlug, k.content, k.category as ClientKnowledgeEntry['category'], k.confidence ?? 0.7, fileName);
+        await memService.addKnowledge(
+          clientSlug,
+          k.content,
+          k.category as ClientKnowledgeEntry['category'],
+          k.confidence ?? 0.7,
+          fileName,
+        );
       }
     }
     for (const s of extracted.stakeholders ?? []) {
@@ -699,11 +760,7 @@ Return ONLY valid JSON (empty arrays if nothing notable):
       if (!content) continue;
       const confidence = k.confidence ?? 0.7;
       // Reject low-confidence guesses, hedged phrasing, and anything we already know.
-      if (
-        confidence < MEMORY_MIN_CONFIDENCE ||
-        HEDGE_PATTERN.test(content) ||
-        knownNorm.has(content.toLowerCase())
-      ) {
+      if (confidence < MEMORY_MIN_CONFIDENCE || HEDGE_PATTERN.test(content) || knownNorm.has(content.toLowerCase())) {
         skipped++;
         continue;
       }
@@ -725,10 +782,7 @@ Return ONLY valid JSON (empty arrays if nothing notable):
       }
     }
 
-    log.info(
-      { clientSlug, knowledgeAdded, stakeholdersAdded, skipped },
-      '[SuperClient] Memory distillation complete',
-    );
+    log.info({ clientSlug, knowledgeAdded, stakeholdersAdded, skipped }, '[SuperClient] Memory distillation complete');
     return { knowledgeAdded, stakeholdersAdded, skipped };
   } catch (err) {
     log.warn({ err }, '[SuperClient] Memory distillation failed — chat unaffected');
@@ -795,7 +849,12 @@ Return ONLY valid JSON (null for fields not found):
     if (sf.contactName?.trim()) await memService.updateField(name, 'contactName', sf.contactName.trim());
     for (const k of extracted.knowledge ?? []) {
       if (k.content?.trim()) {
-        await memService.addKnowledge(name, k.content, k.category as ClientKnowledgeEntry['category'], k.confidence ?? 0.8);
+        await memService.addKnowledge(
+          name,
+          k.content,
+          k.category as ClientKnowledgeEntry['category'],
+          k.confidence ?? 0.8,
+        );
       }
     }
     for (const s of extracted.stakeholders ?? []) {
@@ -860,7 +919,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       if (s.isDirectory()) {
         return reply.code(409).send({ error: `Super client "${name}" already exists` });
       }
-    } catch { /* not found — proceed */ }
+    } catch {
+      /* not found — proceed */
+    }
 
     await mkdir(dir, { recursive: true });
 
@@ -909,11 +970,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const dir = path.join(superClientsRoot, name);
 
     try {
-      const [meta, contextMd, history] = await Promise.all([
-        readMeta(dir),
-        readContext(dir),
-        readHistory(dir),
-      ]);
+      const [meta, contextMd, history] = await Promise.all([readMeta(dir), readContext(dir), readHistory(dir)]);
       return reply.send({ meta, contextMd, history });
     } catch {
       return reply.code(404).send({ error: `Super client "${name}" not found` });
@@ -963,7 +1020,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
     });
 
@@ -974,16 +1031,21 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         if (typeof d.text === 'string') d.text = stripDashes(d.text);
         if (typeof d.message === 'string') d.message = stripDashes(d.message);
       }
-      try { reply.raw.write(`data: ${JSON.stringify(data)}\n\n`); } catch { /* client gone */ }
+      try {
+        reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+      } catch {
+        /* client gone */
+      }
     };
 
     try {
-      const [contextMd, history, memResult, scFiles, authorVoiceBlock, orgSettings] = await Promise.all([
+      const [contextMd, history, memResult, scFiles, authorVoiceBlock, designKit, orgSettings] = await Promise.all([
         readContext(dir),
         readHistory(dir),
         new ClientMemoryService(workdir).prepopulate(name),
         readScFiles(dir),
         resolveVoiceBlock(workdir, superClientWorkdir(workdir, name)),
+        resolveDesignKit(workdir, superClientWorkdir(workdir, name)),
         readOrgContextSettings(workdir),
       ]);
 
@@ -1064,7 +1126,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           return;
         }
         if (decision.intent === 'clarify') {
-          const text = decision.clarifyingQuestion ?? `Just to confirm, what would you like me to do for ${meta.displayName}?`;
+          const text =
+            decision.clarifyingQuestion ?? `Just to confirm, what would you like me to do for ${meta.displayName}?`;
           const options = decision.clarifyOptions ?? [];
           // Carry ONLY a deterministically-matched skill into the pending marker
           // (never the LLM's guess) so a confirmed resume can't re-apply a skill
@@ -1089,9 +1152,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           return;
         }
         if (decision.intent === 'generate_microsite') {
-          const text = proposalsList.length > 0
-            ? 'Pick a proposal below to generate its microsite.'
-            : `You'll need a proposal first, ask me to generate one for ${meta.displayName}, then I can turn it into a microsite.`;
+          const text =
+            proposalsList.length > 0
+              ? 'Pick a proposal below to generate its microsite.'
+              : `You'll need a proposal first, ask me to generate one for ${meta.displayName}, then I can turn it into a microsite.`;
           // Microsites are built by selecting a proposal in the composer (backend
           // can't generate them). Signal the UI to open the proposal selector
           // instead of leaving a dangling "pick a proposal below" text with no picker.
@@ -1124,9 +1188,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
                 memResult.stakeholders.length > 0));
           if (!hasStoredContext && isBareGenerationRequest(message, matchedDocumentSkill?.triggers)) {
             const artifactLabel =
-              decision.intent === 'generate_proposal' ? 'proposal'
-              : decision.intent === 'generate_presentation' ? 'presentation'
-              : 'document';
+              decision.intent === 'generate_proposal'
+                ? 'proposal'
+                : decision.intent === 'generate_presentation'
+                  ? 'presentation'
+                  : 'document';
             const text = `I don't have any context for ${meta.displayName} yet, so anything I draft would be generic. Add notes in the Context tab, upload documents (briefs, transcripts, emails), or describe the project in your message — e.g. "create a ${artifactLabel} for their website redesign, 3 phases, $50k budget" — and I'll draft from that.`;
             await streamAssistant(text);
             await persistTurn(text);
@@ -1142,7 +1208,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // reload allowed is for a rule-sourced decision: a resumed clarification ("yes
       // go ahead"), whose reply text matches no skill but whose pending marker
       // carries the skill that WAS deterministically matched on the original request.
-      if (!isEdit && decision?.source === 'rule' && decision?.skillSlug && matchedDocumentSkill?.slug !== decision.skillSlug) {
+      if (
+        !isEdit &&
+        decision?.source === 'rule' &&
+        decision?.skillSlug &&
+        matchedDocumentSkill?.slug !== decision.skillSlug
+      ) {
         try {
           const loaded = await loadSkill(workdir, decision.skillSlug);
           matchedDocumentSkill = loaded.skill;
@@ -1156,7 +1227,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // Presentation mode is now an OUTPUT of the intent gate (not raw regex). For
       // edits, preserve the historical detection so live edits are unaffected.
       const isPresentationRequest = isEdit
-        ? (matchedDocumentSkill?.slug === 'presentation' || detectPresentationIntent(message))
+        ? matchedDocumentSkill?.slug === 'presentation' || detectPresentationIntent(message)
         : decision?.intent === 'generate_presentation';
       // When the gate resolved to a conversational answer, tell the generator not
       // to emit an artifact for this turn.
@@ -1170,78 +1241,110 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const isPortrait = slideOrientation === 'portrait';
       const slideAspect = isPortrait ? '9/16' : '16/9';
       const slideHeightNote = isPortrait ? 'height = 177.78vw' : 'height = 56.25vw';
-      const portraitDesignNote =
-        `- PORTRAIT FORMAT (9:16): every slide is tall and narrow like a phone screen / story frame. Stack content vertically with generous spacing; prefer justify-content:space-between or flex-start over always centering. Keep one focused idea per slide, oversized headlines, and design for a vertical mobile reading experience.`;
+      const portraitDesignNote = `- PORTRAIT FORMAT (9:16): every slide is tall and narrow like a phone screen / story frame. Stack content vertically with generous spacing; prefer justify-content:space-between or flex-start over always centering. Keep one focused idea per slide, oversized headlines, and design for a vertical mobile reading experience.`;
+
+      // Fresh microsite generation only (never edits — those must stay precise and
+      // reproducible). Drives both the per-generation art direction and the raised
+      // sampling temperature below.
+      const isMicrositeGeneration = !isEdit && decision?.intent === 'generate_presentation';
+
+      // Per-generation art direction — the deck framing is otherwise identical every
+      // run, which (at temperature 0) made every microsite converge on the same
+      // default aesthetic. Picking a distinct creative lens each time forces variety
+      // ACROSS decks. It is a starting lens, not a content constraint — the model
+      // still adapts it to the client's industry and brand.
+      const ART_DIRECTIONS: string[] = [
+        `ART DIRECTION FOR THIS DECK — EDITORIAL / MAGAZINE: treat each slide like a spread in a high-end print magazine. Strong typographic hierarchy, a real grid, pull-quotes, generous margins, refined serif or serif+grotesque pairing, restrained accent colour.`,
+        `ART DIRECTION FOR THIS DECK — SWISS / INTERNATIONAL MINIMAL: rigorous grid, a single confident sans-serif, lots of white space, precise alignment, one accent colour used sparingly, information-first with quiet elegance.`,
+        `ART DIRECTION FOR THIS DECK — BOLD BRUTALIST: raw, high-contrast, oversized type, hard edges, visible structure, unexpected asymmetry, mono or grotesque type, deliberate tension. Confident and loud, never messy.`,
+        `ART DIRECTION FOR THIS DECK — DARK CINEMATIC / PREMIUM: deep dark backgrounds, dramatic lighting and depth, luminous accents, spacious composition, elegant contrast, a premium high-trust mood.`,
+        `ART DIRECTION FOR THIS DECK — GEOMETRIC / BAUHAUS: primary shapes, bold geometry, blocky colour fields, strong diagonals, playful-yet-structured composition, functional clarity.`,
+        `ART DIRECTION FOR THIS DECK — WARM ORGANIC / SOFT: rounded forms, soft shadows, warm approachable palette, friendly humanist type, gentle gradients, generous curves — inviting and human.`,
+        `ART DIRECTION FOR THIS DECK — DATA-DRIVEN / DASHBOARD: crisp, structured, metric-forward. Confident numbers, clean charts/stat blocks, tight modular cards, technical-but-refined type — reads as authoritative and precise.`,
+        `ART DIRECTION FOR THIS DECK — LUXURY / REFINED: understated opulence, elegant serif display type, fine hairline rules, muted sophisticated palette with a metallic or jewel accent, lots of breathing room.`,
+      ];
+      const artDirection = isMicrositeGeneration
+        ? ART_DIRECTIONS[Math.floor(Math.random() * ART_DIRECTIONS.length)]
+        : null;
 
       // Build combined prompt — llmGenerateFn takes a single string and routes through
       // the Python LLM bridge which respects LLM_PROVIDER / provider-specific model config.
-      const promptParts: string[] = isPresentationRequest ? [
-        // ── PRESENTATION MODE — no proposal/document rules ──────────────────
-        // Deliberately minimal: the ONLY fixed rules are the technical frame that
-        // lets the deck render/save (scroll layout, slide box, aspect ratio, 8px
-        // gap, self-contained-enough HTML) plus quality guardrails (no broken
-        // words, diverse slides). EVERYTHING visual — background, colour,
-        // typography, layout, shadows — is the designer's invention. Do not
-        // reintroduce prescriptive design rules or an example deck here; that is
-        // what made every deck look the same.
-        `You are a world-class senior UI, brand, and product designer creating a bespoke slide presentation for a team that manages the client "${meta.displayName}".`,
-        ``,
-        `Read the client context, ingested documents, and memory below and infer this client's industry, brand, and audience. Then design a visual language that genuinely fits THEM — a fintech or consulting client wants refined, restrained, high-trust design; a consumer or creative brand wants bold, expressive, unexpected design. Every deck you make should look custom-designed for this specific client, not like a template. Aim for award-winning, magazine-grade craft: intentional typography, confident use of colour and space, and real visual hierarchy.`,
-        ``,
-        `NEVER ask the user to re-upload files listed in the Ingested Documents section — their content is already extracted into memory below.`,
-        ``,
-        `SLIDES GENERATION RULE — this is the ONLY output format for this request:`,
-        `Output ONE complete standalone HTML document wrapped in <slides>...</slides>. Do NOT use <proposal> or <document> tags. Do NOT output markdown.`,
-        ``,
-        `You have FULL creative freedom over the visual design. The following are the ONLY hard rules — everything else is yours to invent:`,
-        `- Full HTML document: <!DOCTYPE html> … </html>, with a <title> = the presentation title.`,
-        `- VERTICAL SCROLL DECK: every slide stacks top-to-bottom in one scrollable page and is always visible. No JS navigation, visibility toggling, click zones, keyboard nav, or slide transitions — scrolling is the only navigation.`,
-        `- Give every slide element the class "slide", each width:100% and aspect-ratio:${slideAspect} (${slideHeightNote}). Wrap all slides in a single container div with class "deck" (display:flex; flex-direction:column).`,
-        `- Gap between slides: exactly 8px.`,
-        `- Each slide is a self-contained box. Keep every slide's content inside its own slide — nothing may overflow into or overlap the slide before or after it. Within a single slide you MAY use position:absolute to layer and compose freely (the slide clips its own overflow).`,
-        `- Inline the deck's own CSS and JS. You MAY load external web fonts (e.g. Google Fonts via <link>) and remote images / icons / CDNs for polish — always include a system-font fallback in every font-family stack so the deck still looks intentional if a font fails to load.`,
-        `- NEVER break a single word across two lines. Do NOT use word-break:break-all, overflow-wrap:break-word/anywhere, or hyphens. Text wraps only at spaces; if a word would overflow, reduce its font-size or widen the column — never split or clip it.`,
-        `- Make every slide visually distinct. No two slides should share the same layout.`,
-        ...(isPortrait ? [portraitDesignNote] : []),
-        ``,
-        `CONTENT:`,
-        `- Draw ALL facts from client context, ingested documents, and conversation. Never invent facts.`,
-        `- Slide titles are insights, not labels — "Revenue grew 3× in 12 months" beats "Revenue Growth".`,
-        `- Use the slide count the user specified, or 10–12 if not mentioned.`,
-        ``,
-        `Output: ONLY the <slides>...</slides> tag with the full HTML document inside. After the tag, write ONE plain sentence (MAX 25 words) describing only WHAT the deck covers — the subject and message — as if telling a colleague over the phone. It must contain NO visual or design detail. BANNED words: slide, deck, 16:9, cover, hero, headline, panel, grid, card, column, CTA, footer, bar, layout, SVG, palette, and every colour name. Example: "A quick overview of your services and why clients trust you, ending with an invitation to book a consultation."`,
-      ] : [
-        // ── STANDARD MODE — proposal + document rules ────────────────────────
-        `You are a senior business development consultant and proposal strategist with 20+ years of experience crafting winning proposals across diverse industries. You are working on behalf of a team that manages the client "${meta.displayName}".`,
-        ``,
-        `For general questions: respond concisely with strategic insight. Stay focused on this client's world — their business, goals, audience, and brand.`,
-        ``,
-        `For proposals and formal documents: Write at a professional C-suite level. Use strong opening statements, evidence-based arguments, and compelling calls to action. Structure content with clear headings and purposeful body text — no filler, no generic statements. Draw exclusively from the client memory and ingested documents below; never invent facts not present in the context.`,
-        ``,
-        `NEVER ask the user to re-upload files listed in the Ingested Documents section — their content is already extracted into memory below.`,
-        ``,
-        `PROPOSAL GENERATION RULE: When the user asks you to create, write, generate, or draft a proposal (or any multi-section document), you MUST:`,
-        `1. Write the full proposal in rich markdown — use # for the title, ## for section headings, **bold** for key terms, bullet lists, and a clear authoritative narrative body under each heading.`,
-        `2. Wrap the ENTIRE proposal markdown inside a single XML tag like this:`,
-        `<proposal title="Descriptive Proposal Title Here">`,
-        `[full markdown content here]`,
-        `</proposal>`,
-        `3. Outside the tag, write ONE short, plain-language sentence telling the user what the proposal covers — its focus and the value it offers. Do not describe formatting or structure. Keep it simple and friendly.`,
-        `Do NOT put any explanation or preamble inside the tag — only the markdown proposal body.`,
-        ``,
-        `DOCUMENT GENERATION RULE: When the user asks you to write, create, generate, or draft any document that is NOT a proposal — such as a strategy document, blog post, marketing brief, executive report, press release, competitive analysis, case study, go-to-market plan, one-pager, compliance checklist, or any other standalone document — you MUST:`,
-        `1. Write the full document in rich markdown — use # for the title, ## for section headings, **bold** for key terms, and appropriate structure driven by the content type.`,
-        `2. Wrap the ENTIRE document markdown inside a single XML tag like this:`,
-        `<document title="Descriptive Document Title" type="inferred-type-slug" format="${detectedFormat ?? 'md'}">`,
-        `[full markdown content here]`,
-        `</document>`,
-        `   - title: a descriptive title for the document`,
-        `   - type: a lowercase kebab-case slug inferred from the document's purpose — use any slug that fits (e.g. "blog-post", "press-release", "case-study", "competitive-analysis", "onboarding-guide", "compliance-checklist", "go-to-market-plan") — no fixed list, choose freely`,
-        `   - format: ${detectedFormat ?? 'md'} (use exactly this value — detected from the user's request)`,
-        `3. Outside the tag, write ONE short, plain-language sentence telling the user what the document covers — its topic and main takeaway. Do not describe formatting or structure. Keep it simple and friendly.`,
-        `Do NOT put any explanation or preamble inside the tag — only the markdown document body.`,
-        `IMPORTANT: Use <proposal> for multi-section consulting proposals. Use <document> for text-based documents (blogs, strategy docs, reports, briefs).`,
-      ];
+      const promptParts: string[] = isPresentationRequest
+        ? [
+            // ── PRESENTATION MODE — no proposal/document rules ──────────────────
+            // Deliberately minimal: the ONLY fixed rules are the technical frame that
+            // lets the deck render/save (scroll layout, slide box, aspect ratio, 8px
+            // gap, self-contained-enough HTML) plus quality guardrails (no broken
+            // words, diverse slides). EVERYTHING visual — background, colour,
+            // typography, layout, shadows — is the designer's invention. Do not
+            // reintroduce prescriptive design rules or an example deck here; that is
+            // what made every deck look the same.
+            `You are a world-class senior UI, brand, and product designer creating a bespoke slide presentation for a team that manages the client "${meta.displayName}".`,
+            ``,
+            `Read the client context, ingested documents, and memory below and infer this client's industry, brand, and audience. Then design a visual language that genuinely fits THEM — a fintech or consulting client wants refined, restrained, high-trust design; a consumer or creative brand wants bold, expressive, unexpected design. Every deck you make should look custom-designed for this specific client, not like a template. Aim for award-winning, magazine-grade craft: intentional typography, confident use of colour and space, and real visual hierarchy.`,
+            ...(artDirection
+              ? [
+                  ``,
+                  artDirection,
+                  `Commit to this art direction across the whole deck, but bend it to fit the client — if it clashes with their industry or brand, adapt it rather than abandon coherence.`,
+                ]
+              : []),
+            ``,
+            `NEVER ask the user to re-upload files listed in the Ingested Documents section — their content is already extracted into memory below.`,
+            ``,
+            `SLIDES GENERATION RULE — this is the ONLY output format for this request:`,
+            `Output ONE complete standalone HTML document wrapped in <slides>...</slides>. Do NOT use <proposal> or <document> tags. Do NOT output markdown.`,
+            ``,
+            `You have FULL creative freedom over the visual design. The following are the ONLY hard rules — everything else is yours to invent:`,
+            `- Full HTML document: <!DOCTYPE html> … </html>, with a <title> = the presentation title.`,
+            `- VERTICAL SCROLL DECK: every slide stacks top-to-bottom in one scrollable page and is always visible. No JS navigation, visibility toggling, click zones, keyboard nav, or slide transitions — scrolling is the only navigation.`,
+            `- Give every slide element the class "slide", each width:100% and aspect-ratio:${slideAspect} (${slideHeightNote}). Wrap all slides in a single container div with class "deck" (display:flex; flex-direction:column).`,
+            `- Gap between slides: exactly 8px.`,
+            `- Each slide is a self-contained box. Keep every slide's content inside its own slide — nothing may overflow into or overlap the slide before or after it. Within a single slide you MAY use position:absolute to layer and compose freely (the slide clips its own overflow).`,
+            `- Inline the deck's own CSS and JS. You MAY load external web fonts (e.g. Google Fonts via <link>) and remote images / icons / CDNs for polish — always include a system-font fallback in every font-family stack so the deck still looks intentional if a font fails to load.`,
+            `- NEVER break a single word across two lines. Do NOT use word-break:break-all, overflow-wrap:break-word/anywhere, or hyphens. Text wraps only at spaces; if a word would overflow, reduce its font-size or widen the column — never split or clip it.`,
+            `- Make every slide visually distinct. No two slides should share the same layout.`,
+            ...(isPortrait ? [portraitDesignNote] : []),
+            ``,
+            `CONTENT:`,
+            `- Draw ALL facts from client context, ingested documents, and conversation. Never invent facts.`,
+            `- Slide titles are insights, not labels — "Revenue grew 3× in 12 months" beats "Revenue Growth".`,
+            `- Use the slide count the user specified, or 10–12 if not mentioned.`,
+            ``,
+            `Output: ONLY the <slides>...</slides> tag with the full HTML document inside. After the tag, write ONE plain sentence (MAX 25 words) describing only WHAT the deck covers — the subject and message — as if telling a colleague over the phone. It must contain NO visual or design detail. BANNED words: slide, deck, 16:9, cover, hero, headline, panel, grid, card, column, CTA, footer, bar, layout, SVG, palette, and every colour name. Example: "A quick overview of your services and why clients trust you, ending with an invitation to book a consultation."`,
+          ]
+        : [
+            // ── STANDARD MODE — proposal + document rules ────────────────────────
+            `You are a senior business development consultant and proposal strategist with 20+ years of experience crafting winning proposals across diverse industries. You are working on behalf of a team that manages the client "${meta.displayName}".`,
+            ``,
+            `For general questions: respond concisely with strategic insight. Stay focused on this client's world — their business, goals, audience, and brand.`,
+            ``,
+            `For proposals and formal documents: Write at a professional C-suite level. Use strong opening statements, evidence-based arguments, and compelling calls to action. Structure content with clear headings and purposeful body text — no filler, no generic statements. Draw exclusively from the client memory and ingested documents below; never invent facts not present in the context.`,
+            ``,
+            `NEVER ask the user to re-upload files listed in the Ingested Documents section — their content is already extracted into memory below.`,
+            ``,
+            `PROPOSAL GENERATION RULE: When the user asks you to create, write, generate, or draft a proposal (or any multi-section document), you MUST:`,
+            `1. Write the full proposal in rich markdown — use # for the title, ## for section headings, **bold** for key terms, bullet lists, and a clear authoritative narrative body under each heading.`,
+            `2. Wrap the ENTIRE proposal markdown inside a single XML tag like this:`,
+            `<proposal title="Descriptive Proposal Title Here">`,
+            `[full markdown content here]`,
+            `</proposal>`,
+            `3. Outside the tag, write ONE short, plain-language sentence telling the user what the proposal covers — its focus and the value it offers. Do not describe formatting or structure. Keep it simple and friendly.`,
+            `Do NOT put any explanation or preamble inside the tag — only the markdown proposal body.`,
+            ``,
+            `DOCUMENT GENERATION RULE: When the user asks you to write, create, generate, or draft any document that is NOT a proposal — such as a strategy document, blog post, marketing brief, executive report, press release, competitive analysis, case study, go-to-market plan, one-pager, compliance checklist, or any other standalone document — you MUST:`,
+            `1. Write the full document in rich markdown — use # for the title, ## for section headings, **bold** for key terms, and appropriate structure driven by the content type.`,
+            `2. Wrap the ENTIRE document markdown inside a single XML tag like this:`,
+            `<document title="Descriptive Document Title" type="inferred-type-slug" format="${detectedFormat ?? 'md'}">`,
+            `[full markdown content here]`,
+            `</document>`,
+            `   - title: a descriptive title for the document`,
+            `   - type: a lowercase kebab-case slug inferred from the document's purpose — use any slug that fits (e.g. "blog-post", "press-release", "case-study", "competitive-analysis", "onboarding-guide", "compliance-checklist", "go-to-market-plan") — no fixed list, choose freely`,
+            `   - format: ${detectedFormat ?? 'md'} (use exactly this value — detected from the user's request)`,
+            `3. Outside the tag, write ONE short, plain-language sentence telling the user what the document covers — its topic and main takeaway. Do not describe formatting or structure. Keep it simple and friendly.`,
+            `Do NOT put any explanation or preamble inside the tag — only the markdown document body.`,
+            `IMPORTANT: Use <proposal> for multi-section consulting proposals. Use <document> for text-based documents (blogs, strategy docs, reports, briefs).`,
+          ];
 
       // If the user has a proposal open, load it and inject into the prompt with two-mode editing rule
       let activeProposalContent: string | undefined;
@@ -1315,7 +1418,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       if (extractedFiles.length > 0) {
         promptParts.push(
           `\n## Ingested Documents\nThe following files have been uploaded and their full content is extracted into memory below:\n` +
-          extractedFiles.map((f) => `- ${f.fileName}`).join('\n'),
+            extractedFiles.map((f) => `- ${f.fileName}`).join('\n'),
         );
       }
 
@@ -1336,8 +1439,44 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }
       }
 
-      if (memResult.found && (Object.keys(memResult.stableFields).length > 0 || memResult.knowledge.length > 0 || memResult.stakeholders.length > 0)) {
-        const memParts: string[] = ['\n## Accumulated Client Memory\nExtracted from ingested documents and prior conversations. Treat this as authoritative source material.'];
+      // Org-level Design Kit — VISUAL guidance only, presentation mode only.
+      // Injected as a soft brand anchor (NOT a mandate) so it nudges palette /
+      // typography toward the org's house style while preserving the designer's
+      // freedom to adapt to THIS client. Gated by the applyDesignKit toggle.
+      if (isMicrositeGeneration && orgSettings.applyDesignKit && designKit) {
+        const kitLines: string[] = [];
+        if (designKit.primaryColor) {
+          kitLines.push(
+            `- Preferred brand accent: ${designKit.primaryColor}. Use it as the primary accent unless this client's own brand clearly calls for something else.`,
+          );
+        }
+        if (designKit.palette?.length) {
+          kitLines.push(`- House palette to draw from: ${designKit.palette.join(', ')}.`);
+        }
+        if (designKit.fontHints?.length) {
+          kitLines.push(`- Typography leanings: ${designKit.fontHints.join(', ')}.`);
+        }
+        if (designKit.designBrief?.trim()) {
+          kitLines.push(`- Design brief: ${designKit.designBrief.trim()}`);
+        }
+        if (kitLines.length) {
+          promptParts.push(
+            `\n## Org Brand Design Kit (visual anchor — not a mandate)`,
+            `This org has a learned house style from past brand assets. Treat it as the starting point for the deck's visual language, then adapt it so the result still feels custom-designed for ${meta.displayName} and their industry. It informs color, palette, and typography only — never invent facts from it.`,
+            ...kitLines,
+          );
+        }
+      }
+
+      if (
+        memResult.found &&
+        (Object.keys(memResult.stableFields).length > 0 ||
+          memResult.knowledge.length > 0 ||
+          memResult.stakeholders.length > 0)
+      ) {
+        const memParts: string[] = [
+          '\n## Accumulated Client Memory\nExtracted from ingested documents and prior conversations. Treat this as authoritative source material.',
+        ];
 
         const sf = memResult.stableFields;
         const profileLines: string[] = [];
@@ -1352,7 +1491,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         if (memResult.stakeholders.length > 0) {
           memParts.push('\n### Key Stakeholders');
           for (const s of memResult.stakeholders) {
-            memParts.push(`- **${s.name}** (${s.role})${s.email ? ` — ${s.email}` : ''}${s.notes ? `: ${s.notes}` : ''}`);
+            memParts.push(
+              `- **${s.name}** (${s.role})${s.email ? ` — ${s.email}` : ''}${s.notes ? `: ${s.notes}` : ''}`,
+            );
           }
         }
         if (memResult.knowledge.length > 0) {
@@ -1379,7 +1520,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         matchedSkillInstructionsMd &&
         matchedDocumentSkill.outputFormats?.includes('pptx')
       ) {
-        const block = formatSkillForSlides(matchedDocumentSkill, matchedSkillInstructionsMd, matchedSkillSections ?? []);
+        const block = formatSkillForSlides(
+          matchedDocumentSkill,
+          matchedSkillInstructionsMd,
+          matchedSkillSections ?? [],
+        );
         if (block) promptParts.push(block);
       }
 
@@ -1396,7 +1541,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         pptx: 'FORMAT DIRECTIVE: The user wants a PowerPoint presentation. Write rich, well-structured content using natural headings (# Title, ## Section Name) and bullet points. Do NOT use "## Slide N:" numbering — the system automatically converts your structured content into beautifully designed slides using a visual layout engine. Focus on compelling, well-organised content.',
         docx: 'FORMAT DIRECTIVE: The user wants a Microsoft Word document. Use clean heading hierarchy (#, ##, ###), standard paragraphs, and bulleted lists. Avoid complex markdown tables — Word renders them poorly.',
         txt: 'FORMAT DIRECTIVE: The user wants plain text. Do NOT use any markdown syntax — no **, no #, no dashes for bullets, no backticks. Write in clear prose with section titles as plain uppercase labels followed by a colon.',
-        notion: 'FORMAT DIRECTIVE: The user wants Notion-compatible output. Use > blockquotes for callout blocks, --- horizontal dividers between major sections, and standard heading hierarchy (# ## ###).',
+        notion:
+          'FORMAT DIRECTIVE: The user wants Notion-compatible output. Use > blockquotes for callout blocks, --- horizontal dividers between major sections, and standard heading hierarchy (# ## ###).',
         pdf: 'FORMAT DIRECTIVE: The user wants a PDF. Use rich markdown — headings, bullets, **bold** key terms, blockquotes for callouts — it will be rendered and typeset to PDF.',
       };
       if (!isPresentationRequest && detectedFormat && detectedFormat !== 'md') {
@@ -1405,7 +1551,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
 
       if (isAnswerIntent) {
-        promptParts.push(`\nThe user is asking a question or making conversation — respond helpfully and concisely about ${meta.displayName}. Do NOT generate a proposal, document, or slides in this reply; just answer.`);
+        promptParts.push(
+          `\nThe user is asking a question or making conversation — respond helpfully and concisely about ${meta.displayName}. Do NOT generate a proposal, document, or slides in this reply; just answer.`,
+        );
       }
 
       promptParts.push(`\nUser: ${message}`);
@@ -1416,30 +1564,36 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // The intent gate's decision (not raw regex) determines whether this turn
       // produces an artifact, what type it is, and which skill shapes it. Edits
       // and conversational answers keep the legacy streaming behavior.
-      const isGenerationTurn = !isEdit && (
-        decision?.intent === 'generate_proposal' ||
-        decision?.intent === 'generate_document' ||
-        decision?.intent === 'generate_presentation'
-      );
+      const isGenerationTurn =
+        !isEdit &&
+        (decision?.intent === 'generate_proposal' ||
+          decision?.intent === 'generate_document' ||
+          decision?.intent === 'generate_presentation');
       const artifactType: 'slide' | 'proposal' | 'document' | undefined = !isGenerationTurn
         ? undefined
-        : decision!.intent === 'generate_presentation' ? 'slide'
-        : decision!.intent === 'generate_proposal' ? 'proposal'
-        : 'document';
+        : decision!.intent === 'generate_presentation'
+          ? 'slide'
+          : decision!.intent === 'generate_proposal'
+            ? 'proposal'
+            : 'document';
       // The skill is only "used" when its guidance is actually injected into the
       // prompt — mirror the injection gates above (presentation: pptx-capable;
       // document: standard-mode instructions present; proposal: none).
       const ackSkill =
-        artifactType === 'slide' && matchedDocumentSkill && matchedSkillInstructionsMd && matchedDocumentSkill.outputFormats?.includes('pptx')
+        artifactType === 'slide' &&
+        matchedDocumentSkill &&
+        matchedSkillInstructionsMd &&
+        matchedDocumentSkill.outputFormats?.includes('pptx')
           ? matchedDocumentSkill
           : artifactType === 'document' && matchedDocumentSkill && matchedSkillInstructionsMd
             ? matchedDocumentSkill
             : null;
-      const artifactLabel = artifactType === 'slide'
-        ? 'presentation'
-        : artifactType === 'proposal'
-          ? 'proposal'
-          : (ackSkill?.displayName ?? matchedDocumentSkill?.displayName ?? 'document').toLowerCase();
+      const artifactLabel =
+        artifactType === 'slide'
+          ? 'presentation'
+          : artifactType === 'proposal'
+            ? 'proposal'
+            : (ackSkill?.displayName ?? matchedDocumentSkill?.displayName ?? 'document').toLowerCase();
 
       // ── Acknowledgment + planning announcement ───────────────────────────
       // Acknowledge in chat BEFORE generating — naming the skill in use — so the
@@ -1453,20 +1607,22 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
         const countMatch = message.match(/\b(\d+)[\s\-]*(page|slide|screen)s?\b/i);
         const count = countMatch ? countMatch[1] : null;
-        const planText = artifactType === 'slide'
-          ? (count
+        const planText =
+          artifactType === 'slide'
+            ? count
               ? `Building a ${count}-slide presentation for ${meta.displayName}…`
-              : `Building a presentation for ${meta.displayName}…`)
-          : artifactType === 'proposal'
-            ? `Drafting a proposal for ${meta.displayName}…`
-            : `Writing a ${artifactLabel} for ${meta.displayName}…`;
+              : `Building a presentation for ${meta.displayName}…`
+            : artifactType === 'proposal'
+              ? `Drafting a proposal for ${meta.displayName}…`
+              : `Writing a ${artifactLabel} for ${meta.displayName}…`;
         send({
           type: 'planning',
           text: planText,
           artifactType,
           ...(ackSkill ? { skillSlug: ackSkill.slug, skillName: ackSkill.displayName } : {}),
-          genTitle: ackSkill?.displayName
-            ?? (artifactType === 'slide' ? 'Presentation' : artifactType === 'proposal' ? 'Proposal' : 'Document'),
+          genTitle:
+            ackSkill?.displayName ??
+            (artifactType === 'slide' ? 'Presentation' : artifactType === 'proposal' ? 'Proposal' : 'Document'),
         });
       }
 
@@ -1475,9 +1631,29 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // microsite generate-v2-stream route — a heartbeat cycles progress steps
       // to keep the UI's generation card alive while the model works.
       const HEARTBEAT_STEPS: Record<'slide' | 'proposal' | 'document', string[]> = {
-        slide: ['Reading client context…', 'Analyzing presentation requirements…', 'Structuring slides…', 'Writing slide content…', 'Applying design and layout…', 'Finalizing presentation…'],
-        proposal: ['Reading client context…', 'Analyzing requirements…', 'Drafting proposal sections…', 'Refining content…', 'Finalizing proposal…'],
-        document: ['Reading client context…', 'Researching topic…', 'Structuring document…', 'Writing sections…', 'Reviewing and refining…', 'Preparing document…'],
+        slide: [
+          'Reading client context…',
+          'Analyzing presentation requirements…',
+          'Structuring slides…',
+          'Writing slide content…',
+          'Applying design and layout…',
+          'Finalizing presentation…',
+        ],
+        proposal: [
+          'Reading client context…',
+          'Analyzing requirements…',
+          'Drafting proposal sections…',
+          'Refining content…',
+          'Finalizing proposal…',
+        ],
+        document: [
+          'Reading client context…',
+          'Researching topic…',
+          'Structuring document…',
+          'Writing sections…',
+          'Reviewing and refining…',
+          'Preparing document…',
+        ],
       };
       let hbTimer: ReturnType<typeof setInterval> | null = null;
       if (isGenerationTurn && artifactType) {
@@ -1491,10 +1667,16 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }, 6000);
       }
 
-      // Call provider-agnostic LLM bridge — respects LLM_PROVIDER + model config
+      // Call provider-agnostic LLM bridge — respects LLM_PROVIDER + model config.
+      // Fresh microsite generation runs at a raised temperature so decks vary
+      // between generations instead of collapsing onto one deterministic look
+      // (extraction/memory/edit calls keep the default temperature 0). All other
+      // turns are unchanged.
       let fullResponse: string;
       try {
-        fullResponse = await llmGenerateFn(combinedPrompt);
+        fullResponse = isMicrositeGeneration
+          ? await withLlmTemperature(0.7, () => llmGenerateFn(combinedPrompt))
+          : await llmGenerateFn(combinedPrompt);
       } finally {
         if (hbTimer) clearInterval(hbTimer);
       }
@@ -1599,7 +1781,6 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
                 (detectedFormat ?? documentMatch.format) as import('./skills/skill.types.js').OutputFormat,
                 documentMatch.content,
               );
-
             }
           } catch (err) {
             app.log.warn({ err }, '[SuperClient] Failed to save/update document');
@@ -1631,7 +1812,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
 
       // Persist turn to history.
-      const userTs      = new Date().toISOString();
+      const userTs = new Date().toISOString();
       const assistantTs = new Date(Date.now() + 1).toISOString();
       const editCtx = activeProposalId
         ? ({ editContext: 'proposal' } as const)
@@ -1640,7 +1821,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           : {};
       const updatedHistory: HistoryEntry[] = [
         ...history,
-        { role: 'user',      content: message,         createdAt: userTs,      ...editCtx },
+        { role: 'user', content: message, createdAt: userTs, ...editCtx },
         { role: 'assistant', content: stripDashes(displayResponse), createdAt: assistantTs, ...editCtx },
       ];
       await writeFile(path.join(dir, 'history.json'), JSON.stringify(updatedHistory, null, 2));
@@ -1668,7 +1849,6 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           stakeholdersAdded: learned.stakeholdersAdded,
         });
       }
-
     } catch (err) {
       app.log.error(err, 'Super client chat error');
       send({ type: 'error', message: (err as Error).message });
@@ -1686,7 +1866,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     } catch {
       return reply.code(404).send({ error: `Super client "${name}" not found` });
     }
-    const body = req.body as { messages?: Array<{ role: string; content: string; createdAt?: string; editContext?: string }> } | undefined;
+    const body = req.body as
+      | { messages?: Array<{ role: string; content: string; createdAt?: string; editContext?: string }> }
+      | undefined;
     const entries = body?.messages ?? [];
     if (!Array.isArray(entries) || entries.length === 0) {
       return reply.code(400).send({ error: 'messages array required' });
@@ -1697,7 +1879,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       role: (m.role === 'user' || m.role === 'assistant' ? m.role : 'user') as 'user' | 'assistant',
       content: String(m.content ?? ''),
       createdAt: m.createdAt ?? now,
-      ...(m.editContext === 'microsite' || m.editContext === 'proposal' || m.editContext === 'document' ? { editContext: m.editContext } : {}),
+      ...(m.editContext === 'microsite' || m.editContext === 'proposal' || m.editContext === 'document'
+        ? { editContext: m.editContext }
+        : {}),
     }));
     await writeFile(path.join(dir, 'history.json'), JSON.stringify([...history, ...toAppend], null, 2));
     return reply.send({ ok: true });
@@ -1767,10 +1951,17 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       await writeFile(destPath, buffer);
 
-      const entry: ScFile = { fileName: safeName, originalName: rawName, size: buffer.length, uploadedAt: new Date().toISOString(), status: 'processing' };
+      const entry: ScFile = {
+        fileName: safeName,
+        originalName: rawName,
+        size: buffer.length,
+        uploadedAt: new Date().toISOString(),
+        status: 'processing',
+      };
       const existing = await readScFiles(dir);
       const idx = existing.findIndex((f) => f.fileName === safeName);
-      if (idx !== -1) existing[idx] = entry; else existing.push(entry);
+      if (idx !== -1) existing[idx] = entry;
+      else existing.push(entry);
       await writeScFiles(dir, existing);
       added.push(entry);
       filesToExtract.push({ destPath, safeName });
@@ -1906,7 +2097,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
     const dir = path.join(superClientsRoot, name);
     let meta: SuperClientMeta;
-    try { meta = await readMeta(dir); } catch { return reply.code(404).send({ error: `Super client "${name}" not found` }); }
+    try {
+      meta = await readMeta(dir);
+    } catch {
+      return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
 
     const micrositesDir = path.join(dir, 'microsites');
     await mkdir(micrositesDir, { recursive: true });
@@ -1944,7 +2139,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
   app.get('/super-clients/:name/microsites', async (req: FastifyRequest, reply: FastifyReply) => {
     const { name } = req.params as { name: string };
     const dir = path.join(superClientsRoot, name);
-    try { await readMeta(dir); } catch { return reply.code(404).send({ error: `Super client "${name}" not found` }); }
+    try {
+      await readMeta(dir);
+    } catch {
+      return reply.code(404).send({ error: `Super client "${name}" not found` });
+    }
     return reply.send({ microsites: await readMicrosites(dir) });
   });
 
@@ -2017,7 +2216,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     try {
       await readMeta(dir); // 404 guard
       const existing = await readGenerations(dir);
-      await writeGenerations(dir, existing.filter((g) => g.id !== id));
+      await writeGenerations(
+        dir,
+        existing.filter((g) => g.id !== id),
+      );
       return reply.send({ ok: true });
     } catch {
       return reply.code(404).send({ error: `Super client "${name}" not found` });
@@ -2059,8 +2261,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // ── Microsite edit log — shows instruction type and key metadata ────────────
     {
       const instrType = instruction.split(':')[0] ?? instruction.slice(0, 40);
-      const isLLM     = instruction.startsWith('__ELEMENT_EDIT__:');
-      const userText  = instruction.includes('||')
+      const isLLM = instruction.startsWith('__ELEMENT_EDIT__:');
+      const userText = instruction.includes('||')
         ? instruction.slice(instruction.lastIndexOf('||') + 2).slice(0, 120)
         : instruction.slice(0, 120);
       console.log('\n╔══ MICROSITE EDIT ════════════════════════════════════════════');
@@ -2094,7 +2296,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     function toEmbedUrl(raw: string): string {
       const vimeoM = raw.match(/^https?:\/\/(?:www\.)?vimeo\.com\/(\d+)([?&]\S*)?/i);
       if (vimeoM) {
-        const id     = vimeoM[1];
+        const id = vimeoM[1];
         const params = vimeoM[2] ?? '?autoplay=1&loop=1&muted=1&title=0&byline=0&portrait=0';
         return `https://player.vimeo.com/video/${id}${params}`;
       }
@@ -2121,7 +2323,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const videoInjectMatch = instruction.match(/^__VIDEO_INJECT__:([\s\S]+?)\|\|(https?:\/\/[^\|]+)(?:\|\|[\s\S]*)?$/s);
     if (videoInjectMatch) {
       const cssPath = videoInjectMatch[1].trim();
-      const rawUrl  = videoInjectMatch[2].trim();
+      const rawUrl = videoInjectMatch[2].trim();
 
       function normalizeVideoUrl(raw: string): string {
         const ytWatch = raw.match(/youtube\.com\/watch\?.*\bv=([a-zA-Z0-9_-]{11})/i);
@@ -2155,10 +2357,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         const elementHtml = html.slice(bounds.start, bounds.end);
         const patched = patchIframeSrc(elementHtml);
         if (patched !== elementHtml) {
-          return saveValidatedEdit(
-            html.slice(0, bounds.start) + patched + html.slice(bounds.end),
-            'Video updated',
-          );
+          return saveValidatedEdit(html.slice(0, bounds.start) + patched + html.slice(bounds.end), 'Video updated');
         }
         // Element located but holds no player yet — insert a responsive embed as
         // its last child instead of patching some OTHER element's iframe (which
@@ -2168,7 +2367,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           const closeIdx = elementHtml.lastIndexOf(closeM[0]);
           const embed = `<div style="position:relative;padding-top:56.25%;width:100%"><iframe src="${newSrc}" style="position:absolute;inset:0;width:100%;height:100%;border:0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>`;
           return saveValidatedEdit(
-            html.slice(0, bounds.start) + elementHtml.slice(0, closeIdx) + embed + elementHtml.slice(closeIdx) + html.slice(bounds.end),
+            html.slice(0, bounds.start) +
+              elementHtml.slice(0, closeIdx) +
+              embed +
+              elementHtml.slice(closeIdx) +
+              html.slice(bounds.end),
             'Video added',
           );
         }
@@ -2205,30 +2408,22 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     if (logoReplaceMatch) {
       const newSrc = logoReplaceMatch[1].trim();
       let updatedHtml = html;
-      let replaced   = false;
+      let replaced = false;
 
       // Helper: replace src in a matched <img> tag regardless of attribute order
       const swapSrc = (tag: string) => {
         replaced = true;
-        return tag
-          .replace(/(\bsrc=["'])[^"']+(['"])/i, `$1${newSrc}$2`)
-          .replace(/(\bsrc=)[^\s>]+/i, `$1"${newSrc}"`);
+        return tag.replace(/(\bsrc=["'])[^"']+(['"])/i, `$1${newSrc}$2`).replace(/(\bsrc=)[^\s>]+/i, `$1"${newSrc}"`);
       };
 
       // 1. <img alt="...logo..."> — most reliable signal
       if (!replaced) {
-        updatedHtml = html.replace(
-          /<img\b[^>]*\balt="[^"]*logo[^"]*"[^>]*/gi,
-          (tag) => swapSrc(tag),
-        );
+        updatedHtml = html.replace(/<img\b[^>]*\balt="[^"]*logo[^"]*"[^>]*/gi, (tag) => swapSrc(tag));
       }
 
       // 2. <img class="...logo...">
       if (!replaced) {
-        updatedHtml = html.replace(
-          /<img\b[^>]*\bclass="[^"]*logo[^"]*"[^>]*/gi,
-          (tag) => swapSrc(tag),
-        );
+        updatedHtml = html.replace(/<img\b[^>]*\bclass="[^"]*logo[^"]*"[^>]*/gi, (tag) => swapSrc(tag));
       }
 
       // 3. First <img> inside <nav> or <header>
@@ -2241,10 +2436,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       // 4. <img> with src that looks like a logo (contains "logo" in the URL)
       if (!replaced) {
-        updatedHtml = html.replace(
-          /<img\b[^>]*\bsrc="[^"]*logo[^"]*"[^>]*/gi,
-          (tag) => swapSrc(tag),
-        );
+        updatedHtml = html.replace(/<img\b[^>]*\bsrc="[^"]*logo[^"]*"[^>]*/gi, (tag) => swapSrc(tag));
       }
 
       if (updatedHtml !== html) {
@@ -2275,8 +2467,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const logoSwapMatch = instruction.match(/^__LOGO_SWAP__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)$/s);
     if (logoSwapMatch) {
       const cssPath = logoSwapMatch[1].trim();
-      const newSrc  = logoSwapMatch[2].trim();
-      const imgTag  = `<img src="${newSrc}" alt="logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;">`;
+      const newSrc = logoSwapMatch[2].trim();
+      const imgTag = `<img src="${newSrc}" alt="logo" style="height:44px;width:auto;max-width:180px;object-fit:contain;display:block;flex-shrink:0;">`;
 
       // Strip any prior overlay artifacts before patching
       const cleanedHtml = html
@@ -2309,9 +2501,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
         // Case: text/anchor element — keep outer tag, replace innerHTML with img
         const openTagEnd = elHtml.indexOf('>');
-        const closeTagM  = elHtml.match(/<\/(\w+)>\s*$/);
+        const closeTagM = elHtml.match(/<\/(\w+)>\s*$/);
         if (openTagEnd !== -1 && closeTagM) {
-          const openTag  = elHtml.slice(0, openTagEnd + 1);
+          const openTag = elHtml.slice(0, openTagEnd + 1);
           const closeTag = closeTagM[0];
           return saveValidatedEdit(
             cleanedHtml.slice(0, bounds.start) + openTag + imgTag + closeTag + cleanedHtml.slice(bounds.end),
@@ -2343,10 +2535,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       // 2. If unchanged, try data-bg="..." attribute (lazy-load libs)
       if (updatedHtml === html) {
-        updatedHtml = html.replace(
-          /\bdata-bg=["'](https?:\/\/[^'"]+)["']/gi,
-          () => `data-bg="${newUrl}"`,
-        );
+        updatedHtml = html.replace(/\bdata-bg=["'](https?:\/\/[^'"]+)["']/gi, () => `data-bg="${newUrl}"`);
       }
 
       // 3. If still unchanged, replace first <img src="..."> in the document
@@ -2370,11 +2559,13 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // Format: __IMAGE_INJECT_SCOPED__:[cssPath]||[imageUrl]
     // Tries to replace background-image / img src / data-bg within that element.
     // Falls back to the element's parent section if the element itself has no image.
-    const scopedImageMatch = instruction.match(/^__IMAGE_INJECT_SCOPED__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|([\s\S]*))?$/s);
+    const scopedImageMatch = instruction.match(
+      /^__IMAGE_INJECT_SCOPED__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|([\s\S]*))?$/s,
+    );
     if (scopedImageMatch) {
-      const cssPath   = scopedImageMatch[1].trim();
-      const newUrl    = scopedImageMatch[2].trim();
-      const hintHtml  = (scopedImageMatch[3] ?? '').trim();
+      const cssPath = scopedImageMatch[1].trim();
+      const newUrl = scopedImageMatch[2].trim();
+      const hintHtml = (scopedImageMatch[3] ?? '').trim();
 
       function injectImageInto(target: string): string {
         // 1. CSS background-image (any URL format)
@@ -2396,8 +2587,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         // runtime, so the browser DOM shows an <img src> the stored HTML lacks)
         out = target.replace(/\bdata-bg=["'][^'"]*["']/gi, () => `data-bg="${newUrl}"`);
         if (out !== target) return out;
-        out = target.replace(/(<img\b[^>]*?\bdata-src=["'])([^'"]+)(["'])/i,
-          (_m, pre, _old, post) => `${pre}${newUrl}${post}`);
+        out = target.replace(
+          /(<img\b[^>]*?\bdata-src=["'])([^'"]+)(["'])/i,
+          (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
+        );
         return out;
       }
 
@@ -2412,17 +2605,14 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         );
         if (patched !== target) return patched;
         // Fallback for non-img void elements (source, input[type=image], etc.)
-        return target.replace(
-          /(\bsrc=["'])([^'"]+)(["'])/i,
-          (_m, pre, _old, post) => `${pre}${newUrl}${post}`,
-        );
+        return target.replace(/(\bsrc=["'])([^'"]+)(["'])/i, (_m, pre, _old, post) => `${pre}${newUrl}${post}`);
       }
 
       const bounds = findByPath(html, cssPath);
       if (bounds) {
         const elementHtml = html.slice(bounds.start, bounds.end);
         const elTag = elementHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
-        const VOID_TAGS = new Set(['img','source','input','video','audio']);
+        const VOID_TAGS = new Set(['img', 'source', 'input', 'video', 'audio']);
 
         // For void/media elements, always replace src directly — don't fall through
         if (VOID_TAGS.has(elTag)) {
@@ -2461,20 +2651,14 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         // Extract the element's class/id names and patch the matching CSS rule.
         const cssRuleReplace = (src: string, selector: string): string => {
           const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const re = new RegExp(
-            `((?:\\.|#)${escaped}\\b[^{]*\\{[^}]*)background-image\\s*:\\s*url\\([^)]+\\)`,
-            'gi',
-          );
+          const re = new RegExp(`((?:\\.|#)${escaped}\\b[^{]*\\{[^}]*)background-image\\s*:\\s*url\\([^)]+\\)`, 'gi');
           return src.replace(re, `$1background-image: url('${newUrl}')`);
         };
 
         // Try each class name of the selected element, then its id
         const classAttr = elementHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '';
-        const idAttr    = elementHtml.match(/\bid="([^"]+)"/i)?.[1] ?? '';
-        const candidates = [
-          ...classAttr.trim().split(/\s+/).filter(Boolean),
-          ...(idAttr ? [idAttr] : []),
-        ];
+        const idAttr = elementHtml.match(/\bid="([^"]+)"/i)?.[1] ?? '';
+        const candidates = [...classAttr.trim().split(/\s+/).filter(Boolean), ...(idAttr ? [idAttr] : [])];
         for (const name of candidates) {
           const patched = cssRuleReplace(html, name);
           if (patched !== html) {
@@ -2519,7 +2703,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           const sectionM = cssPath.match(/\b(section|div|article|main)#([\w-]+)/);
           if (sectionM) {
             const anchorTag = sectionM[1];
-            const anchorId  = sectionM[2];
+            const anchorId = sectionM[2];
             const anchorBounds = findByPath(html, `${anchorTag}#${anchorId}`);
             if (anchorBounds) {
               // Replace only within the section that contains the selected element
@@ -2553,17 +2737,18 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         const tagEnd = elementHtml.indexOf('>');
         if (tagEnd !== -1) {
           const openTag = elementHtml.slice(0, tagEnd);
-          const rest    = elementHtml.slice(tagEnd);
+          const rest = elementHtml.slice(tagEnd);
           const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
-          const sm      = styleRx.exec(openTag);
-          const bgVal   = `background-image:url('${newUrl}') !important;background-size:cover !important;background-position:center !important`;
+          const sm = styleRx.exec(openTag);
+          const bgVal = `background-image:url('${newUrl}') !important;background-size:cover !important;background-position:center !important`;
           let patchedTag: string;
           if (sm) {
             const existing = sm[1]
               .replace(/\bbackground-image\s*:\s*(?:url\([^)]*\)|[^;]*)\s*;?\s*/gi, '')
               .replace(/\bbackground-size\s*:[^;]+;?\s*/gi, '')
               .replace(/\bbackground-position\s*:[^;]+;?\s*/gi, '')
-              .trim().replace(/;$/, '');
+              .trim()
+              .replace(/;$/, '');
             patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}${bgVal}"`);
           } else {
             patchedTag = `${openTag} style="${bgVal}"`;
@@ -2575,7 +2760,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }
       }
 
-      return reply.code(422).send({ error: 'Could not locate the selected image in the document — try clicking the image again to re-select it' });
+      return reply.code(422).send({
+        error: 'Could not locate the selected image in the document — try clicking the image again to re-select it',
+      });
     }
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -2584,7 +2771,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // hintHtml is optional — used as content-based fallback when findByPath fails.
     const removeByPathMatch = instruction.match(/^__REMOVE_BY_PATH__:([\s\S]+?)(?:\|\|([\s\S]*))?$/);
     if (removeByPathMatch) {
-      const cssPath  = removeByPathMatch[1].trim();
+      const cssPath = removeByPathMatch[1].trim();
       const hintHtml = (removeByPathMatch[2] ?? '').trim();
       let bounds = findByPath(html, cssPath);
 
@@ -2594,20 +2781,40 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         const hintStart = locateElement(html, hintHtml);
         if (hintStart !== -1) {
           const tagName = hintHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
-          const VOID_TAGS_R = new Set(['area','base','br','col','embed','hr','img','input',
-                                       'link','meta','param','source','track','wbr']);
+          const VOID_TAGS_R = new Set([
+            'area',
+            'base',
+            'br',
+            'col',
+            'embed',
+            'hr',
+            'img',
+            'input',
+            'link',
+            'meta',
+            'param',
+            'source',
+            'track',
+            'wbr',
+          ]);
           let end: number;
           if (VOID_TAGS_R.has(tagName) || hintHtml.trimEnd().endsWith('/>')) {
             end = html.indexOf('>', hintStart) + 1;
           } else {
             const close = `</${tagName}>`;
-            let depth = 1, j = html.indexOf('>', hintStart) + 1;
+            let depth = 1,
+              j = html.indexOf('>', hintStart) + 1;
             while (j < html.length && depth > 0) {
               const nO = html.indexOf(`<${tagName}`, j);
               const nC = html.indexOf(close, j);
               if (nC === -1) break;
-              if (nO !== -1 && nO < nC) { depth++; j = nO + tagName.length + 1; }
-              else { depth--; j = nC + close.length; }
+              if (nO !== -1 && nO < nC) {
+                depth++;
+                j = nO + tagName.length + 1;
+              } else {
+                depth--;
+                j = nC + close.length;
+              }
             }
             end = j;
           }
@@ -2637,7 +2844,22 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
 
       // HTML void elements — never have a closing tag
-      const VOID_TAGS = new Set(['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr']);
+      const VOID_TAGS = new Set([
+        'area',
+        'base',
+        'br',
+        'col',
+        'embed',
+        'hr',
+        'img',
+        'input',
+        'link',
+        'meta',
+        'param',
+        'source',
+        'track',
+        'wbr',
+      ]);
 
       let updatedHtml = html;
       if (openTag) {
@@ -2652,15 +2874,18 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         } else {
           // Walk depth-aware from right after the opening > to find the close tag
           const closeTag = `</${openTag}>`;
-          let depth = 1, i = tagEnd + 1;
+          let depth = 1,
+            i = tagEnd + 1;
           while (i < html.length && depth > 0) {
-            const nextOpen  = html.indexOf(`<${openTag}`, i);
+            const nextOpen = html.indexOf(`<${openTag}`, i);
             const nextClose = html.indexOf(closeTag, i);
             if (nextClose === -1) break;
             if (nextOpen !== -1 && nextOpen < nextClose) {
-              depth++; i = nextOpen + openTag.length + 1;
+              depth++;
+              i = nextOpen + openTag.length + 1;
             } else {
-              depth--; i = nextClose + closeTag.length;
+              depth--;
+              i = nextClose + closeTag.length;
             }
           }
           updatedHtml = html.slice(0, start) + html.slice(i);
@@ -2695,7 +2920,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       // 3. Section structure — must retain at least one <section if original had any
       const origSections = (html.match(/<section[\s>]/gi) ?? []).length;
-      const newSections  = (updated.match(/<section[\s>]/gi) ?? []).length;
+      const newSections = (updated.match(/<section[\s>]/gi) ?? []).length;
       if (origSections > 1 && newSections === 0) {
         return { ok: false, reason: 'All sections were removed — microsite structure was destroyed' };
       }
@@ -2709,7 +2934,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
 
       // 5. Unclosed <script> tags would break the page
-      const scriptOpens  = (updated.match(/<script\b/gi) ?? []).length;
+      const scriptOpens = (updated.match(/<script\b/gi) ?? []).length;
       const scriptCloses = (updated.match(/<\/script>/gi) ?? []).length;
       if (scriptOpens > scriptCloses + 1) {
         return { ok: false, reason: 'Result contains unclosed <script> tags' };
@@ -2732,7 +2957,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         ...ast,
         sections: [
           { ...(sections![0] as object), customHtml: updatedHtml, previousHtml: html },
-          ...((sections ?? []).slice(1)),
+          ...(sections ?? []).slice(1),
         ],
       };
       await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
@@ -2784,7 +3009,6 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       return sanitizeHtmlOutput(result.trim());
     }
 
-
     // ── Comprehensive background removal ─────────────────────────────────────────
     // Format: __REMOVE_BACKGROUND__:[cssPath]
     // Removes background from both the element AND its parent container so that
@@ -2792,28 +3016,34 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const removeBgMatch = instruction.match(/^__REMOVE_BACKGROUND__:([\s\S]+)$/);
     if (removeBgMatch) {
       const cssPath = removeBgMatch[1].trim();
-      const bounds  = findByPath(html, cssPath);
+      const bounds = findByPath(html, cssPath);
       if (!bounds) return reply.code(422).send({ error: 'Element not found — click it again to re-select' });
 
       let updated = html;
 
       // Helper: clear background from an element at given bounds in `src`
       function clearBgFromElement(src: string, b: { start: number; end: number }): string {
-        const elHtml  = src.slice(b.start, b.end);
-        const tagEnd  = elHtml.indexOf('>');
+        const elHtml = src.slice(b.start, b.end);
+        const tagEnd = elHtml.indexOf('>');
         if (tagEnd === -1) return src;
 
         const openTag = elHtml.slice(0, tagEnd);
         const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
-        const sm      = styleRx.exec(openTag);
+        const sm = styleRx.exec(openTag);
         let patchedOpen: string;
         if (sm) {
           // Remove all background-* declarations from existing inline style
           const stripped = sm[1]
-            .replace(/\bbackground(?:-image|-color|-position|-size|-repeat|-attachment|-clip|-origin|-blend-mode)?\s*:[^;]+;?\s*/gi, '')
-            .trim().replace(/;$/, '');
-          patchedOpen = openTag.replace(styleRx,
-            `style="${stripped ? stripped + ';' : ''}background:none;background-image:none"`);
+            .replace(
+              /\bbackground(?:-image|-color|-position|-size|-repeat|-attachment|-clip|-origin|-blend-mode)?\s*:[^;]+;?\s*/gi,
+              '',
+            )
+            .trim()
+            .replace(/;$/, '');
+          patchedOpen = openTag.replace(
+            styleRx,
+            `style="${stripped ? stripped + ';' : ''}background:none;background-image:none"`,
+          );
         } else {
           patchedOpen = `${openTag} style="background:none;background-image:none"`;
         }
@@ -2822,7 +3052,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         const classMatch = elHtml.match(/\bclass="([^"]+)"/i);
         let result = src.slice(0, b.start) + patchedOpen + elHtml.slice(tagEnd) + src.slice(b.end);
         if (classMatch) {
-          const firstCls = classMatch[1].trim().split(/\s+/).find(c => c.length > 1);
+          const firstCls = classMatch[1]
+            .trim()
+            .split(/\s+/)
+            .find((c) => c.length > 1);
           if (firstCls) {
             const clsRe = new RegExp(
               `(\\.${firstCls.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(?:,[^{]*)?\\{[^}]*)background(?:-image|-color|-position|-size|-repeat|-attachment|-clip|-origin)?\\s*:[^;]+;?\\s*`,
@@ -2843,7 +3076,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // a sibling of an overlay div, living inside the parent (.hero-bg, etc.).
       // Doing this unconditionally means a single "remove background" prompt clears
       // both the gradient overlay AND the photo in one shot.
-      const parentPath = cssPath.split(/\s*>\s*/).slice(0, -1).join(' > ');
+      const parentPath = cssPath
+        .split(/\s*>\s*/)
+        .slice(0, -1)
+        .join(' > ');
       if (parentPath) {
         // Re-find parent bounds in the (possibly already modified) `updated` HTML
         const parentBounds = findByPath(updated, parentPath);
@@ -2863,22 +3099,37 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // Format: __STYLE_PATCH__:[cssPath]||[property]||[value]||[hintHtml?]
     // hintHtml is optional — used for content-based fallback when findByPath fails.
     // Deterministic — no LLM. Whitelisted properties only.
-    const stylePatchMatch = instruction.match(/^__STYLE_PATCH__:([\s\S]+?)\|\|([\w-]+)\|\|([\s\S]+?)(?:\|\|([\s\S]*))?$/s);
+    const stylePatchMatch = instruction.match(
+      /^__STYLE_PATCH__:([\s\S]+?)\|\|([\w-]+)\|\|([\s\S]+?)(?:\|\|([\s\S]*))?$/s,
+    );
     if (stylePatchMatch) {
-      const cssPath  = stylePatchMatch[1].trim();
-      const prop     = stylePatchMatch[2].trim().toLowerCase();
+      const cssPath = stylePatchMatch[1].trim();
+      const prop = stylePatchMatch[2].trim().toLowerCase();
       const rawValue = stylePatchMatch[3].trim();
       const hintHtml = (stylePatchMatch[4] ?? '').trim();
 
       const ALLOWED_STYLE_PROPS = new Set([
-        'color', 'background-color', 'background-image', 'background',
-        'font-size', 'font-family', 'font-weight', 'font-style',
-        'opacity', 'border-radius', 'text-align', 'letter-spacing', 'line-height',
+        'color',
+        'background-color',
+        'background-image',
+        'background',
+        'font-size',
+        'font-family',
+        'font-weight',
+        'font-style',
+        'opacity',
+        'border-radius',
+        'text-align',
+        'letter-spacing',
+        'line-height',
       ]);
       if (!ALLOWED_STYLE_PROPS.has(prop))
         return reply.code(400).send({ error: `Property "${prop}" is not patchable via __STYLE_PATCH__` });
 
-      const value = rawValue.replace(/[;'"<>]/g, '').trim().slice(0, 120);
+      const value = rawValue
+        .replace(/[;'"<>]/g, '')
+        .trim()
+        .slice(0, 120);
       if (!value) return reply.code(400).send({ error: 'Empty style value' });
 
       let bounds = findByPath(html, cssPath);
@@ -2897,7 +3148,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       if (tagEnd === -1) return reply.code(422).send({ error: 'Malformed element' });
 
       const openTag = elementHtml.slice(0, tagEnd);
-      const rest    = elementHtml.slice(tagEnd);
+      const rest = elementHtml.slice(tagEnd);
       const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
       const sm = styleRx.exec(openTag);
       // When setting a solid background, also clear background-image so the color shows
@@ -2908,9 +3159,13 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         const escaped = prop.replace(/-/g, '\\-');
         let existing = sm[1]
           .replace(new RegExp(`\\b${escaped}\\s*:[^;]+;?\\s*`, 'gi'), '')
-          .trim().replace(/;$/, '');
+          .trim()
+          .replace(/;$/, '');
         if (clearBgImage) {
-          existing = existing.replace(/background-image\s*:[^;]+;?\s*/gi, '').trim().replace(/;$/, '');
+          existing = existing
+            .replace(/background-image\s*:[^;]+;?\s*/gi, '')
+            .trim()
+            .replace(/;$/, '');
         }
         const extra = clearBgImage ? '; background-image:none !important' : '';
         patchedTag = openTag.replace(styleRx, `style="${existing ? existing + '; ' : ''}${prop}:${value}${extra}"`);
@@ -2932,8 +3187,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // is never concatenated into the visible text content.
     const textPatchMatch = instruction.match(/^__TEXT_PATCH__:([\s\S]+?)\|\|([\s\S]+?)(?:\|\|([\s\S]*))?$/s);
     if (textPatchMatch) {
-      const cssPath  = textPatchMatch[1].trim();
-      const newText  = textPatchMatch[2].trim().slice(0, 2000);
+      const cssPath = textPatchMatch[1].trim();
+      const newText = textPatchMatch[2].trim().slice(0, 2000);
       const hintHtml = (textPatchMatch[3] ?? '').trim();
 
       let bounds = findByPath(html, cssPath);
@@ -2947,13 +3202,19 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             const tagEnd = html.indexOf('>', hintStart);
             if (tagEnd !== -1) {
               const close = `</${tagName}>`;
-              let depth = 1, j = tagEnd + 1;
+              let depth = 1,
+                j = tagEnd + 1;
               while (j < html.length && depth > 0) {
                 const nO = html.indexOf(`<${tagName}`, j);
                 const nC = html.indexOf(close, j);
                 if (nC === -1) break;
-                if (nO !== -1 && nO < nC) { depth++; j = nO + tagName.length + 1; }
-                else { depth--; j = nC + close.length; }
+                if (nO !== -1 && nO < nC) {
+                  depth++;
+                  j = nO + tagName.length + 1;
+                } else {
+                  depth--;
+                  j = nC + close.length;
+                }
               }
               bounds = { start: hintStart, end: j };
             }
@@ -2962,13 +3223,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
       if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
 
-      const elementHtml  = html.slice(bounds.start, bounds.end);
+      const elementHtml = html.slice(bounds.start, bounds.end);
       const openTagMatch = elementHtml.match(/^(<[^>]+>)/);
       const closeTagMatch = elementHtml.match(/<\/(\w+)>\s*$/);
-      if (!openTagMatch || !closeTagMatch)
-        return reply.code(422).send({ error: 'Element is not a paired tag' });
+      if (!openTagMatch || !closeTagMatch) return reply.code(422).send({ error: 'Element is not a paired tag' });
 
-      const openTag  = openTagMatch[1];
+      const openTag = openTagMatch[1];
       const closeTag = `</${closeTagMatch[1]}>`;
       const innerHtml = elementHtml.slice(openTag.length, elementHtml.lastIndexOf(closeTag));
       const hasChildren = /<\w/.test(innerHtml);
@@ -2979,9 +3239,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // stripping "inter-tag" text globally here used to wipe out sibling
       // elements' text too (e.g. a <span> holding a second line of a two-line
       // headline), silently destroying content the user never asked to change.
-      const newInner = hasChildren
-        ? newText + innerHtml.replace(/^[^<]+/, '')
-        : newText;
+      const newInner = hasChildren ? newText + innerHtml.replace(/^[^<]+/, '') : newText;
 
       const updatedHtml = html.slice(0, bounds.start) + openTag + newInner + closeTag + html.slice(bounds.end);
       return saveValidatedEdit(updatedHtml, 'Text updated');
@@ -2990,11 +3248,15 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // ── Background-image patch (from InlineEditPanel "BG Image" input) ─────────
     // Format: __BG_IMAGE_PATCH__:[cssPath]||[imageUrl](||[hint — ignored])
     // [^\|]+ stops at the next || so a trailing hint doesn't corrupt data: URLs.
-    const bgImagePatchMatch = instruction.match(/^__BG_IMAGE_PATCH__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|[\s\S]*)?$/s);
+    const bgImagePatchMatch = instruction.match(
+      /^__BG_IMAGE_PATCH__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|[\s\S]*)?$/s,
+    );
     if (bgImagePatchMatch) {
       const cssPath = bgImagePatchMatch[1].trim();
       // Strip HTML-dangerous chars from https URLs; data: URLs are base64 and never contain them.
-      const imgUrl  = bgImagePatchMatch[2].trim().replace(/['"<>]/g, (c) => bgImagePatchMatch[2].startsWith('data:') ? c : '');
+      const imgUrl = bgImagePatchMatch[2]
+        .trim()
+        .replace(/['"<>]/g, (c) => (bgImagePatchMatch[2].startsWith('data:') ? c : ''));
 
       const bounds = findByPath(html, cssPath);
       if (!bounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
@@ -3031,10 +3293,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // (opening tag inline style + nested child divs with inline background-image).
       const bgReplaceRe = /\bbackground-image\s*:\s*url\([^)]*\)/gi;
       if (bgReplaceRe.test(elementHtml)) {
-        const fullPatched = elementHtml.replace(
-          bgReplaceRe,
-          `background-image:url('${imgUrl}')`,
-        );
+        const fullPatched = elementHtml.replace(bgReplaceRe, `background-image:url('${imgUrl}')`);
         return saveValidatedEdit(
           html.slice(0, bounds.start) + fullPatched + html.slice(bounds.end),
           'Background image updated',
@@ -3046,7 +3305,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       if (tagEnd === -1) return reply.code(422).send({ error: 'Malformed element' });
 
       const openTag = elementHtml.slice(0, tagEnd);
-      const rest    = elementHtml.slice(tagEnd);
+      const rest = elementHtml.slice(tagEnd);
       const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
       const sm = styleRx.exec(openTag);
       const bgVal = `background-image:url('${imgUrl}') !important;background-size:cover !important;background-position:center !important`;
@@ -3058,7 +3317,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           .replace(/\bbackground-image\s*:\s*(?:url\([^)]*\)|[^;]*)\s*;?\s*/gi, '')
           .replace(/\bbackground-size\s*:[^;]+;?\s*/gi, '')
           .replace(/\bbackground-position\s*:[^;]+;?\s*/gi, '')
-          .trim().replace(/;$/, '');
+          .trim()
+          .replace(/;$/, '');
         patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}${bgVal}"`);
       } else {
         patchedTag = `${openTag} style="${bgVal}"`;
@@ -3074,11 +3334,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // Used by the Lucide icon picker in InlineEditPanel.
     const svgReplaceMatch = instruction.match(/^__SVG_REPLACE__:([\s\S]+?)\|\|([\s\S]+)$/s);
     if (svgReplaceMatch) {
-      const cssPath   = svgReplaceMatch[1].trim();
-      let   svgMarkup = svgReplaceMatch[2].trim();
+      const cssPath = svgReplaceMatch[1].trim();
+      let svgMarkup = svgReplaceMatch[2].trim();
 
-      if (!svgMarkup.startsWith('<svg'))
-        return reply.code(400).send({ error: 'Payload must be an SVG element' });
+      if (!svgMarkup.startsWith('<svg')) return reply.code(400).send({ error: 'Payload must be an SVG element' });
 
       let bounds = findByPath(html, cssPath);
       // SVG-specific fallback — browsers normalize SVG attribute order so exact
@@ -3093,13 +3352,19 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
               const svgTagEnd = html.indexOf('>', svgIdx);
               if (svgTagEnd !== -1) {
                 const svgClose = '</svg>';
-                let depth = 1, j = svgTagEnd + 1;
+                let depth = 1,
+                  j = svgTagEnd + 1;
                 while (j < secBounds.end && depth > 0) {
                   const nO = html.indexOf('<svg', j);
                   const nC = html.indexOf(svgClose, j);
                   if (nC === -1) break;
-                  if (nO !== -1 && nO < nC) { depth++; j = nO + 4; }
-                  else { depth--; j = nC + svgClose.length; }
+                  if (nO !== -1 && nO < nC) {
+                    depth++;
+                    j = nO + 4;
+                  } else {
+                    depth--;
+                    j = nC + svgClose.length;
+                  }
                 }
                 bounds = { start: svgIdx, end: j };
               }
@@ -3111,10 +3376,13 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       const originalHtml = html.slice(bounds.start, bounds.end);
       // Preserve class and inline style from the original element
-      const cls   = originalHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '';
+      const cls = originalHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '';
       const style = originalHtml.match(/\bstyle="([^"]+)"/i)?.[1] ?? '';
       // Inject class/style into the incoming SVG opening tag
-      svgMarkup = svgMarkup.replace(/^<svg\b/, `<svg${cls ? ` class="${cls}"` : ''}${style ? ` style="${style}"` : ''}`);
+      svgMarkup = svgMarkup.replace(
+        /^<svg\b/,
+        `<svg${cls ? ` class="${cls}"` : ''}${style ? ` style="${style}"` : ''}`,
+      );
       // Remove duplicate class/style injected above if original SVG already had them
       svgMarkup = svgMarkup.replace(/(<svg[^>]*)\bclass="[^"]*"\s*class="[^"]*"/, '$1');
 
@@ -3125,10 +3393,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // ── Icon / SVG replacement (from InlineEditPanel "Replace Icon" input) ─────
     // Format: __ICON_REPLACE__:[cssPath]||[imageUrl]
     // Replaces the selected SVG/icon element with an <img> pointing at the new URL.
-    const iconReplaceMatch = instruction.match(/^__ICON_REPLACE__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|([\s\S]*))?$/s);
+    const iconReplaceMatch = instruction.match(
+      /^__ICON_REPLACE__:([\s\S]+?)\|\|((?:https?:\/\/|data:)[^\|]+)(?:\|\|([\s\S]*))?$/s,
+    );
     if (iconReplaceMatch) {
-      const cssPath  = iconReplaceMatch[1].trim();
-      const imgUrl   = iconReplaceMatch[2].trim().replace(/['"<>]/g, '');
+      const cssPath = iconReplaceMatch[1].trim();
+      const imgUrl = iconReplaceMatch[2].trim().replace(/['"<>]/g, '');
       const hintHtml = (iconReplaceMatch[3] ?? '').trim();
 
       let bounds = findByPath(html, cssPath);
@@ -3146,13 +3416,19 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
                 bounds = { start: hintStart, end: tagEnd + 1 };
               } else {
                 const close = `</${tagName}>`;
-                let depth = 1, j = tagEnd + 1;
+                let depth = 1,
+                  j = tagEnd + 1;
                 while (j < html.length && depth > 0) {
                   const nO = html.indexOf(`<${tagName}`, j);
                   const nC = html.indexOf(close, j);
                   if (nC === -1) break;
-                  if (nO !== -1 && nO < nC) { depth++; j = nO + tagName.length + 1; }
-                  else { depth--; j = nC + close.length; }
+                  if (nO !== -1 && nO < nC) {
+                    depth++;
+                    j = nO + tagName.length + 1;
+                  } else {
+                    depth--;
+                    j = nC + close.length;
+                  }
                 }
                 bounds = { start: hintStart, end: j };
               }
@@ -3173,13 +3449,19 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
               const svgTagEnd = html.indexOf('>', svgIdx);
               if (svgTagEnd !== -1) {
                 const svgClose = '</svg>';
-                let depth = 1, j = svgTagEnd + 1;
+                let depth = 1,
+                  j = svgTagEnd + 1;
                 while (j < secBounds.end && depth > 0) {
                   const nO = html.indexOf('<svg', j);
                   const nC = html.indexOf(svgClose, j);
                   if (nC === -1) break;
-                  if (nO !== -1 && nO < nC) { depth++; j = nO + 4; }
-                  else { depth--; j = nC + svgClose.length; }
+                  if (nO !== -1 && nO < nC) {
+                    depth++;
+                    j = nO + 4;
+                  } else {
+                    depth--;
+                    j = nC + svgClose.length;
+                  }
                 }
                 bounds = { start: svgIdx, end: j };
               }
@@ -3193,7 +3475,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // Preserve width/height/class from the original element where possible
       const wMatch = elementHtml.match(/\bwidth="([^"]+)"/i) || elementHtml.match(/\bwidth\s*:\s*([^;'"]+)/i);
       const hMatch = elementHtml.match(/\bheight="([^"]+)"/i) || elementHtml.match(/\bheight\s*:\s*([^;'"]+)/i);
-      const cls   = elementHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '';
+      const cls = elementHtml.match(/\bclass="([^"]+)"/i)?.[1] ?? '';
       const style = elementHtml.match(/\bstyle="([^"]+)"/i)?.[1] ?? '';
       const w = wMatch?.[1] ?? '1em';
       const h = hMatch?.[1] ?? '1em';
@@ -3211,8 +3493,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // accidentally modify anything outside the clicked element's scope.
     const elementEditMatch = instruction.match(/^__ELEMENT_EDIT__:([\s\S]*?)\|\|([\s\S]*?)\|\|([\s\S]+)$/s);
     if (elementEditMatch) {
-      const cssPath         = elementEditMatch[1].trim();
-      const hintHtml        = elementEditMatch[2];
+      const cssPath = elementEditMatch[1].trim();
+      const hintHtml = elementEditMatch[2];
       const editInstruction = elementEditMatch[3];
 
       // ── Locate the exact element position in stored HTML ─────────────────
@@ -3228,8 +3510,22 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         const fbStart = locateElement(html, hintHtml);
         if (fbStart !== -1) {
           const fbTag = hintHtml.match(/^<(\w+)/)?.[1] ?? '';
-          const VOID = new Set(['area','base','br','col','embed','hr','img','input',
-                                'link','meta','param','source','track','wbr']);
+          const VOID = new Set([
+            'area',
+            'base',
+            'br',
+            'col',
+            'embed',
+            'hr',
+            'img',
+            'input',
+            'link',
+            'meta',
+            'param',
+            'source',
+            'track',
+            'wbr',
+          ]);
           const fbTagEnd = html.indexOf('>', fbStart);
           if (fbTagEnd !== -1) {
             const opening = html.slice(fbStart, fbTagEnd + 1);
@@ -3238,13 +3534,19 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
               fbEnd = fbTagEnd + 1;
             } else {
               const close = `</${fbTag}>`;
-              let depth = 1, j = fbTagEnd + 1;
+              let depth = 1,
+                j = fbTagEnd + 1;
               while (j < html.length && depth > 0) {
                 const nO = html.indexOf(`<${fbTag}`, j);
                 const nC = html.indexOf(close, j);
                 if (nC === -1) break;
-                if (nO !== -1 && nO < nC) { depth++; j = nO + fbTag.length + 1; }
-                else { depth--; j = nC + close.length; }
+                if (nO !== -1 && nO < nC) {
+                  depth++;
+                  j = nO + fbTag.length + 1;
+                } else {
+                  depth--;
+                  j = nC + close.length;
+                }
               }
               fbEnd = j;
             }
@@ -3264,12 +3566,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       // ── Build breadcrumb context (text only, not HTML) ────────────────────
       const sectionBounds = extractAllTopLevelSections(html);
-      const parentSecIdx  = sectionBounds.findIndex(
-        s => s.start <= bounds!.start && bounds!.end <= s.end,
-      );
-      const breadcrumb = parentSecIdx !== -1
-        ? `Located in section ${parentSecIdx + 1} of ${sectionBounds.length}`
-        : 'Located outside named sections';
+      const parentSecIdx = sectionBounds.findIndex((s) => s.start <= bounds!.start && bounds!.end <= s.end);
+      const breadcrumb =
+        parentSecIdx !== -1
+          ? `Located in section ${parentSecIdx + 1} of ${sectionBounds.length}`
+          : 'Located outside named sections';
 
       // ── Detect section-regeneration intent early — must happen before the
       // deterministic BG shortcuts below so a prompt that mentions "background"
@@ -3277,10 +3578,16 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // by the colour-patch shortcut instead of reaching the redesign flow.
       // Also covers structural fix requests ("fix overlapping strip", "repair broken layout")
       // which need a full section rewrite, not a targeted element patch.
-      const isStructuralFix = /\b(?:fix|repair|correct|resolve)\b/i.test(editInstruction)
-        && /\b(?:overlap|overlapping|bleed(?:ing)?|overflow(?:ing)?|strip|stripe|z.?index|misalign|broken|cut.?off|clip(?:ped)?|spacing|layout|position|visual|design|gap|layer)\b/i.test(editInstruction);
-      const isRedesignIntent = isStructuralFix
-        || /\b(regenerat|redesign|completely new|redo|rebuild|restyle|overhaul|rewrite|remake|recreate)\b/i.test(editInstruction);
+      const isStructuralFix =
+        /\b(?:fix|repair|correct|resolve)\b/i.test(editInstruction) &&
+        /\b(?:overlap|overlapping|bleed(?:ing)?|overflow(?:ing)?|strip|stripe|z.?index|misalign|broken|cut.?off|clip(?:ped)?|spacing|layout|position|visual|design|gap|layer)\b/i.test(
+          editInstruction,
+        );
+      const isRedesignIntent =
+        isStructuralFix ||
+        /\b(regenerat|redesign|completely new|redo|rebuild|restyle|overhaul|rewrite|remake|recreate)\b/i.test(
+          editInstruction,
+        );
 
       // ── Deterministic background-image injection for element edits ──────────
       // When the instruction contains an image URL AND "background" intent,
@@ -3291,9 +3598,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // page or a video file — "add this video as the background" must reach the
       // LLM flow below, which embeds it as an absolutely-positioned <iframe>.
       const bgUrlMatch = editInstruction.match(/(https?:\/\/\S+)/);
-      const isVideoUrlInstruction = !!bgUrlMatch &&
-        /youtube\.com|youtu\.be|vimeo\.com|\.(?:mp4|webm|ogv)(?:[?#]|$)/i.test(bgUrlMatch[1]);
-      const isBgImageIntent = /\b(?:background|bg)\b/i.test(editInstruction) &&
+      const isVideoUrlInstruction =
+        !!bgUrlMatch && /youtube\.com|youtu\.be|vimeo\.com|\.(?:mp4|webm|ogv)(?:[?#]|$)/i.test(bgUrlMatch[1]);
+      const isBgImageIntent =
+        /\b(?:background|bg)\b/i.test(editInstruction) &&
         /\b(?:add|set|use|change|put|apply|inject)\b/i.test(editInstruction);
       if (!isRedesignIntent && bgUrlMatch && !isVideoUrlInstruction && isBgImageIntent) {
         const rawUrl = bgUrlMatch[1].replace(/['"]/g, '').replace(/[,)]+$/, '');
@@ -3301,7 +3609,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         const tagEnd = storedElementHtml.indexOf('>');
         if (tagEnd !== -1) {
           const openTag = storedElementHtml.slice(0, tagEnd);
-          const rest    = storedElementHtml.slice(tagEnd);
+          const rest = storedElementHtml.slice(tagEnd);
           const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
           const sm = styleRx.exec(openTag);
           let patchedTag: string;
@@ -3311,7 +3619,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
               .replace(/\bbackground-size\s*:[^;]+;?\s*/g, '')
               .replace(/\bbackground-position\s*:[^;]+;?\s*/g, '')
               .replace(/\bbackground-repeat\s*:[^;]+;?\s*/g, '')
-              .trim().replace(/;$/, '');
+              .trim()
+              .replace(/;$/, '');
             const extra = `background-image:url('${rawUrl}');background-size:cover;background-position:center;background-repeat:no-repeat`;
             patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}${extra}"`);
           } else {
@@ -3329,15 +3638,16 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // the element unchanged. Patch inline style directly when a color value
       // and "background" intent are detected.
       // Skip for section redesigns — they reference many colours in their spec.
-      const isBgColorIntent = /\b(?:background[\s-]?color|bg[\s-]?color|background)\b/i.test(editInstruction)
-        && !/https?:\/\//.test(editInstruction);
+      const isBgColorIntent =
+        /\b(?:background[\s-]?color|bg[\s-]?color|background)\b/i.test(editInstruction) &&
+        !/https?:\/\//.test(editInstruction);
       const colorValueMatch = editInstruction.match(/(#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)|hsla?\([^)]+\))/i);
       if (!isRedesignIntent && isBgColorIntent && colorValueMatch) {
         const colorValue = colorValueMatch[1];
         const tagEnd = storedElementHtml.indexOf('>');
         if (tagEnd !== -1) {
           const openTag = storedElementHtml.slice(0, tagEnd);
-          const rest    = storedElementHtml.slice(tagEnd);
+          const rest = storedElementHtml.slice(tagEnd);
           const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
           const sm = styleRx.exec(openTag);
           let patchedTag: string;
@@ -3345,13 +3655,17 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             const existing = sm[1]
               .replace(/\bbackground-color\s*:[^;]+;?\s*/g, '')
               .replace(/\bbackground-image\s*:[^;]+;?\s*/g, '')
-              .trim().replace(/;$/, '');
-            patchedTag = openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}background-color:${colorValue};background-image:none !important"`);
+              .trim()
+              .replace(/;$/, '');
+            patchedTag = openTag.replace(
+              styleRx,
+              `style="${existing ? existing + ';' : ''}background-color:${colorValue};background-image:none !important"`,
+            );
           } else {
             patchedTag = `${openTag} style="background-color:${colorValue};background-image:none !important"`;
           }
-          const patched     = patchedTag + rest;
-          let updatedHtml   = html.slice(0, bounds.start) + patched + html.slice(bounds.end);
+          const patched = patchedTag + rest;
+          let updatedHtml = html.slice(0, bounds.start) + patched + html.slice(bounds.end);
           // A covering <img> (photo-as-background pattern) would otherwise hide the new color.
           updatedHtml = hideCoveringImage(updatedHtml, bounds.start);
           return saveValidatedEdit(updatedHtml, `Background color set to ${colorValue}`);
@@ -3370,17 +3684,19 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       //     well-formed after the splice.
 
       let targetBounds = bounds;
-      let targetHtml   = storedElementHtml;
+      let targetHtml = storedElementHtml;
 
       if (isRedesignIntent) {
         // Find the enclosing <section> for the selected element.
         const allSections = extractAllTopLevelSections(html);
-        const enclosing   = allSections.find(s => s.start <= bounds.start && bounds.end <= s.end);
+        const enclosing = allSections.find((s) => s.start <= bounds.start && bounds.end <= s.end);
 
         // Also check if any section id/class matches a keyword in the instruction.
-        const mentionedName = /\b(hero|about|features?|pricing|contact|footer|header|cta|stats|team|process|next.?step)\b/i
-          .exec(editInstruction)?.[1]?.toLowerCase() ?? '';
-        const namedSection  = allSections.find(s => {
+        const mentionedName =
+          /\b(hero|about|features?|pricing|contact|footer|header|cta|stats|team|process|next.?step)\b/i
+            .exec(editInstruction)?.[1]
+            ?.toLowerCase() ?? '';
+        const namedSection = allSections.find((s) => {
           const txt = html.slice(s.start, s.start + 200).toLowerCase();
           return mentionedName && txt.includes(mentionedName);
         });
@@ -3388,16 +3704,18 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         const section = namedSection ?? enclosing;
         if (section) {
           targetBounds = section;
-          targetHtml   = html.slice(section.start, section.end);
-          console.log(`⬆ Section-regeneration intent detected — target elevated to section (${targetHtml.length} chars)`);
+          targetHtml = html.slice(section.start, section.end);
+          console.log(
+            `⬆ Section-regeneration intent detected — target elevated to section (${targetHtml.length} chars)`,
+          );
         }
       }
 
       // ── Detect element type for specialised prompt guidance ──────────────
       const elTag = targetHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? '';
-      const isImgEl   = elTag === 'img';
+      const isImgEl = elTag === 'img';
       const hasImgChild = !isImgEl && /<img\b/i.test(targetHtml);
-      const hasImg    = isImgEl || hasImgChild;
+      const hasImg = isImgEl || hasImgChild;
       // Also detect elements whose background IS an image via CSS (no <img> child needed)
       const hasBgImage = /background-image\s*:\s*url\(/i.test(targetHtml);
       // Pre-strip instruction prefix so we can use it in the shortcut gate below
@@ -3405,14 +3723,10 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         .replace(/^\[[^\]]+\]\s*/, '')
         .replace(/^<[^>]+>:\s*/, '')
         .trim();
-      const isBgImgDescIntent = /\b(?:background|bg)\b/i.test(strippedEdit) &&
-        /\b(?:image|photo|picture|pic|img)\b/i.test(strippedEdit);
-      const currentSrc = hasImg
-        ? (targetHtml.match(/\bsrc="([^"]+)"/)?.[1] ?? '')
-        : '';
-      const currentAlt = hasImg
-        ? (targetHtml.match(/\balt="([^"]*)"/)?.[1] ?? '')
-        : '';
+      const isBgImgDescIntent =
+        /\b(?:background|bg)\b/i.test(strippedEdit) && /\b(?:image|photo|picture|pic|img)\b/i.test(strippedEdit);
+      const currentSrc = hasImg ? (targetHtml.match(/\bsrc="([^"]+)"/)?.[1] ?? '') : '';
+      const currentAlt = hasImg ? (targetHtml.match(/\balt="([^"]*)"/)?.[1] ?? '') : '';
 
       // ── Pexels shortcut — descriptive image replacement (no URL) ─────────
       // When the user describes the desired image without providing a URL,
@@ -3420,7 +3734,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // This avoids asking the LLM to recall a valid Unsplash photo ID from
       // training memory, which reliably produces wrong or stale URLs.
       // Fire for: existing <img>, CSS background-image, OR explicit "background image" desc intent
-      if (!isRedesignIntent && (hasImg || hasBgImage || isBgImgDescIntent) && !(/https?:\/\//.test(editInstruction))) {
+      if (!isRedesignIntent && (hasImg || hasBgImage || isBgImgDescIntent) && !/https?:\/\//.test(editInstruction)) {
         const stripped = strippedEdit; // already computed above
 
         // Gate: must mention an image noun or have explicit bg+image intent
@@ -3439,13 +3753,17 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
               .trim()
               .slice(0, 80);
             console.log(`🔍 Image query extracted: "${pexelsQuery}"`);
-          } catch { /* fall through to LLM edit */ }
+          } catch {
+            /* fall through to LLM edit */
+          }
 
           if (pexelsQuery) {
             const pexelsUrl = await fetchPexelsImageUrl(pexelsQuery);
-            console.log(`📸 Pexels result for "${pexelsQuery}": ${pexelsUrl ?? '(no result — using Unsplash Source fallback)'}`);
-            const imageUrl = pexelsUrl
-              ?? `https://source.unsplash.com/featured/1200x800/?${encodeURIComponent(pexelsQuery)}`;
+            console.log(
+              `📸 Pexels result for "${pexelsQuery}": ${pexelsUrl ?? '(no result — using Unsplash Source fallback)'}`,
+            );
+            const imageUrl =
+              pexelsUrl ?? `https://source.unsplash.com/featured/1200x800/?${encodeURIComponent(pexelsQuery)}`;
             const injectUrl = (target: string, url: string): string => {
               // 1. Replace existing background-image url()
               let out = target.replace(
@@ -3464,12 +3782,15 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
                 const tagEndIdx = target.indexOf('>');
                 if (tagEndIdx !== -1) {
                   const openTag = target.slice(0, tagEndIdx);
-                  const rest    = target.slice(tagEndIdx);
+                  const rest = target.slice(tagEndIdx);
                   const styleRx = /\bstyle\s*=\s*"([^"]*)"/i;
-                  const sm      = styleRx.exec(openTag);
+                  const sm = styleRx.exec(openTag);
                   const bgStyle = `background-image:url('${url}');background-size:cover;background-position:center;background-repeat:no-repeat`;
                   if (sm) {
-                    const existing = sm[1].replace(/background-image[^;]+;?\s*/g, '').trim().replace(/;$/, '');
+                    const existing = sm[1]
+                      .replace(/background-image[^;]+;?\s*/g, '')
+                      .trim()
+                      .replace(/;$/, '');
                     return openTag.replace(styleRx, `style="${existing ? existing + ';' : ''}${bgStyle}"`) + rest;
                   }
                   return `${openTag} style="${bgStyle}"` + rest;
@@ -3479,7 +3800,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             };
             const patched = injectUrl(targetHtml, imageUrl);
             if (patched !== targetHtml) {
-              console.log(`⚡ Image shortcut (${pexelsUrl ? 'pexels' : 'unsplash-source'}): "${pexelsQuery}" → ${imageUrl}`);
+              console.log(
+                `⚡ Image shortcut (${pexelsUrl ? 'pexels' : 'unsplash-source'}): "${pexelsQuery}" → ${imageUrl}`,
+              );
               return saveValidatedEdit(
                 html.slice(0, targetBounds.start) + patched + html.slice(targetBounds.end),
                 'Image updated',
@@ -3495,7 +3818,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // and the two standard placements, so any phrasing — background fill,
       // inline embed, "choose the best position" — produces a working iframe.
       const elVideoUrlMatch = editInstruction.match(/https?:\/\/\S*(?:youtube\.com|youtu\.be|vimeo\.com)\S*/i);
-      const videoGuidance = elVideoUrlMatch ? `
+      const videoGuidance = elVideoUrlMatch
+        ? `
 VIDEO-SPECIFIC RULES (the instruction contains a video URL):
 - Use this exact embed URL as the iframe src (do NOT alter it or invent another): ${toEmbedUrl(elVideoUrlMatch[0].replace(/['"<>)\],.]+$/, ''))}
 - Background/full-bleed placement: add position:relative;overflow:hidden to this element's inline style and insert as its FIRST child:
@@ -3503,9 +3827,11 @@ VIDEO-SPECIFIC RULES (the instruction contains a video URL):
   (then make sure the element's direct content children have position:relative and a higher z-index so they stay visible above the video)
 - Inline/content placement: insert where it reads naturally:
   <div style="position:relative;padding-top:56.25%"><iframe src="[embed URL]" style="position:absolute;inset:0;width:100%;height:100%;border:0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>
-- If the instruction asks to replace an existing video, change the existing iframe's src instead of adding a second iframe` : '';
+- If the instruction asks to replace an existing video, change the existing iframe's src instead of adding a second iframe`
+        : '';
 
-      const imageGuidance = hasImg ? `
+      const imageGuidance = hasImg
+        ? `
 IMAGE-SPECIFIC RULES (this element contains an image):
 - Current src: ${currentSrc}
 - Current alt: ${currentAlt || '(none)'}
@@ -3513,7 +3839,8 @@ IMAGE-SPECIFIC RULES (this element contains an image):
   • Choose a high-quality Unsplash image that fits the alt text and current URL context
   • Use format: https://images.unsplash.com/photo-XXXXXXXXXXXXXXX?w=1200&auto=format&fit=crop&q=80
   • Replace ONLY the src attribute value — keep all other attributes unchanged
-- If the instruction provides a specific URL, use that URL exactly` : '';
+- If the instruction provides a specific URL, use that URL exactly`
+        : '';
 
       const regenRootTag = targetHtml.match(/^<(\w+)/)?.[1]?.toLowerCase() ?? 'section';
       const regenModeNote = isStructuralFix
@@ -3572,7 +3899,7 @@ Strict rules:
       console.log(elementPrompt.slice(0, 1000));
       console.log('└──────────────────────────────────────────────────────────────');
 
-      const raw      = await llmGenerateFn(elementPrompt);
+      const raw = await llmGenerateFn(elementPrompt);
       const modified = extractHtmlFromResponse(raw);
 
       console.log('\n┌─ LLM RESPONSE (raw) ─────────────────────────────────────────');
@@ -3589,7 +3916,8 @@ Strict rules:
       if (/<!doctype|<html[\s>]/i.test(modified) || /<\/?(head|body)\b/i.test(modified)) {
         console.log('✗ LLM returned full-page HTML — rejecting');
         return reply.code(422).send({
-          error: 'LLM returned a full HTML page instead of just the section. Try selecting the specific section element and rephrasing.',
+          error:
+            'LLM returned a full HTML page instead of just the section. Try selecting the specific section element and rephrasing.',
         });
       }
 
@@ -3610,7 +3938,7 @@ Strict rules:
       // put them at the end. Hoisting keeps the document well-formed and
       // prevents styles being applied before the stylesheet is parsed.
       let splicedSection = modified;
-      const hoistedStyles:  string[] = [];
+      const hoistedStyles: string[] = [];
       const hoistedScripts: string[] = [];
 
       if (isRedesignIntent) {
@@ -3623,7 +3951,9 @@ Strict rules:
             hoistedScripts.push(m);
             return '';
           });
-        console.log(`⬆ Hoisting ${hoistedStyles.length} <style> block(s) and ${hoistedScripts.length} <script> block(s)`);
+        console.log(
+          `⬆ Hoisting ${hoistedStyles.length} <style> block(s) and ${hoistedScripts.length} <script> block(s)`,
+        );
       }
 
       // ── Exact positional splice — no string matching needed ───────────────
@@ -3633,16 +3963,18 @@ Strict rules:
       if (hoistedStyles.length) {
         const headClose = updatedHtml.indexOf('</head>');
         const styleBlock = hoistedStyles.join('\n');
-        updatedHtml = headClose !== -1
-          ? updatedHtml.slice(0, headClose) + styleBlock + '\n' + updatedHtml.slice(headClose)
-          : styleBlock + '\n' + updatedHtml;
+        updatedHtml =
+          headClose !== -1
+            ? updatedHtml.slice(0, headClose) + styleBlock + '\n' + updatedHtml.slice(headClose)
+            : styleBlock + '\n' + updatedHtml;
       }
       if (hoistedScripts.length) {
         const bodyClose = updatedHtml.lastIndexOf('</body>');
         const scriptBlock = hoistedScripts.join('\n');
-        updatedHtml = bodyClose !== -1
-          ? updatedHtml.slice(0, bodyClose) + scriptBlock + '\n' + updatedHtml.slice(bodyClose)
-          : updatedHtml + '\n' + scriptBlock;
+        updatedHtml =
+          bodyClose !== -1
+            ? updatedHtml.slice(0, bodyClose) + scriptBlock + '\n' + updatedHtml.slice(bodyClose)
+            : updatedHtml + '\n' + scriptBlock;
       }
 
       if (updatedHtml === html) {
@@ -3666,7 +3998,11 @@ Strict rules:
     // convention) might not use <section> at all — fall back to scanning for
     // that shape so section-list/regen/breadcrumb logic degrades gracefully
     // instead of silently seeing zero sections.
-    function extractTopLevelBlocks(src: string, tag: string, classFilter?: string): Array<{ start: number; end: number }> {
+    function extractTopLevelBlocks(
+      src: string,
+      tag: string,
+      classFilter?: string,
+    ): Array<{ start: number; end: number }> {
       const out: Array<{ start: number; end: number }> = [];
       const openTagLen = tag.length + 1; // "<" + tag
       const closeTag = `</${tag}>`;
@@ -3679,18 +4015,33 @@ Strict rules:
         if (classFilter) {
           const opening = src.slice(openIdx, tagEnd + 1);
           const classes = (opening.match(/\bclass="([^"]+)"/i)?.[1] ?? '').split(/\s+/);
-          if (!classes.includes(classFilter)) { pos = tagEnd + 1; continue; }
+          if (!classes.includes(classFilter)) {
+            pos = tagEnd + 1;
+            continue;
+          }
         }
-        let depth = 1, i = tagEnd + 1, blockEnd = -1;
+        let depth = 1,
+          i = tagEnd + 1,
+          blockEnd = -1;
         while (i < src.length && depth > 0) {
           const nextOpen = src.indexOf(`<${tag}`, i);
           const nextClose = src.indexOf(closeTag, i);
           if (nextClose === -1) break;
-          if (nextOpen !== -1 && nextOpen < nextClose) { depth++; i = nextOpen + openTagLen; }
-          else { depth--; i = nextClose + closeTag.length; if (depth === 0) blockEnd = i; }
+          if (nextOpen !== -1 && nextOpen < nextClose) {
+            depth++;
+            i = nextOpen + openTagLen;
+          } else {
+            depth--;
+            i = nextClose + closeTag.length;
+            if (depth === 0) blockEnd = i;
+          }
         }
-        if (blockEnd !== -1) { out.push({ start: openIdx, end: blockEnd }); pos = blockEnd; }
-        else { pos = tagEnd + 1; }
+        if (blockEnd !== -1) {
+          out.push({ start: openIdx, end: blockEnd });
+          pos = blockEnd;
+        } else {
+          pos = tagEnd + 1;
+        }
       }
       return out;
     }
@@ -3726,19 +4077,26 @@ Strict rules:
       }
 
       // Numbered ordinal: "slide 2", "section 3", "slide #2", "2nd slide"
-      const numMatch = hintLower.match(/\b(?:slide|section)\s+#?(\d+)\b/)
-        ?? hintLower.match(/\b(\d+)(?:st|nd|rd|th)\s+(?:slide|section)\b/);
+      const numMatch =
+        hintLower.match(/\b(?:slide|section)\s+#?(\d+)\b/) ??
+        hintLower.match(/\b(\d+)(?:st|nd|rd|th)\s+(?:slide|section)\b/);
       if (numMatch) {
         const idx = parseInt(numMatch[1] ?? '0', 10) - 1;
         if (idx >= 0 && idx < secs.length) {
           const s = secs[idx];
-          return { before: src.slice(0, s.start), section: src.slice(s.start, s.end), after: src.slice(s.end), tag: 'section' };
+          return {
+            before: src.slice(0, s.start),
+            section: src.slice(s.start, s.end),
+            after: src.slice(s.end),
+            tag: 'section',
+          };
         }
       }
 
-      const words = hintLower.split(/\W+/).filter(w => w.length > 2);
+      const words = hintLower.split(/\W+/).filter((w) => w.length > 2);
 
-      let best = secs[0], bestScore = -1;
+      let best = secs[0],
+        bestScore = -1;
       for (let i = 0; i < secs.length; i++) {
         const text = src.slice(secs[i].start, secs[i].end);
         const textLower = text.toLowerCase();
@@ -3754,31 +4112,48 @@ Strict rules:
         const headingText = (/<h[1-3][^>]*>([^<]+)<\/h[1-3]>/i.exec(text)?.[1] ?? '').toLowerCase();
 
         for (const w of words) {
-          if (attrs.includes(w)) score += 4;       // id/class match is the strongest signal
+          if (attrs.includes(w)) score += 4; // id/class match is the strongest signal
           if (headingText.includes(w)) score += 3; // heading text is second strongest
-          if (textLower.includes(w)) score += 1;   // general content match
+          if (textLower.includes(w)) score += 1; // general content match
         }
 
         // Positional aliases: "hero" or "first" → first section; "footer"/"last" → last
         if (i === 0 && /\b(?:hero|banner|intro|first|top)\b/.test(hintLower)) score += 6;
         if (i === secs.length - 1 && /\b(?:footer|last|bottom|end)\b/.test(hintLower)) score += 6;
 
-        if (score > bestScore) { bestScore = score; best = secs[i]; }
+        if (score > bestScore) {
+          bestScore = score;
+          best = secs[i];
+        }
       }
-      return { before: src.slice(0, best.start), section: src.slice(best.start, best.end), after: src.slice(best.end), tag: 'section' };
+      return {
+        before: src.slice(0, best.start),
+        section: src.slice(best.start, best.end),
+        after: src.slice(best.end),
+        tag: 'section',
+      };
     }
 
     function extractHeaderBlock(src: string): SectionSlice | null {
       const rx = /<(header|nav)\b[^>]*>[\s\S]*?<\/\1>/i;
       const m = rx.exec(src);
       if (!m) return null;
-      return { before: src.slice(0, m.index), section: m[0], after: src.slice(m.index + m[0].length), tag: m[1].toLowerCase() };
+      return {
+        before: src.slice(0, m.index),
+        section: m[0],
+        after: src.slice(m.index + m[0].length),
+        tag: m[1].toLowerCase(),
+      };
     }
     // ──────────────────────────────────────────────────────────────────────────
 
-    function applyPatches(base: string, patches: Array<{ find: string; replace: string }>): { html: string; applied: number; missed: number } {
+    function applyPatches(
+      base: string,
+      patches: Array<{ find: string; replace: string }>,
+    ): { html: string; applied: number; missed: number } {
       let result = base;
-      let applied = 0, missed = 0;
+      let applied = 0,
+        missed = 0;
       for (const p of patches) {
         if (!p.find || p.replace === undefined) continue;
         if (!result.includes(p.find)) {
@@ -3792,7 +4167,6 @@ Strict rules:
       }
       return { html: result, applied, missed };
     }
-
 
     function extractBlockFromResponse(rawText: string): { block: string; tag: string } | null {
       // Reject JSON responses — LLM "find" values contain HTML tags that would be
@@ -3827,9 +4201,12 @@ Strict rules:
     const isPureRegenIntent = /\b(?:regenerate|rewrite|rebuild|redesign|redo|remake|recreate)\b/i.test(instruction);
     // Structural fix intent — "fix overlapping strip", "repair broken layout", etc.
     // These need a full section rewrite rather than a targeted text patch.
-    const isStructuralFixIntent = !isPureRegenIntent
-      && /\b(?:fix|repair|correct|resolve)\b/i.test(instruction)
-      && /\b(?:overlap|overlapping|bleed(?:ing)?|overflow(?:ing)?|strip|stripe|z.?index|misalign|broken|cut.?off|clip(?:ped)?|spacing|layout|position|visual|design|gap|layer)\b/i.test(instruction);
+    const isStructuralFixIntent =
+      !isPureRegenIntent &&
+      /\b(?:fix|repair|correct|resolve)\b/i.test(instruction) &&
+      /\b(?:overlap|overlapping|bleed(?:ing)?|overflow(?:ing)?|strip|stripe|z.?index|misalign|broken|cut.?off|clip(?:ped)?|spacing|layout|position|visual|design|gap|layer)\b/i.test(
+        instruction,
+      );
     const isRegenIntent = isPureRegenIntent || isStructuralFixIntent;
     const isHeaderInstruction = /\b(?:logo|brand|icon|favicon|header|nav(?:bar)?)\b/i.test(instruction);
 
@@ -3841,19 +4218,20 @@ Strict rules:
     // ── Section regeneration helper (regen intent + structural fix) ──────────
     async function regenSection(ctx: SectionSlice): Promise<string> {
       // For pure regeneration with no design-change words, lock down all visual aspects.
-      const designChangeWords = /\b(?:dark|light|color|colour|font|size|background|theme|style|palette|weight|spacing|layout|gradient|border|shadow)\b/i;
+      const designChangeWords =
+        /\b(?:dark|light|color|colour|font|size|background|theme|style|palette|weight|spacing|layout|gradient|border|shadow)\b/i;
       const isDesignChangeInstruction = designChangeWords.test(instruction ?? '');
 
       // Extract inline color values from the section so we can explicitly list them
-      const inlineColors = [...new Set(
-        ctx.section.match(/#[0-9a-fA-F]{3,8}\b|rgb\([^)]+\)|rgba\([^)]+\)/g) ?? []
-      )].slice(0, 12).join(', ');
+      const inlineColors = [...new Set(ctx.section.match(/#[0-9a-fA-F]{3,8}\b|rgb\([^)]+\)|rgba\([^)]+\)/g) ?? [])]
+        .slice(0, 12)
+        .join(', ');
 
       const modeNote = isStructuralFixIntent
         ? `\nFIX MODE: Fix the described design issue only. Do NOT change any colors, text content, branding, or visual style — only correct the structural/layout problem described.`
         : isPureRegenIntent && !isDesignChangeInstruction
-        ? `\nREGENERATION MODE: Refresh the content but preserve ALL visual design exactly — same colors${inlineColors ? ` (${inlineColors})` : ''}, fonts, font sizes, spacing, layout, and visual hierarchy. Do not change any design characteristics.`
-        : '';
+          ? `\nREGENERATION MODE: Refresh the content but preserve ALL visual design exactly — same colors${inlineColors ? ` (${inlineColors})` : ''}, fonts, font sizes, spacing, layout, and visual hierarchy. Do not change any design characteristics.`
+          : '';
 
       const regenPrompt = `You are rewriting one section of an HTML microsite.
 
@@ -3875,14 +4253,18 @@ ${ctx.section}`;
 
     // Build a human-readable section list so the LLM can reference sections by name
     const allSecs = extractAllTopLevelSections(html);
-    const sectionList = allSecs.map((s, i) => {
-      const snippet = html.slice(s.start, Math.min(s.start + 300, s.end));
-      return snippet.match(/\bid="([^"]+)"/)?.[1]
-        ?? snippet.match(/\bdata-section="([^"]+)"/)?.[1]
-        ?? snippet.match(/\bclass="([^"\s]+)/)?.[1]
-        ?? snippet.match(/<h[1-3][^>]*>([^<]{1,40})<\/h[1-3]>/i)?.[1]?.trim()
-        ?? `section-${i + 1}`;
-    }).join(', ');
+    const sectionList = allSecs
+      .map((s, i) => {
+        const snippet = html.slice(s.start, Math.min(s.start + 300, s.end));
+        return (
+          snippet.match(/\bid="([^"]+)"/)?.[1] ??
+          snippet.match(/\bdata-section="([^"]+)"/)?.[1] ??
+          snippet.match(/\bclass="([^"\s]+)/)?.[1] ??
+          snippet.match(/<h[1-3][^>]*>([^<]{1,40})<\/h[1-3]>/i)?.[1]?.trim() ??
+          `section-${i + 1}`
+        );
+      })
+      .join(', ');
 
     // ── Structured-operation prompt ───────────────────────────────────────────
     // The LLM always receives the FULL HTML (so it sees every section) but
@@ -3898,22 +4280,43 @@ ${ctx.section}`;
     function parseOp(raw: string): MicrositeOp | null {
       const start = raw.indexOf('{');
       if (start === -1) return null;
-      let depth = 0, end = -1, inStr = false, esc = false;
+      let depth = 0,
+        end = -1,
+        inStr = false,
+        esc = false;
       for (let i = start; i < raw.length; i++) {
         const c = raw[i];
-        if (esc) { esc = false; continue; }
-        if (c === '\\' && inStr) { esc = true; continue; }
-        if (c === '"') { inStr = !inStr; continue; }
+        if (esc) {
+          esc = false;
+          continue;
+        }
+        if (c === '\\' && inStr) {
+          esc = true;
+          continue;
+        }
+        if (c === '"') {
+          inStr = !inStr;
+          continue;
+        }
         if (inStr) continue;
         if (c === '{') depth++;
-        else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
+        else if (c === '}') {
+          depth--;
+          if (depth === 0) {
+            end = i;
+            break;
+          }
+        }
       }
       if (end === -1) return null;
       try {
-        const slice = raw.slice(start, end + 1)
-          .replace(/("(?:[^"\\]|\\.)*")/gs, m => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
+        const slice = raw
+          .slice(start, end + 1)
+          .replace(/("(?:[^"\\]|\\.)*")/gs, (m) => m.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
         return JSON.parse(slice) as MicrositeOp;
-      } catch { return null; }
+      } catch {
+        return null;
+      }
     }
 
     // ── Pre-fetch a real image URL from Pexels when the instruction describes an
@@ -3925,12 +4328,14 @@ ${ctx.section}`;
     // actually applied instead of trusting a structurally-valid but no-op response.
     let resolvedUrlToVerify: string | null = null;
     let resolvedUrlKind = '';
-    if (!isRegenIntent && !/https?:\/\//.test(instruction) &&
-        /\b(?:image|photo|picture|pic)\b/i.test(instruction)) {
+    if (!isRegenIntent && !/https?:\/\//.test(instruction) && /\b(?:image|photo|picture|pic)\b/i.test(instruction)) {
       try {
         const qPrompt = `Does this instruction require adding or replacing an image with a new one fetched from the web? Answer "no" if the instruction is about removing, hiding, or deleting an image, or if no new image is needed. Otherwise answer with a concise 2-5 keyword image search query (keywords only, nothing else).\n\nInstruction: ${instruction}`;
         const pexelsQ = (await llmGenerateFn(qPrompt))
-          .trim().replace(/^["'`]|["'`]$/g, '').trim().slice(0, 80);
+          .trim()
+          .replace(/^["'`]|["'`]$/g, '')
+          .trim()
+          .slice(0, 80);
         if (pexelsQ && !/^no\b/i.test(pexelsQ)) {
           const pexelsUrl = await fetchPexelsImageUrl(pexelsQ);
           if (pexelsUrl) {
@@ -3940,7 +4345,9 @@ ${ctx.section}`;
             console.log(`📸 Pexels pre-fetch for global edit: "${pexelsQ}" → ${pexelsUrl}`);
           }
         }
-      } catch { /* fall through — LLM will handle without a real URL */ }
+      } catch {
+        /* fall through — LLM will handle without a real URL */
+      }
     }
 
     // ── Video URL normalization — a pure format transform, not an intent guess.
@@ -3959,7 +4366,9 @@ ${ctx.section}`;
       console.log(`🎬 Video URL pre-normalized for global edit: ${embedUrl.slice(0, 80)}`);
     }
 
-    const opPrompt = isRegenIntent ? '' : `You are editing an HTML microsite. Pick the ONE operation that best fits the instruction and respond with a single JSON object — nothing else.
+    const opPrompt = isRegenIntent
+      ? ''
+      : `You are editing an HTML microsite. Pick the ONE operation that best fits the instruction and respond with a single JSON object — nothing else.
 
 OPERATION TYPES:
 
@@ -3993,7 +4402,7 @@ OP clarify — the instruction does not say which section/element to target, AND
 nothing in it (no section name, no distinctive quoted text, no ordinal like
 "first"/"last") narrows it down to one clear match among this document's
 ${sectionList.split(',').length} sections. Use this instead of guessing:
-{ "op": "clarify", "question": "Which section should this apply to? (e.g. ${sectionList.split(',').slice(0,3).join(', ')}...)" }
+{ "op": "clarify", "question": "Which section should this apply to? (e.g. ${sectionList.split(',').slice(0, 3).join(', ')}...)" }
 Only use "clarify" when you are genuinely unsure which section is meant — if
 the instruction names a section, quotes/describes distinctive content, uses an
 ordinal, or there is only one section where this change makes sense, proceed
@@ -4037,7 +4446,9 @@ ${html}`;
         updatedHtml = await regenSection(sectionCtx);
         summary = isStructuralFixIntent ? 'Section fixed' : 'Section regenerated';
       } catch {
-        return reply.code(502).send({ error: 'Could not regenerate section — try providing more detail in your instruction' });
+        return reply
+          .code(502)
+          .send({ error: 'Could not regenerate section — try providing more detail in your instruction' });
       }
     } else {
       const op = parseOp(raw);
@@ -4069,46 +4480,45 @@ ${html}`;
           }
         }
       } else {
-
-      if (op.op === 'patches') {
-        const { html: patched, applied, missed } = applyPatches(html, op.patches);
-        if (applied === 0) return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
-        updatedHtml = patched;
-        summary = op.summary;
-        changedTexts = op.patches.filter(p => p.replace !== undefined).map(p => p.replace);
-        if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
-
-      } else if (op.op === 'section_replace') {
-        const ctx = extractBestSection(html, op.anchor);
-        if (!ctx) return reply.code(502).send({ error: `Section "${op.anchor}" not found` });
-        updatedHtml = ctx.before + op.html + ctx.after;
-        summary = op.summary;
-
-      } else if (op.op === 'section_insert') {
-        const ctx = extractBestSection(html, op.anchor);
-        if (!ctx) return reply.code(502).send({ error: `Anchor section "${op.anchor}" not found` });
-        updatedHtml = op.position === 'before'
-          ? ctx.before + op.html + ctx.section + ctx.after
-          : ctx.before + ctx.section + op.html + ctx.after;
-        summary = op.summary;
-
-      } else if (op.op === 'section_delete') {
-        const ctx = extractBestSection(html, op.anchor);
-        if (!ctx) return reply.code(502).send({ error: `Section "${op.anchor}" not found` });
-        updatedHtml = ctx.before + ctx.after;
-        summary = op.summary;
-
-      } else if (op.op === 'clarify') {
-        // Refuse to guess which section an ambiguous instruction meant — a wrong
-        // guess silently edits the wrong element and reports success, which is
-        // worse than asking. Select the element directly, or name the section.
-        return reply.code(422).send({
-          error: op.question || 'Which section should this apply to? Select the element directly, or name the section.',
-        });
-
-      } else {
-        return reply.code(502).send({ error: 'Unknown operation returned by LLM — try rephrasing' });
-      }
+        if (op.op === 'patches') {
+          const { html: patched, applied, missed } = applyPatches(html, op.patches);
+          if (applied === 0)
+            return reply
+              .code(502)
+              .send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
+          updatedHtml = patched;
+          summary = op.summary;
+          changedTexts = op.patches.filter((p) => p.replace !== undefined).map((p) => p.replace);
+          if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+        } else if (op.op === 'section_replace') {
+          const ctx = extractBestSection(html, op.anchor);
+          if (!ctx) return reply.code(502).send({ error: `Section "${op.anchor}" not found` });
+          updatedHtml = ctx.before + op.html + ctx.after;
+          summary = op.summary;
+        } else if (op.op === 'section_insert') {
+          const ctx = extractBestSection(html, op.anchor);
+          if (!ctx) return reply.code(502).send({ error: `Anchor section "${op.anchor}" not found` });
+          updatedHtml =
+            op.position === 'before'
+              ? ctx.before + op.html + ctx.section + ctx.after
+              : ctx.before + ctx.section + op.html + ctx.after;
+          summary = op.summary;
+        } else if (op.op === 'section_delete') {
+          const ctx = extractBestSection(html, op.anchor);
+          if (!ctx) return reply.code(502).send({ error: `Section "${op.anchor}" not found` });
+          updatedHtml = ctx.before + ctx.after;
+          summary = op.summary;
+        } else if (op.op === 'clarify') {
+          // Refuse to guess which section an ambiguous instruction meant — a wrong
+          // guess silently edits the wrong element and reports success, which is
+          // worse than asking. Select the element directly, or name the section.
+          return reply.code(422).send({
+            error:
+              op.question || 'Which section should this apply to? Select the element directly, or name the section.',
+          });
+        } else {
+          return reply.code(502).send({ error: 'Unknown operation returned by LLM — try rephrasing' });
+        }
       } // close: else (op !== null)
     }
 
@@ -4122,8 +4532,9 @@ ${html}`;
     // silently retrying a stronger prompt, which would just move "patch until it
     // passes" from regex-space into prompt-space.
     if (resolvedUrlToVerify) {
-      const idMatch = resolvedUrlToVerify.match(/(?:youtube\.com\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i)
-        ?? resolvedUrlToVerify.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
+      const idMatch =
+        resolvedUrlToVerify.match(/(?:youtube\.com\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i) ??
+        resolvedUrlToVerify.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
       const needle = idMatch ? idMatch[1] : resolvedUrlToVerify;
       if (!updatedHtml.includes(needle)) {
         return reply.code(422).send({
@@ -4140,13 +4551,16 @@ ${html}`;
     // Catches the LLM (or a stray "find" patch that missed its real target,
     // e.g. duplicate markup elsewhere in the document) reporting a removal
     // that didn't actually happen.
-    if (/\b(?:remove|delete|clear|hide)\b/i.test(instruction) &&
-        /\b(?:video|iframe|vimeo|youtube)\b/i.test(instruction)) {
+    if (
+      /\b(?:remove|delete|clear|hide)\b/i.test(instruction) &&
+      /\b(?:video|iframe|vimeo|youtube)\b/i.test(instruction)
+    ) {
       const before = (html.match(/<iframe\b/gi) ?? []).length;
-      const after  = (updatedHtml.match(/<iframe\b/gi) ?? []).length;
+      const after = (updatedHtml.match(/<iframe\b/gi) ?? []).length;
       if (after >= before) {
         return reply.code(422).send({
-          error: 'Edit did not apply — the video/iframe is still present in the result. Try rephrasing or naming the section more specifically.',
+          error:
+            'Edit did not apply — the video/iframe is still present in the result. Try rephrasing or naming the section more specifically.',
         });
       }
     }
@@ -4167,7 +4581,9 @@ ${html}`;
     let ast: Record<string, unknown>;
     try {
       ast = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>;
-    } catch { return reply.code(404).send({ error: 'Microsite not found' }); }
+    } catch {
+      return reply.code(404).send({ error: 'Microsite not found' });
+    }
 
     const astSections = ast.sections as Array<Record<string, unknown>> | undefined;
     const html = (astSections?.[0]?.customHtml as string | undefined) ?? '';
@@ -4180,16 +4596,28 @@ ${html}`;
       if (openIdx === -1) break;
       const tagEnd = html.indexOf('>', openIdx);
       if (tagEnd === -1) break;
-      let depth = 1, i = tagEnd + 1, sectionEnd = -1;
+      let depth = 1,
+        i = tagEnd + 1,
+        sectionEnd = -1;
       while (i < html.length && depth > 0) {
         const nOpen = html.indexOf('<section', i);
         const nClose = html.indexOf('</section>', i);
         if (nClose === -1) break;
-        if (nOpen !== -1 && nOpen < nClose) { depth++; i = nOpen + 8; }
-        else { depth--; i = nClose + 10; if (depth === 0) sectionEnd = i; }
+        if (nOpen !== -1 && nOpen < nClose) {
+          depth++;
+          i = nOpen + 8;
+        } else {
+          depth--;
+          i = nClose + 10;
+          if (depth === 0) sectionEnd = i;
+        }
       }
-      if (sectionEnd !== -1) { sectionBounds.push({ start: openIdx, end: sectionEnd }); pos = sectionEnd; }
-      else { pos = tagEnd + 1; }
+      if (sectionEnd !== -1) {
+        sectionBounds.push({ start: openIdx, end: sectionEnd });
+        pos = sectionEnd;
+      } else {
+        pos = tagEnd + 1;
+      }
     }
 
     const sections = sectionBounds.map((s, i) => {
@@ -4197,7 +4625,8 @@ ${html}`;
       const headingMatch = /<h[1-6][^>]*>([^<]+)<\/h[1-6]>/i.exec(text);
       const idMatch = /\bid="([^"]+)"/.exec(text);
       const classMatch = /\bclass="([^"]+)"/.exec(text);
-      const label = headingMatch?.[1]?.trim() ?? idMatch?.[1]?.trim() ?? classMatch?.[1]?.split(/\s+/)[0] ?? `Section ${i + 1}`;
+      const label =
+        headingMatch?.[1]?.trim() ?? idMatch?.[1]?.trim() ?? classMatch?.[1]?.split(/\s+/)[0] ?? `Section ${i + 1}`;
       return { index: i, label, length: text.length, preview: text.slice(0, 200) };
     });
 
@@ -4205,84 +4634,104 @@ ${html}`;
   });
 
   // POST /super-clients/:name/microsites/:id/sections/regenerate  — rewrite one section with LLM
-  app.post('/super-clients/:name/microsites/:id/sections/regenerate', async (req: FastifyRequest, reply: FastifyReply) => {
-    const { name, id } = req.params as { name: string; id: string };
-    if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
+  app.post(
+    '/super-clients/:name/microsites/:id/sections/regenerate',
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      const { name, id } = req.params as { name: string; id: string };
+      if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
 
-    const body = req.body as { instruction?: string; sectionIndex?: number } | undefined;
-    const instruction = body?.instruction?.trim();
-    if (!instruction) return reply.code(400).send({ error: 'Missing instruction' });
+      const body = req.body as { instruction?: string; sectionIndex?: number } | undefined;
+      const instruction = body?.instruction?.trim();
+      if (!instruction) return reply.code(400).send({ error: 'Missing instruction' });
 
-    const dir = path.join(superClientsRoot, name);
-    const filePath = path.join(dir, 'microsites', `${id}.json`);
-    const resolved = path.resolve(filePath);
-    if (!resolved.startsWith(path.resolve(path.join(dir, 'microsites')))) {
-      return reply.code(400).send({ error: 'Invalid id' });
-    }
-    let ast: Record<string, unknown>;
-    try {
-      ast = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>;
-    } catch { return reply.code(404).send({ error: 'Microsite not found' }); }
-
-    const astSections = ast.sections as Array<Record<string, unknown>> | undefined;
-    const html = (astSections?.[0]?.customHtml as string | undefined) ?? '';
-    if (!html) return reply.code(400).send({ error: 'Microsite has no HTML content' });
-
-    // Locate the target section (by index or best keyword match)
-    const bounds: Array<{ start: number; end: number }> = [];
-    let p = 0;
-    while (p < html.length) {
-      const oi = html.indexOf('<section', p);
-      if (oi === -1) break;
-      const te = html.indexOf('>', oi);
-      if (te === -1) break;
-      let depth = 1, ci = te + 1, se = -1;
-      while (ci < html.length && depth > 0) {
-        const no = html.indexOf('<section', ci);
-        const nc = html.indexOf('</section>', ci);
-        if (nc === -1) break;
-        if (no !== -1 && no < nc) { depth++; ci = no + 8; }
-        else { depth--; ci = nc + 10; if (depth === 0) se = ci; }
+      const dir = path.join(superClientsRoot, name);
+      const filePath = path.join(dir, 'microsites', `${id}.json`);
+      const resolved = path.resolve(filePath);
+      if (!resolved.startsWith(path.resolve(path.join(dir, 'microsites')))) {
+        return reply.code(400).send({ error: 'Invalid id' });
       }
-      if (se !== -1) { bounds.push({ start: oi, end: se }); p = se; } else { p = te + 1; }
-    }
+      let ast: Record<string, unknown>;
+      try {
+        ast = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>;
+      } catch {
+        return reply.code(404).send({ error: 'Microsite not found' });
+      }
 
-    if (bounds.length === 0) return reply.code(400).send({ error: 'No sections found in microsite HTML' });
+      const astSections = ast.sections as Array<Record<string, unknown>> | undefined;
+      const html = (astSections?.[0]?.customHtml as string | undefined) ?? '';
+      if (!html) return reply.code(400).send({ error: 'Microsite has no HTML content' });
 
-    let target = bounds[0];
-    const idx = body?.sectionIndex ?? -1;
-    if (idx >= 0 && idx < bounds.length) {
-      target = bounds[idx];
-    } else {
-      // Score by id/class/heading match (same logic as edit endpoint)
-      const hintLower = instruction.toLowerCase();
-      const words = hintLower.split(/\W+/).filter(w => w.length > 2);
-      let best = bounds[0], bestScore = -1;
-      for (let i = 0; i < bounds.length; i++) {
-        const text = html.slice(bounds[i].start, bounds[i].end);
-        const textLower = text.toLowerCase();
-        let score = 0;
-        const attrs = [
-          (/\bid="([^"]+)"/.exec(text)?.[1] ?? ''),
-          (/\bclass="([^"]+)"/.exec(text)?.[1] ?? ''),
-        ].join(' ').toLowerCase();
-        const heading = (/<h[1-3][^>]*>([^<]+)<\/h[1-3]>/i.exec(text)?.[1] ?? '').toLowerCase();
-        for (const w of words) {
-          if (attrs.includes(w)) score += 4;
-          if (heading.includes(w)) score += 3;
-          if (textLower.includes(w)) score += 1;
+      // Locate the target section (by index or best keyword match)
+      const bounds: Array<{ start: number; end: number }> = [];
+      let p = 0;
+      while (p < html.length) {
+        const oi = html.indexOf('<section', p);
+        if (oi === -1) break;
+        const te = html.indexOf('>', oi);
+        if (te === -1) break;
+        let depth = 1,
+          ci = te + 1,
+          se = -1;
+        while (ci < html.length && depth > 0) {
+          const no = html.indexOf('<section', ci);
+          const nc = html.indexOf('</section>', ci);
+          if (nc === -1) break;
+          if (no !== -1 && no < nc) {
+            depth++;
+            ci = no + 8;
+          } else {
+            depth--;
+            ci = nc + 10;
+            if (depth === 0) se = ci;
+          }
         }
-        if (i === 0 && /\b(?:hero|banner|intro|first|top)\b/.test(hintLower)) score += 6;
-        if (i === bounds.length - 1 && /\b(?:footer|last|bottom|end)\b/.test(hintLower)) score += 6;
-        if (score > bestScore) { bestScore = score; best = bounds[i]; }
+        if (se !== -1) {
+          bounds.push({ start: oi, end: se });
+          p = se;
+        } else {
+          p = te + 1;
+        }
       }
-      target = best;
-    }
 
-    const sectionHtml = html.slice(target.start, target.end);
-    const cssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
+      if (bounds.length === 0) return reply.code(400).send({ error: 'No sections found in microsite HTML' });
 
-    const prompt = `You are rewriting one section of an HTML microsite.
+      let target = bounds[0];
+      const idx = body?.sectionIndex ?? -1;
+      if (idx >= 0 && idx < bounds.length) {
+        target = bounds[idx];
+      } else {
+        // Score by id/class/heading match (same logic as edit endpoint)
+        const hintLower = instruction.toLowerCase();
+        const words = hintLower.split(/\W+/).filter((w) => w.length > 2);
+        let best = bounds[0],
+          bestScore = -1;
+        for (let i = 0; i < bounds.length; i++) {
+          const text = html.slice(bounds[i].start, bounds[i].end);
+          const textLower = text.toLowerCase();
+          let score = 0;
+          const attrs = [/\bid="([^"]+)"/.exec(text)?.[1] ?? '', /\bclass="([^"]+)"/.exec(text)?.[1] ?? '']
+            .join(' ')
+            .toLowerCase();
+          const heading = (/<h[1-3][^>]*>([^<]+)<\/h[1-3]>/i.exec(text)?.[1] ?? '').toLowerCase();
+          for (const w of words) {
+            if (attrs.includes(w)) score += 4;
+            if (heading.includes(w)) score += 3;
+            if (textLower.includes(w)) score += 1;
+          }
+          if (i === 0 && /\b(?:hero|banner|intro|first|top)\b/.test(hintLower)) score += 6;
+          if (i === bounds.length - 1 && /\b(?:footer|last|bottom|end)\b/.test(hintLower)) score += 6;
+          if (score > bestScore) {
+            bestScore = score;
+            best = bounds[i];
+          }
+        }
+        target = best;
+      }
+
+      const sectionHtml = html.slice(target.start, target.end);
+      const cssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
+
+      const prompt = `You are rewriting one section of an HTML microsite.
 
 Apply the instruction exactly. You may change: text content, headings, body copy, colors, backgrounds, fonts, font sizes, font weights, spacing, layout, images, icons, buttons, links — whatever the instruction requires.
 Preserve: overall section structure unless told otherwise, CSS class names, responsive patterns.
@@ -4294,16 +4743,28 @@ INSTRUCTION: ${instruction}
 CURRENT SECTION:
 ${sectionHtml}`;
 
-    const regenRaw = await llmGenerateFn(prompt);
-    const sectionMatch = regenRaw.match(/<section[\s\S]*<\/section>/i);
-    if (!sectionMatch) return reply.code(502).send({ error: 'LLM did not return a valid section — try rephrasing' });
+      const regenRaw = await llmGenerateFn(prompt);
+      const sectionMatch = regenRaw.match(/<section[\s\S]*<\/section>/i);
+      if (!sectionMatch) return reply.code(502).send({ error: 'LLM did not return a valid section — try rephrasing' });
 
-    const updatedHtml = html.slice(0, target.start) + sanitizeHtmlOutput(sectionMatch[0]) + html.slice(target.end);
-    const updatedAst = { ...ast, sections: [{ ...astSections![0], customHtml: updatedHtml, previousHtml: html }, ...((astSections ?? []).slice(1))] };
-    await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
+      const updatedHtml = html.slice(0, target.start) + sanitizeHtmlOutput(sectionMatch[0]) + html.slice(target.end);
+      const updatedAst = {
+        ...ast,
+        sections: [
+          { ...astSections![0], customHtml: updatedHtml, previousHtml: html },
+          ...(astSections ?? []).slice(1),
+        ],
+      };
+      await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
 
-    return reply.send({ html: updatedHtml, sectionHtml: sectionMatch[0], sectionIndex: idx >= 0 ? idx : null, summary: 'Section regenerated' });
-  });
+      return reply.send({
+        html: updatedHtml,
+        sectionHtml: sectionMatch[0],
+        sectionIndex: idx >= 0 ? idx : null,
+        summary: 'Section regenerated',
+      });
+    },
+  );
 
   // POST /super-clients/:name/microsites/:id/revert  — undo last edit
   app.post('/super-clients/:name/microsites/:id/revert', async (req: FastifyRequest, reply: FastifyReply) => {
@@ -4312,12 +4773,18 @@ ${sectionHtml}`;
 
     const dir = path.join(superClientsRoot, name);
     const filePath = path.join(dir, 'microsites', `${id}.json`);
-    try { await readMeta(dir); } catch { return reply.status(404).send({ error: 'Client not found' }); }
+    try {
+      await readMeta(dir);
+    } catch {
+      return reply.status(404).send({ error: 'Client not found' });
+    }
 
     let ast: Record<string, unknown>;
     try {
       ast = JSON.parse(await readFile(filePath, 'utf8')) as Record<string, unknown>;
-    } catch { return reply.status(404).send({ error: 'Microsite not found' }); }
+    } catch {
+      return reply.status(404).send({ error: 'Microsite not found' });
+    }
 
     const sections = ast.sections as Array<Record<string, unknown>> | undefined;
     const currentHtml = (sections?.[0]?.customHtml as string | undefined) ?? '';
@@ -4325,7 +4792,13 @@ ${sectionHtml}`;
 
     if (!previousHtml) return reply.status(409).send({ error: 'No previous version to revert to' });
 
-    const revertedAst = { ...ast, sections: [{ ...sections![0], customHtml: previousHtml, previousHtml: currentHtml }, ...((sections ?? []).slice(1))] };
+    const revertedAst = {
+      ...ast,
+      sections: [
+        { ...sections![0], customHtml: previousHtml, previousHtml: currentHtml },
+        ...(sections ?? []).slice(1),
+      ],
+    };
     await writeFile(filePath, JSON.stringify(revertedAst, null, 2));
 
     return reply.send({ html: previousHtml });
@@ -4337,21 +4810,29 @@ ${sectionHtml}`;
     if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
 
     const { customHtml: rawCustomHtml } = (req.body ?? {}) as { customHtml?: string };
-    if (typeof rawCustomHtml !== 'string' || !rawCustomHtml.trim()) return reply.code(400).send({ error: 'Missing customHtml' });
+    if (typeof rawCustomHtml !== 'string' || !rawCustomHtml.trim())
+      return reply.code(400).send({ error: 'Missing customHtml' });
     const customHtml = stripPreviewInjections(rawCustomHtml);
 
     const dir = path.join(superClientsRoot, name);
     const filePath = path.join(dir, 'microsites', `${id}.json`);
     const resolved = path.resolve(filePath);
-    if (!resolved.startsWith(path.resolve(path.join(dir, 'microsites')))) return reply.code(400).send({ error: 'Invalid id' });
+    if (!resolved.startsWith(path.resolve(path.join(dir, 'microsites'))))
+      return reply.code(400).send({ error: 'Invalid id' });
 
     let ast: Record<string, unknown>;
-    try { ast = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>; }
-    catch { return reply.code(404).send({ error: 'Microsite not found' }); }
+    try {
+      ast = JSON.parse(await readFile(filePath, 'utf-8')) as Record<string, unknown>;
+    } catch {
+      return reply.code(404).send({ error: 'Microsite not found' });
+    }
 
     const sections = ast.sections as Array<Record<string, unknown>> | undefined;
     const prevHtml = (sections?.[0]?.customHtml as string | undefined) ?? '';
-    const updatedAst = { ...ast, sections: [{ ...(sections?.[0] ?? {}), customHtml, previousHtml: prevHtml }, ...((sections ?? []).slice(1))] };
+    const updatedAst = {
+      ...ast,
+      sections: [{ ...(sections?.[0] ?? {}), customHtml, previousHtml: prevHtml }, ...(sections ?? []).slice(1)],
+    };
     await writeFile(filePath, JSON.stringify(updatedAst, null, 2));
     return reply.send({ ok: true });
   });
@@ -4377,7 +4858,11 @@ ${sectionHtml}`;
   app.get('/super-clients/:name/slides', async (req: FastifyRequest, reply: FastifyReply) => {
     const { name } = req.params as { name: string };
     const dir = path.join(superClientsRoot, name);
-    try { await readMeta(dir); } catch { return reply.code(404).send({ error: 'Client not found' }); }
+    try {
+      await readMeta(dir);
+    } catch {
+      return reply.code(404).send({ error: 'Client not found' });
+    }
     try {
       const raw = await readFile(path.join(dir, 'slides.json'), 'utf-8');
       return reply.send(JSON.parse(raw));
@@ -4391,7 +4876,11 @@ ${sectionHtml}`;
     const { name, id } = req.params as { name: string; id: string };
     if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
     const dir = path.join(superClientsRoot, name);
-    try { await readMeta(dir); } catch { return reply.code(404).send({ error: 'Client not found' }); }
+    try {
+      await readMeta(dir);
+    } catch {
+      return reply.code(404).send({ error: 'Client not found' });
+    }
     try {
       const html = await readFile(path.join(dir, 'slides', `${id}.html`), 'utf-8');
       return reply.header('Cache-Control', 'no-store').type('text/html').send(html);
@@ -4405,7 +4894,11 @@ ${sectionHtml}`;
     const { name, id } = req.params as { name: string; id: string };
     if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
     const dir = path.join(superClientsRoot, name);
-    try { await readMeta(dir); } catch { return reply.code(404).send({ error: 'Client not found' }); }
+    try {
+      await readMeta(dir);
+    } catch {
+      return reply.code(404).send({ error: 'Client not found' });
+    }
     try {
       const raw = await readFile(path.join(dir, 'slides', `${id}.json`), 'utf-8');
       return reply.send(JSON.parse(raw));
@@ -4419,13 +4912,28 @@ ${sectionHtml}`;
     const { name, id } = req.params as { name: string; id: string };
     if (!/^[\w\-:.]+$/.test(id)) return reply.code(400).send({ error: 'Invalid id' });
     const dir = path.join(superClientsRoot, name);
-    try { await readMeta(dir); } catch { return reply.code(404).send({ error: 'Client not found' }); }
+    try {
+      await readMeta(dir);
+    } catch {
+      return reply.code(404).send({ error: 'Client not found' });
+    }
     try {
       await rm(path.join(dir, 'slides', `${id}.json`), { force: true });
       await rm(path.join(dir, 'slides', `${id}.html`), { force: true });
       let index: SavedSlide[] = [];
-      try { index = JSON.parse(await readFile(path.join(dir, 'slides.json'), 'utf-8')) as SavedSlide[]; } catch { /* ok */ }
-      await writeFile(path.join(dir, 'slides.json'), JSON.stringify(index.filter(s => s.id !== id), null, 2));
+      try {
+        index = JSON.parse(await readFile(path.join(dir, 'slides.json'), 'utf-8')) as SavedSlide[];
+      } catch {
+        /* ok */
+      }
+      await writeFile(
+        path.join(dir, 'slides.json'),
+        JSON.stringify(
+          index.filter((s) => s.id !== id),
+          null,
+          2,
+        ),
+      );
       return reply.send({ ok: true });
     } catch {
       return reply.code(500).send({ error: 'Delete failed' });
@@ -4567,13 +5075,22 @@ ${sectionHtml}`;
       let m: RegExpExecArray | null;
       while ((m = openRe.exec(src)) !== null) {
         if (!m[1].split(/\s+/).includes('slide')) continue;
-        let depth = 1, j = m.index + m[0].length;
+        let depth = 1,
+          j = m.index + m[0].length;
         while (j < src.length && depth > 0) {
           const nO = src.indexOf('<div', j);
           const nC = src.indexOf('</div>', j);
-          if (nC === -1) { j = src.length; break; }
-          if (nO !== -1 && nO < nC) { depth++; j = nO + 4; }
-          else { depth--; j = nC + 6; }
+          if (nC === -1) {
+            j = src.length;
+            break;
+          }
+          if (nO !== -1 && nO < nC) {
+            depth++;
+            j = nO + 4;
+          } else {
+            depth--;
+            j = nC + 6;
+          }
         }
         out.push({ start: m.index, end: j });
         openRe.lastIndex = j; // skip past this slide — never match nested .slide divs
@@ -4582,13 +5099,16 @@ ${sectionHtml}`;
     }
 
     const slideBounds = extractSlideBounds(html);
-    const slideList = slideBounds.map((b, i) => {
-      const text = html.slice(b.start, b.end);
-      const heading = /<h[1-6][^>]*>\s*([^<]{1,60})/i.exec(text)?.[1]?.trim()
-        ?? />\s*([A-Za-z][^<]{2,60})</.exec(text)?.[1]?.trim()
-        ?? '';
-      return `slide ${i + 1}${heading ? ` — "${heading}"` : ''}`;
-    }).join('\n');
+    const slideList = slideBounds
+      .map((b, i) => {
+        const text = html.slice(b.start, b.end);
+        const heading =
+          /<h[1-6][^>]*>\s*([^<]{1,60})/i.exec(text)?.[1]?.trim() ??
+          />\s*([A-Za-z][^<]{2,60})</.exec(text)?.[1]?.trim() ??
+          '';
+        return `slide ${i + 1}${heading ? ` — "${heading}"` : ''}`;
+      })
+      .join('\n');
 
     // CSS :root token block (for design-preserving regen)
     const slideCssVarsBlock = /:root\s*\{[^}]+\}/i.exec(html)?.[0] ?? '';
@@ -4596,13 +5116,13 @@ ${sectionHtml}`;
     // Detect regen/fix intent from the resolved (user-typed) instruction.
     // Works for both free-text and element-selected cases — resolvedInstruction
     // is always the user's actual text (stripped of __ELEMENT_EDIT__ prefix).
-    const isSlideRegenIntent = (
-      /\b(?:regenerate|rewrite|rebuild|redesign|redo|remake|recreate)\b/i.test(resolvedInstruction)
-      || (/\b(?:fix|repair|correct|resolve)\b/i.test(resolvedInstruction)
-          && /\b(?:overlap|overlapping|bleed(?:ing)?|overflow(?:ing)?|strip|stripe|z.?index|misalign|broken|cut.?off|clip(?:ped)?|spacing|layout|position|visual|design|gap|layer)\b/i.test(resolvedInstruction))
-    );
-    const isSlideStructuralFix = isSlideRegenIntent
-      && /\b(?:fix|repair|correct|resolve)\b/i.test(resolvedInstruction);
+    const isSlideRegenIntent =
+      /\b(?:regenerate|rewrite|rebuild|redesign|redo|remake|recreate)\b/i.test(resolvedInstruction) ||
+      (/\b(?:fix|repair|correct|resolve)\b/i.test(resolvedInstruction) &&
+        /\b(?:overlap|overlapping|bleed(?:ing)?|overflow(?:ing)?|strip|stripe|z.?index|misalign|broken|cut.?off|clip(?:ped)?|spacing|layout|position|visual|design|gap|layer)\b/i.test(
+          resolvedInstruction,
+        ));
+    const isSlideStructuralFix = isSlideRegenIntent && /\b(?:fix|repair|correct|resolve)\b/i.test(resolvedInstruction);
     const isPureSlideRegen = isSlideRegenIntent && !isSlideStructuralFix;
 
     // Determine which slide to target for regen.
@@ -4612,13 +5132,14 @@ ${sectionHtml}`;
       if (selectedElementCssPath && slideBounds.length > 0) {
         const elBounds = findByPath(html, selectedElementCssPath);
         if (elBounds) {
-          const idx = slideBounds.findIndex(b => b.start <= elBounds.start && elBounds.end <= b.end);
+          const idx = slideBounds.findIndex((b) => b.start <= elBounds.start && elBounds.end <= b.end);
           if (idx !== -1) return idx;
         }
       }
       // Fall back to ordinal in text: "slide 2", "2nd slide"
-      const m = instr.toLowerCase().match(/\bslide\s+#?(\d+)\b/)
-        ?? instr.toLowerCase().match(/\b(\d+)(?:st|nd|rd|th)\s+slide\b/);
+      const m =
+        instr.toLowerCase().match(/\bslide\s+#?(\d+)\b/) ??
+        instr.toLowerCase().match(/\b(\d+)(?:st|nd|rd|th)\s+slide\b/);
       if (m) {
         const idx = parseInt(m[1] ?? '0', 10) - 1;
         if (idx >= 0 && idx < slideBounds.length) return idx;
@@ -4630,13 +5151,16 @@ ${sectionHtml}`;
     async function regenSlide(idx: number): Promise<string> {
       const b = slideBounds[idx];
       const slideHtml = html.slice(b.start, b.end);
-      const designChangeWords = /\b(?:dark|light|color|colour|font|size|background|theme|style|palette|weight|spacing|layout|gradient|border|shadow)\b/i;
-      const inlineColors = [...new Set(slideHtml.match(/#[0-9a-fA-F]{3,8}\b|rgb\([^)]+\)|rgba\([^)]+\)/g) ?? [])].slice(0, 12).join(', ');
+      const designChangeWords =
+        /\b(?:dark|light|color|colour|font|size|background|theme|style|palette|weight|spacing|layout|gradient|border|shadow)\b/i;
+      const inlineColors = [...new Set(slideHtml.match(/#[0-9a-fA-F]{3,8}\b|rgb\([^)]+\)|rgba\([^)]+\)/g) ?? [])]
+        .slice(0, 12)
+        .join(', ');
       const modeNote = isSlideStructuralFix
         ? '\nFIX MODE: Fix the described design issue only. Do NOT change colors, text content, branding, or visual style — only correct the structural/layout problem.'
         : isPureSlideRegen && !designChangeWords.test(resolvedInstruction)
-        ? `\nREGENERATION MODE: Preserve ALL visual design — same colors${inlineColors ? ` (${inlineColors})` : ''}, fonts, sizes, spacing, and layout. Only refresh content.`
-        : '';
+          ? `\nREGENERATION MODE: Preserve ALL visual design — same colors${inlineColors ? ` (${inlineColors})` : ''}, fonts, sizes, spacing, and layout. Only refresh content.`
+          : '';
       const prompt = `You are rewriting one slide of an HTML slide presentation.
 
 Apply the instruction exactly. You may change: text content, headings, colors, backgrounds, fonts, spacing, layout, images, icons, buttons — whatever the instruction requires.
@@ -4652,7 +5176,8 @@ ${slideHtml}`;
       const stripped = extractHtmlFromResponseGlobal(raw);
       const startIdx = stripped.search(/<div\b/i);
       const endIdx = stripped.lastIndexOf('</div>');
-      if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) throw new Error('LLM did not return a valid slide block');
+      if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx)
+        throw new Error('LLM did not return a valid slide block');
       const newSlide = stripped.slice(startIdx, endIdx + 6);
       return html.slice(0, b.start) + newSlide + html.slice(b.end);
     }
@@ -4663,11 +5188,14 @@ ${slideHtml}`;
     let resolvedUrlKind = '';
 
     // Descriptive image request (no URL given) → fetch a real Pexels URL
-    if (!/https?:\/\//.test(resolvedInstruction) &&
-        /\b(?:image|photo|picture|pic)\b/i.test(resolvedInstruction)) {
+    if (!/https?:\/\//.test(resolvedInstruction) && /\b(?:image|photo|picture|pic)\b/i.test(resolvedInstruction)) {
       try {
         const qPrompt = `Does this instruction require adding or replacing an image with a new one fetched from the web? Answer "no" if the instruction is about removing, hiding, or deleting an image, or if no new image is needed. Otherwise answer with a concise 2-5 keyword image search query (keywords only, nothing else).\n\nInstruction: ${resolvedInstruction}`;
-        const pexelsQ = (await llmGenerateFn(qPrompt)).trim().replace(/^["'`]|["'`]$/g, '').trim().slice(0, 80);
+        const pexelsQ = (await llmGenerateFn(qPrompt))
+          .trim()
+          .replace(/^["'`]|["'`]$/g, '')
+          .trim()
+          .slice(0, 80);
         if (pexelsQ && !/^no\b/i.test(pexelsQ)) {
           const pexelsUrl = await fetchPexelsImageUrl(pexelsQ);
           if (pexelsUrl) {
@@ -4677,7 +5205,9 @@ ${slideHtml}`;
             console.log(`📸 Pexels pre-fetch for slide edit: "${pexelsQ}" → ${pexelsUrl}`);
           }
         }
-      } catch { /* fall through — LLM will handle without a real URL */ }
+      } catch {
+        /* fall through — LLM will handle without a real URL */
+      }
     }
 
     // Video URL → hand the LLM a ready-made embed URL (watch-page URLs are
@@ -4701,27 +5231,52 @@ ${slideHtml}`;
     function parseSlideOp(rawText: string): SlideOp | null {
       const start = rawText.indexOf('{');
       if (start === -1) return null;
-      let depth = 0, end = -1, inStr = false, esc = false;
+      let depth = 0,
+        end = -1,
+        inStr = false,
+        esc = false;
       for (let i = start; i < rawText.length; i++) {
         const c = rawText[i];
-        if (esc) { esc = false; continue; }
-        if (c === '\\' && inStr) { esc = true; continue; }
-        if (c === '"') { inStr = !inStr; continue; }
+        if (esc) {
+          esc = false;
+          continue;
+        }
+        if (c === '\\' && inStr) {
+          esc = true;
+          continue;
+        }
+        if (c === '"') {
+          inStr = !inStr;
+          continue;
+        }
         if (inStr) continue;
         if (c === '{') depth++;
-        else if (c === '}') { depth--; if (depth === 0) { end = i; break; } }
+        else if (c === '}') {
+          depth--;
+          if (depth === 0) {
+            end = i;
+            break;
+          }
+        }
       }
       if (end === -1) return null;
       try {
-        const slice = rawText.slice(start, end + 1)
-          .replace(/("(?:[^"\\]|\\.)*")/gs, s => s.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
+        const slice = rawText
+          .slice(start, end + 1)
+          .replace(/("(?:[^"\\]|\\.)*")/gs, (s) => s.replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t'));
         return JSON.parse(slice) as SlideOp;
-      } catch { return null; }
+      } catch {
+        return null;
+      }
     }
 
-    function applySlidePatches(base: string, patches: Array<{ find: string; replace: string }>): { html: string; applied: number; missed: number } {
+    function applySlidePatches(
+      base: string,
+      patches: Array<{ find: string; replace: string }>,
+    ): { html: string; applied: number; missed: number } {
       let result = base;
-      let applied = 0, missed = 0;
+      let applied = 0,
+        missed = 0;
       for (const p of patches) {
         if (!p.find || p.replace === undefined) continue;
         if (!result.includes(p.find)) {
@@ -4797,65 +5352,73 @@ ${html}`;
         return reply.code(502).send({ error: 'Could not regenerate slide — try providing more detail' });
       }
     } else {
-    const raw = await llmGenerateFn(opPrompt);
-    console.log(`┌─ SLIDE EDIT LLM raw (first 500): ${(raw ?? '').slice(0, 500)}`);
+      const raw = await llmGenerateFn(opPrompt);
+      console.log(`┌─ SLIDE EDIT LLM raw (first 500): ${(raw ?? '').slice(0, 500)}`);
 
-    const op = parseSlideOp(raw ?? '');
-    if (!op) {
-      // Fallback: LLM returned raw HTML instead of JSON
-      const stripped = extractHtmlFromResponseGlobal(raw ?? '');
-      const startIdx = stripped.search(/<div\b/i);
-      const endIdx = stripped.lastIndexOf('</div>');
-      if (startIdx !== -1 && endIdx > startIdx && slideBounds.length > 0) {
-        const idx = targetSlideIdx(resolvedInstruction);
-        const b = slideBounds[idx];
-        updatedHtml = html.slice(0, b.start) + stripped.slice(startIdx, endIdx + 6) + html.slice(b.end);
-        summary = displaySummary;
-        console.log('↩️  parseSlideOp null — used raw HTML block fallback');
-      } else if (/\b(?:fix|repair|regenerate|redesign|rewrite|rebuild|redo|correct)\b/i.test(resolvedInstruction) && slideBounds.length > 0) {
-        const idx = targetSlideIdx(resolvedInstruction);
-        try {
-          updatedHtml = await regenSlide(idx);
-          summary = `Slide ${idx + 1} updated`;
-          console.log('↩️  parseSlideOp null — fell through to regenSlide');
-        } catch {
+      const op = parseSlideOp(raw ?? '');
+      if (!op) {
+        // Fallback: LLM returned raw HTML instead of JSON
+        const stripped = extractHtmlFromResponseGlobal(raw ?? '');
+        const startIdx = stripped.search(/<div\b/i);
+        const endIdx = stripped.lastIndexOf('</div>');
+        if (startIdx !== -1 && endIdx > startIdx && slideBounds.length > 0) {
+          const idx = targetSlideIdx(resolvedInstruction);
+          const b = slideBounds[idx];
+          updatedHtml = html.slice(0, b.start) + stripped.slice(startIdx, endIdx + 6) + html.slice(b.end);
+          summary = displaySummary;
+          console.log('↩️  parseSlideOp null — used raw HTML block fallback');
+        } else if (
+          /\b(?:fix|repair|regenerate|redesign|rewrite|rebuild|redo|correct)\b/i.test(resolvedInstruction) &&
+          slideBounds.length > 0
+        ) {
+          const idx = targetSlideIdx(resolvedInstruction);
+          try {
+            updatedHtml = await regenSlide(idx);
+            summary = `Slide ${idx + 1} updated`;
+            console.log('↩️  parseSlideOp null — fell through to regenSlide');
+          } catch {
+            return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
+          }
+        } else {
           return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
         }
       } else {
-        return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
-      }
-    } else {
-
-    if (op.op === 'patches') {
-      const { html: patched, applied, missed } = applySlidePatches(html, op.patches);
-      if (applied === 0) return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
-      updatedHtml = patched;
-      summary = op.summary || summary;
-      if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
-    } else if (op.op === 'slide_replace' || op.op === 'slide_insert' || op.op === 'slide_delete') {
-      const idx = Math.trunc(op.slide) - 1;
-      if (idx < 0 || idx >= slideBounds.length) {
-        return reply.code(422).send({ error: `Slide ${op.slide} not found — this deck has ${slideBounds.length} slide${slideBounds.length === 1 ? '' : 's'}` });
-      }
-      const b = slideBounds[idx];
-      if (op.op === 'slide_replace') {
-        updatedHtml = html.slice(0, b.start) + op.html + html.slice(b.end);
-      } else if (op.op === 'slide_insert') {
-        updatedHtml = op.position === 'before'
-          ? html.slice(0, b.start) + op.html + '\n' + html.slice(b.start)
-          : html.slice(0, b.end) + '\n' + op.html + html.slice(b.end);
-      } else {
-        updatedHtml = html.slice(0, b.start) + html.slice(b.end);
-      }
-      summary = op.summary || summary;
-    } else if (op.op === 'clarify') {
-      return reply.code(422).send({
-        error: op.question || 'Which slide should this apply to? Select the element directly, or name the slide.',
-      });
-    } else {
-      return reply.code(502).send({ error: 'Unknown operation returned by LLM — try rephrasing' });
-    }
-    } // close: else (op !== null)
+        if (op.op === 'patches') {
+          const { html: patched, applied, missed } = applySlidePatches(html, op.patches);
+          if (applied === 0)
+            return reply
+              .code(502)
+              .send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
+          updatedHtml = patched;
+          summary = op.summary || summary;
+          if (missed > 0) summary += ` (${missed} patch${missed > 1 ? 'es' : ''} skipped — text not found)`;
+        } else if (op.op === 'slide_replace' || op.op === 'slide_insert' || op.op === 'slide_delete') {
+          const idx = Math.trunc(op.slide) - 1;
+          if (idx < 0 || idx >= slideBounds.length) {
+            return reply.code(422).send({
+              error: `Slide ${op.slide} not found — this deck has ${slideBounds.length} slide${slideBounds.length === 1 ? '' : 's'}`,
+            });
+          }
+          const b = slideBounds[idx];
+          if (op.op === 'slide_replace') {
+            updatedHtml = html.slice(0, b.start) + op.html + html.slice(b.end);
+          } else if (op.op === 'slide_insert') {
+            updatedHtml =
+              op.position === 'before'
+                ? html.slice(0, b.start) + op.html + '\n' + html.slice(b.start)
+                : html.slice(0, b.end) + '\n' + op.html + html.slice(b.end);
+          } else {
+            updatedHtml = html.slice(0, b.start) + html.slice(b.end);
+          }
+          summary = op.summary || summary;
+        } else if (op.op === 'clarify') {
+          return reply.code(422).send({
+            error: op.question || 'Which slide should this apply to? Select the element directly, or name the slide.',
+          });
+        } else {
+          return reply.code(502).send({ error: 'Unknown operation returned by LLM — try rephrasing' });
+        }
+      } // close: else (op !== null)
     } // close: outer else (not isSlideRegenIntent)
 
     // Guard: closing tags must survive (patches can't remove them; slide html splices could)
@@ -4866,8 +5429,9 @@ ${html}`;
     // Content verification: when we told the LLM to use a specific resolved URL,
     // confirm it actually landed instead of trusting a no-op response.
     if (resolvedUrlToVerify) {
-      const idMatch = resolvedUrlToVerify.match(/(?:youtube\.com\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i)
-        ?? resolvedUrlToVerify.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
+      const idMatch =
+        resolvedUrlToVerify.match(/(?:youtube\.com\/embed\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i) ??
+        resolvedUrlToVerify.match(/vimeo\.com\/(?:video\/)?(\d+)/i);
       const needle = idMatch ? idMatch[1] : resolvedUrlToVerify;
       if (!updatedHtml.includes(needle)) {
         return reply.code(422).send({
@@ -4920,7 +5484,11 @@ ${html}`;
     if (!['pdf', 'pptx'].includes(format)) return reply.code(400).send({ error: 'Format must be pdf or pptx' });
 
     const dir = path.join(superClientsRoot, name);
-    try { await readMeta(dir); } catch { return reply.code(404).send({ error: 'Client not found' }); }
+    try {
+      await readMeta(dir);
+    } catch {
+      return reply.code(404).send({ error: 'Client not found' });
+    }
 
     let html: string;
     try {
@@ -4932,14 +5500,24 @@ ${html}`;
     let title = 'Presentation';
     let orientation: 'landscape' | 'portrait' = 'landscape';
     try {
-      const idx = JSON.parse(await readFile(path.join(dir, 'slides.json'), 'utf-8')) as { id: string; title: string; orientation?: 'landscape' | 'portrait' }[];
-      const rec = idx.find(s => s.id === id);
+      const idx = JSON.parse(await readFile(path.join(dir, 'slides.json'), 'utf-8')) as {
+        id: string;
+        title: string;
+        orientation?: 'landscape' | 'portrait';
+      }[];
+      const rec = idx.find((s) => s.id === id);
       title = rec?.title ?? title;
       orientation = rec?.orientation === 'portrait' ? 'portrait' : 'landscape';
-    } catch { /* ok */ }
+    } catch {
+      /* ok */
+    }
     const isPortrait = orientation === 'portrait';
 
-    const safeTitle = title.replace(/[^\w\s\-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60);
+    const safeTitle = title
+      .replace(/[^\w\s\-]/g, '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .slice(0, 60);
     const fileName = `${safeTitle || 'presentation'}-${id.slice(0, 8)}`;
 
     const { spawn } = await import('node:child_process');
@@ -4951,7 +5529,10 @@ ${html}`;
       // Uses the Chrome binary that Puppeteer already downloaded to ~/.cache/puppeteer.
       // Chrome's native PDF renderer produces real text (selectable, editable) — not images.
       const chromeBin = await findChromeBinary();
-      if (!chromeBin) return reply.code(503).send({ error: 'Chrome binary not found — run `npm install` to let Puppeteer download it' });
+      if (!chromeBin)
+        return reply
+          .code(503)
+          .send({ error: 'Chrome binary not found — run `npm install` to let Puppeteer download it' });
 
       // Inject print CSS that forces one PDF page per .slide element.
       // Landscape = 13.333in × 7.5in (16:9); portrait = 7.5in × 13.333in (9:16).
@@ -4989,29 +5570,34 @@ html, body { margin: 0 !important; padding: 0 !important; }
       let printHtml = html;
       for (const re of STRIP) printHtml = printHtml.replace(re, '');
       const headClose = printHtml.indexOf('</head>');
-      printHtml = headClose !== -1
-        ? printHtml.slice(0, headClose) + PRINT_CSS + printHtml.slice(headClose)
-        : PRINT_CSS + printHtml;
+      printHtml =
+        headClose !== -1
+          ? printHtml.slice(0, headClose) + PRINT_CSS + printHtml.slice(headClose)
+          : PRINT_CSS + printHtml;
 
       const tmpId = `slide-export-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const tmpHtml = path.join(tmpdir(), `${tmpId}.html`);
-      const tmpPdf  = path.join(tmpdir(), `${tmpId}.pdf`);
+      const tmpPdf = path.join(tmpdir(), `${tmpId}.pdf`);
 
       try {
         await writeFile(tmpHtml, printHtml, 'utf-8');
 
         await new Promise<void>((resolve, reject) => {
-          const proc = spawn(chromeBin, [
-            '--headless=new',
-            '--disable-gpu',
-            '--no-sandbox',
-            '--disable-dev-shm-usage',
-            `--print-to-pdf=${tmpPdf}`,
-            '--no-pdf-header-footer',
-            `file://${tmpHtml}`,
-          ], { stdio: 'ignore' });
+          const proc = spawn(
+            chromeBin,
+            [
+              '--headless=new',
+              '--disable-gpu',
+              '--no-sandbox',
+              '--disable-dev-shm-usage',
+              `--print-to-pdf=${tmpPdf}`,
+              '--no-pdf-header-footer',
+              `file://${tmpHtml}`,
+            ],
+            { stdio: 'ignore' },
+          );
           proc.on('error', reject);
-          proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`Chrome exited ${code}`)));
+          proc.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`Chrome exited ${code}`))));
         });
 
         const pdfBytes = await readFile(tmpPdf);
@@ -5024,9 +5610,9 @@ html, body { margin: 0 !important; padding: 0 !important; }
       }
     } else {
       // ── python-pptx text extraction ──────────────────────────────────────
-      const venvRoot  = path.resolve(import.meta.dirname ?? '', '../../../../.venv');
+      const venvRoot = path.resolve(import.meta.dirname ?? '', '../../../../.venv');
       const pythonBin = path.join(venvRoot, 'bin', 'python3');
-      const script    = path.resolve(import.meta.dirname ?? '', 'slide-to-pptx.py');
+      const script = path.resolve(import.meta.dirname ?? '', 'slide-to-pptx.py');
 
       const pptxBytes = await new Promise<Buffer>((resolve, reject) => {
         const proc = spawn(pythonBin, [script, orientation], { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -5037,7 +5623,9 @@ html, body { margin: 0 !important; padding: 0 !important; }
         proc.on('error', reject);
         proc.on('close', (code) => {
           if (code !== 0) {
-            reject(new Error(`slide-to-pptx.py exited ${code}: ${Buffer.concat(errChunks).toString('utf-8').slice(0, 400)}`));
+            reject(
+              new Error(`slide-to-pptx.py exited ${code}: ${Buffer.concat(errChunks).toString('utf-8').slice(0, 400)}`),
+            );
           } else {
             resolve(Buffer.concat(chunks));
           }
