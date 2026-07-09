@@ -41,6 +41,9 @@ services:
       - PORT=3000
       - API_KEYS_PATH=/app/config/api_keys.json
       - AUDIT_LOG_PATH=/engine/audit.log
+      # Error log lives on the engine_data volume so it survives container
+      # recreation/redeploys (defaults to /app/error.log = ephemeral otherwise)
+      - ERROR_LOG_PATH=/engine/error.log
       # Feature flags — V2 pipelines are the only active pipelines
       - CHAT_V2=true
       - INGEST_V2=true
