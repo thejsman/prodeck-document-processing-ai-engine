@@ -4032,6 +4032,17 @@ export default function SuperClientPage() {
       }
     } finally {
       setStreaming(false);
+      // Resolve any card this turn started that never reached a terminal state.
+      // The done-handler branches already complete/dismiss cards on success and
+      // on a failed generation; this catches the error/abort/timeout paths,
+      // which otherwise leave the card stuck 'generating' — and persisted on the
+      // server as a permanent spinner. Dismiss triggers the server DELETE via the
+      // generationStore subscribe sync. No-op if already complete or gone.
+      for (const gid of [slideGenId, proposalGenId, documentGenId]) {
+        if (gid && generationStore.get(gid)?.phase === 'generating') {
+          generationStore.dismiss(gid);
+        }
+      }
     }
   }
 
@@ -4254,11 +4265,15 @@ export default function SuperClientPage() {
                   const visibleContent = (() => {
                     if (msg.role !== 'assistant') return msg.content;
                     if (msg.streaming) {
-                      return msg.content.replace(/<(proposal|section-update)[^>]*>[\s\S]*$/, '').trim();
+                      return msg.content.replace(/<(slides|proposal|section-update)[^>]*>[\s\S]*$/, '').trim();
                     }
                     return msg.content
                       .replace(/<text-replace\b[^>]*?\/?>/gi, '')
                       .replace(/<\/?(?:proposal|section-update)\b[^>]*>/gi, '')
+                      // Defense-in-depth: raw artifact/full-document markup must
+                      // never render as a chat bubble even if the backend leaks
+                      // it — strip from the first such marker to end of message.
+                      .replace(/<(?:slides|!DOCTYPE|html|proposal|document)\b[\s\S]*$/i, '')
                       .replace(/\n{3,}/g, '\n\n')
                       .trim();
                   })();

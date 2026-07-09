@@ -5,12 +5,12 @@ from typing import Optional
 
 from .base_provider import LLMProvider
 
-# Max output tokens per completion. Raised from 8096 because rich HTML artifacts
-# (e.g. multi-slide presentation decks, especially tall 9:16 portrait slides) were
-# being truncated mid-tag at the old cap, which broke <slides> extraction and made
-# the generated deck silently disappear. 16000 matches the other artifact-generation
-# paths in the codebase and stays within the non-streaming timeout budget.
-MAX_OUTPUT_TOKENS = 16000
+# Max output tokens per completion. generate()/generate_stream() are both
+# routed through the Python bridge's streaming path (llm_bridge.py /
+# llm_bridge_server.py), which avoids the non-streaming SDK read-timeout —
+# so this can safely sit well below the model's 128K ceiling while giving
+# large, richly-styled multi-slide decks real headroom.
+MAX_OUTPUT_TOKENS = 64000
 
 # Claude models with native vision support
 VISION_MODELS = {

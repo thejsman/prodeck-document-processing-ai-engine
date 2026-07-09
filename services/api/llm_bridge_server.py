@@ -69,6 +69,10 @@ def main() -> None:
 
             if image_data and hasattr(provider, "generate_with_image"):
                 result = provider.generate_with_image(prompt, image_data)
+            elif hasattr(provider, "generate_stream"):
+                # Streaming avoids the non-streaming SDK read-timeout on large
+                # completions, so callers can safely raise MAX_OUTPUT_TOKENS.
+                result = "".join(provider.generate_stream(prompt, temperature=temperature))
             else:
                 result = provider.generate(prompt, temperature=temperature)
 

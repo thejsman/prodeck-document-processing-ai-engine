@@ -20,6 +20,7 @@ import { validateSlideHtml, countSlides, extractTitle, resolveSlideOrientation }
 import type { SavedSlide } from './slides/slide-generator.js';
 import { patchHtml, toVideoEmbedUrl, findByPath, locateElement, hideCoveringImage } from './html-patch.js';
 import { classifyChatIntent, type IntentDecision, type PendingClarification } from './super-client/intent-gate.js';
+import { extractSlidesTag, stripSlidesTag, hasRawArtifactMarkup, resolveSlideCount } from './super-client/slide-parsing.js';
 import { isBareGenerationRequest } from './chat/vocabulary.js';
 
 // Strip preview-only injections that the UI adds to srcdoc iframes.
@@ -190,6 +191,27 @@ async function writeGenerations(dir: string, gens: GenerationEntry[]): Promise<v
   await writeFile(path.join(dir, 'generations.json'), JSON.stringify(gens, null, 2));
 }
 
+// A generation that is still 'generating' this long after it started is dead —
+// the browser that owned it errored, aborted, or was closed before the card
+// could be resolved. Generations finish in well under ~2 min, so 5 min never
+// drops a legitimately in-progress one.
+export const STALE_GENERATION_MS = 5 * 60 * 1000;
+
+// Drop dead 'generating' entries (stale or missing timestamp). Terminal
+// (complete/error) entries are always kept. Pure + exported for unit testing.
+export function pruneStaleGenerations(
+  gens: GenerationEntry[],
+  now: number = Date.now(),
+): GenerationEntry[] {
+  return gens.filter((g) => {
+    if (g.phase !== 'generating') return true;
+    if (!g.createdAt) return false;
+    const started = Date.parse(g.createdAt);
+    if (Number.isNaN(started)) return false;
+    return now - started < STALE_GENERATION_MS;
+  });
+}
+
 async function readMeta(dir: string): Promise<SuperClientMeta> {
   const raw = await readFile(path.join(dir, 'meta.json'), 'utf-8');
   return JSON.parse(raw) as SuperClientMeta;
@@ -353,15 +375,6 @@ function stripDocumentTag(text: string): string {
     .trim();
 }
 
-function extractSlidesTag(text: string): { html: string } | null {
-  const m = text.match(/<slides>([\s\S]*?)<\/slides>/i);
-  if (!m) return null;
-  return { html: m[1].trim() };
-}
-
-function stripSlidesTag(text: string): string {
-  return text.replace(/<slides>[\s\S]*?<\/slides>/i, '').trim();
-}
 
 async function saveSlide(
   dir: string,
@@ -826,7 +839,6 @@ Return ONLY valid JSON (null for fields not found):
 {
   "stableFields": {
     "clientIndustry": "string or null",
-    "projectType": "string or null",
     "contactName": "string or null"
   },
   "knowledge": [
@@ -839,13 +851,12 @@ Return ONLY valid JSON (null for fields not found):
     const raw = await llmGenerateFn(extractPrompt);
     const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
     const extracted = JSON.parse(json) as {
-      stableFields?: { clientIndustry?: string | null; projectType?: string | null; contactName?: string | null };
+      stableFields?: { clientIndustry?: string | null; contactName?: string | null };
       knowledge?: { content: string; category: string; confidence: number }[];
       stakeholders?: { name: string; role: string; email?: string; notes?: string }[];
     };
     const sf = extracted.stableFields ?? {};
     if (sf.clientIndustry?.trim()) await memService.updateField(name, 'clientIndustry', sf.clientIndustry.trim());
-    if (sf.projectType?.trim()) await memService.updateField(name, 'projectType', sf.projectType.trim());
     if (sf.contactName?.trim()) await memService.updateField(name, 'contactName', sf.contactName.trim());
     for (const k of extracted.knowledge ?? []) {
       if (k.content?.trim()) {
@@ -1267,6 +1278,14 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         ? ART_DIRECTIONS[Math.floor(Math.random() * ART_DIRECTIONS.length)]
         : null;
 
+      // Slide count is resolved once here (from the raw user message) so both
+      // the prompt and the planning/ack text downstream agree on the actual,
+      // capped number — a single-shot presentation call must fit the whole
+      // deck's HTML inside the provider's output-token ceiling, so an
+      // unclamped large count is a leading cause of truncated generation.
+      const { requested: requestedSlideCount, resolved: resolvedSlideCount, wasCapped: slideCountWasCapped } =
+        resolveSlideCount(message);
+
       // Build combined prompt — llmGenerateFn takes a single string and routes through
       // the Python LLM bridge which respects LLM_PROVIDER / provider-specific model config.
       const promptParts: string[] = isPresentationRequest
@@ -1309,7 +1328,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             `CONTENT:`,
             `- Draw ALL facts from client context, ingested documents, and conversation. Never invent facts.`,
             `- Slide titles are insights, not labels — "Revenue grew 3× in 12 months" beats "Revenue Growth".`,
-            `- Use the slide count the user specified, or 10–12 if not mentioned.`,
+            resolvedSlideCount
+              ? `- Create exactly ${resolvedSlideCount} slides.`
+              : `- Create 6–8 slides unless the content genuinely needs more — favor fewer, richer slides over many thin ones.`,
             ``,
             `Output: ONLY the <slides>...</slides> tag with the full HTML document inside. After the tag, write ONE plain sentence (MAX 25 words) describing only WHAT the deck covers — the subject and message — as if telling a colleague over the phone. It must contain NO visual or design detail. BANNED words: slide, deck, 16:9, cover, hero, headline, panel, grid, card, column, CTA, footer, bar, layout, SVG, palette, and every colour name. Example: "A quick overview of your services and why clients trust you, ending with an invitation to book a consultation."`,
           ]
@@ -1605,12 +1626,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           : `Creating a ${artifactLabel} for ${meta.displayName}, give me a moment…`;
         await streamAssistant(ackText);
 
-        const countMatch = message.match(/\b(\d+)[\s\-]*(page|slide|screen)s?\b/i);
-        const count = countMatch ? countMatch[1] : null;
         const planText =
           artifactType === 'slide'
-            ? count
-              ? `Building a ${count}-slide presentation for ${meta.displayName}…`
+            ? resolvedSlideCount
+              ? slideCountWasCapped
+                ? `Building a ${resolvedSlideCount}-slide presentation for ${meta.displayName} (capped from ${requestedSlideCount} for reliable generation)…`
+                : `Building a ${resolvedSlideCount}-slide presentation for ${meta.displayName}…`
               : `Building a presentation for ${meta.displayName}…`
             : artifactType === 'proposal'
               ? `Drafting a proposal for ${meta.displayName}…`
@@ -1701,6 +1722,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       let documentUpdated: import('./skills/skill.types.js').GeneratedDocumentMeta | undefined;
       let slideSaved: SavedSlide | undefined;
       let displayResponse = fullResponse;
+      // Set when a Tier-3 save/update throws so the generation-turn guard below
+      // can surface a retry message instead of a fake confirmation.
+      let artifactSaveFailed = false;
 
       const activeEditId = activeProposalId ?? activeDocumentId;
       const textReplacements = activeEditId ? extractTextReplacements(fullResponse) : [];
@@ -1762,6 +1786,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
               proposalSaved = await saveProposal(dir, proposalMatch.title, proposalMatch.content);
             }
           } catch (err) {
+            artifactSaveFailed = true;
             app.log.warn({ err }, '[SuperClient] Failed to save/update proposal');
           }
           displayResponse = stripProposalTag(fullResponse);
@@ -1783,6 +1808,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
               );
             }
           } catch (err) {
+            artifactSaveFailed = true;
             app.log.warn({ err }, '[SuperClient] Failed to save/update document');
           }
           displayResponse = stripDocumentTag(fullResponse);
@@ -1795,10 +1821,36 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             const html = validateSlideHtml(slidesTagMatch.html, finalOrientation);
             slideSaved = await saveSlide(dir, name, html, finalOrientation);
           } catch (err) {
+            artifactSaveFailed = true;
             app.log.warn({ err }, '[SuperClient] Failed to save slides');
           }
           displayResponse = stripSlidesTag(fullResponse);
         }
+      }
+
+      // Safety guard: a generation turn that produced no artifact must never
+      // stream or persist raw markup. This fires when the model's response was
+      // truncated/malformed (extraction failed, raw <slides>/<!DOCTYPE… still
+      // present) or a save threw — in both cases the user gets a deterministic
+      // retry message instead of a wall of leaked HTML or a fake confirmation.
+      // A legitimate plain-text reply (no markup, no failed save) is left alone.
+      const artifactProduced = !!(
+        slideSaved ||
+        proposalSaved ||
+        documentSaved ||
+        proposalUpdated ||
+        documentUpdated
+      );
+      if (
+        isGenerationTurn &&
+        !artifactProduced &&
+        (artifactSaveFailed || hasRawArtifactMarkup(fullResponse))
+      ) {
+        app.log.warn(
+          { name, artifactType, artifactSaveFailed },
+          '[SuperClient] Generation turn produced no artifact — suppressing raw output',
+        );
+        displayResponse = `I ran into a problem finishing this ${artifactLabel} — the generation may have been too large and got cut off. Please try again, or ask for a shorter version (e.g. fewer slides).`;
       }
 
       // Generation turns: the raw response was never fake-streamed (only the ack
@@ -2184,7 +2236,14 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const dir = path.join(superClientsRoot, name);
     try {
       await readMeta(dir); // 404 guard
-      return reply.send(await readGenerations(dir));
+      const gens = await readGenerations(dir);
+      const pruned = pruneStaleGenerations(gens);
+      // Self-heal: persist the cleaned list so dead 'generating' cards (from a
+      // browser that errored/closed mid-stream) stop rehydrating as stuck spinners.
+      if (pruned.length !== gens.length) {
+        await writeGenerations(dir, pruned);
+      }
+      return reply.send(pruned);
     } catch {
       return reply.code(404).send({ error: `Super client "${name}" not found` });
     }

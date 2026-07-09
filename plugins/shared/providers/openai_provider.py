@@ -91,6 +91,7 @@ class OpenAIProvider(LLMProvider):
                 model=self._generation_model,
                 messages=[{"role": "user", "content": prompt}],
                 stream=True,
+                **self._token_param(),
                 **self._temperature_param(temperature),
             )
         except Exception as exc:
