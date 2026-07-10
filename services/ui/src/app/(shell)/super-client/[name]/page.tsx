@@ -733,21 +733,19 @@ export default function SuperClientPage() {
   } | null>(null);
 
   // True while any artifact panel (proposal, document, microsite, slide) is
-  // open. Generation-complete handlers read this ref — their closures capture
-  // stale state from when the generation started — to decide whether
-  // auto-opening the finished artifact would hijack something the user is
-  // currently viewing or editing. When it would, the artifact only lands in
-  // the artifacts tab + generation card, and the user opens it from there.
+  // open. Read by the presentation/slide generation-complete handler — whose
+  // closure captures stale state from when the generation started — to decide
+  // whether auto-opening the finished slide deck would hijack something the
+  // user is currently viewing or editing. Microsites, documents and proposals
+  // always slide in on creation regardless of this ref.
   const artifactOpenRef = useRef(false);
   artifactOpenRef.current = !!(viewingProposal || viewingDocument || viewingMicrosite || viewingSlide);
-  // Like artifactOpenRef, but ignores an open proposal. Microsites are usually
-  // generated from an open proposal (the composer's Generate button is shown
-  // while a proposal is viewed), so a newly created microsite must still slide
-  // in over its source proposal — matching how proposals/documents auto-open on
-  // completion. Only a microsite/document/slide the user is actively working on
-  // blocks the auto-open (that would be a genuine hijack).
-  const nonProposalArtifactOpenRef = useRef(false);
-  nonProposalArtifactOpenRef.current = !!(viewingDocument || viewingMicrosite || viewingSlide);
+
+  // Total count shown on the Artifacts tab — every artifact kind in the panel
+  // (microsites + proposals + presentations + generated documents). Derived from
+  // the list state so it updates automatically on generation and deletion.
+  const artifactCount =
+    microsites.length + proposals.length + savedSlides.length + generatedDocs.length;
 
   // Cache last-seen content so panels render content during close animation (prevents content flash)
   const lastMicrositeRef = useRef(viewingMicrosite);
@@ -1306,6 +1304,39 @@ export default function SuperClientPage() {
     loadGeneratedDocs();
     loadSavedSlides();
   }, [loadDocs, loadProposals, loadMicrosites, loadGeneratedDocs, loadSavedSlides]);
+
+  // When a generation completes, refresh the matching artifact list so the newly
+  // created artifact shows up in the right panel (and the tab count updates)
+  // without a page refresh. This covers the tab that ran the generation as well
+  // as other tabs, which learn of completion via generation-store polling. Each
+  // generation id is handled once so we don't refetch on every store broadcast.
+  const handledCompletionsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const g of generations) {
+      if (g.clientSlug !== name || g.phase !== 'complete') continue;
+      if (handledCompletionsRef.current.has(g.id)) continue;
+      // Microsites emit an early "complete" (AST only) before the save finishes;
+      // skip it — without marking handled — so we wait for the post-save
+      // completion carrying a real id and don't refetch a list that doesn't
+      // include the new microsite yet (which would clobber the optimistic add).
+      if (g.type === 'microsite' && !g.result?.micrositeId) continue;
+      handledCompletionsRef.current.add(g.id);
+      switch (g.type) {
+        case 'proposal':
+          loadProposals();
+          break;
+        case 'microsite':
+          loadMicrosites();
+          break;
+        case 'document':
+          loadGeneratedDocs();
+          break;
+        case 'slide':
+          loadSavedSlides();
+          break;
+      }
+    }
+  }, [generations, name, loadProposals, loadMicrosites, loadGeneratedDocs, loadSavedSlides]);
 
   useEffect(() => {
     const hasProcessing = docs.some((d) => d.status === 'processing');
@@ -3424,11 +3455,11 @@ export default function SuperClientPage() {
             if (isPdfMode) ast = { ...ast, pdfPresentation: true, pdfOrientation };
             const tempId = `preview-${msGenId}`;
             // Open the panel immediately with the stream AST (don't block on
-            // save) so the finished microsite auto-slides in — same as
-            // proposals/documents on completion. The source proposal (the
-            // common case) is replaced; only another microsite/document/slide
-            // the user is actively working on blocks it (a genuine hijack).
-            if (!nonProposalArtifactOpenRef.current) {
+            // save) so the finished microsite always auto-slides in on
+            // creation — same as proposals/documents on completion. Whatever
+            // artifact is currently open (source proposal or otherwise) is
+            // replaced by the freshly generated microsite.
+            {
               const genHtml = buildHtml(ast);
               setActiveSrcDoc(computeSrcDoc(genHtml, false));
               setViewingMicrosite({
@@ -3813,12 +3844,10 @@ export default function SuperClientPage() {
                 return [evt.proposalSaved!, ...prev];
               });
               loadProposals();
-              // Never slide the new proposal in over an artifact the user is
-              // viewing/editing — it stays reachable via the generation card.
-              if (!artifactOpenRef.current) {
-                setActiveRightTab("artifacts");
-                void openProposal(evt.proposalSaved!);
-              }
+              // Always slide the freshly generated proposal in on creation,
+              // replacing whatever artifact is currently open.
+              setActiveRightTab("artifacts");
+              void openProposal(evt.proposalSaved!);
             } else if (evt.proposalSaved && evt.slideSaved) {
               // Slides take the card — update proposals list silently, dismiss any early card
               setProposals((prev) => {
@@ -3907,9 +3936,9 @@ export default function SuperClientPage() {
                   : [evt.documentSaved!, ...prev],
               );
               loadGeneratedDocs();
-              // Never slide the new document in over an artifact the user is
-              // viewing/editing — it stays reachable via the generation card.
-              if (!artifactOpenRef.current) void openDocument(evt.documentSaved);
+              // Always slide the freshly generated document in on creation,
+              // replacing whatever artifact is currently open.
+              void openDocument(evt.documentSaved);
             } else if (documentGenId) {
               // Keep any streamed text (e.g. no-context decline) — drop only the card.
               generationStore.dismiss(documentGenId);
@@ -7544,7 +7573,7 @@ export default function SuperClientPage() {
                 style={{ gap: 5 }}
               >
                 Artifacts
-                {microsites.length + proposals.length > 0 && (
+                {artifactCount > 0 && (
                   <span
                     style={{
                       display: 'inline-flex',
@@ -7562,7 +7591,7 @@ export default function SuperClientPage() {
                       marginBottom: 1,
                     }}
                   >
-                    {microsites.length + proposals.length}
+                    {artifactCount}
                   </span>
                 )}
               </button>
