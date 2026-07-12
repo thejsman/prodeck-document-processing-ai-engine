@@ -3851,7 +3851,23 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // This avoids asking the LLM to recall a valid Unsplash photo ID from
       // training memory, which reliably produces wrong or stale URLs.
       // Fire for: existing <img>, CSS background-image, OR explicit "background image" desc intent
-      if (!isRedesignIntent && (hasImg || hasBgImage || isBgImgDescIntent) && !/https?:\/\//.test(editInstruction)) {
+      //
+      // Skip when the instruction is about a CSS layout property (height, width, fit, etc.)
+      // even if it incidentally mentions "image". E.g. "the height of the image should match
+      // the slide" is a CSS change on the existing element, not a request to swap content.
+      const hasCssPropWord =
+        /\b(?:height|width|margin|padding|position|size|fit|fill|cover|contain|aspect[\s-]ratio|max-?(?:width|height)|min-?(?:width|height)|object-fit|overflow|z-index|flex|grid|display|font-size|border|radius|opacity|justify|vertical[\s-]align|horizontal)\b/i.test(
+          strippedEdit,
+        );
+      const hasImgReplaceVerb =
+        /\b(?:show(?:ing)?|replace|swap|use\s+(?:a|an|the)\s+(?:image|photo|picture)|change\s+(?:the\s+)?(?:image|photo|picture)\s+(?:to|with)|find\s+(?:a|an|me)\s+(?:image|photo|picture)|add\s+(?:a|an)\s+(?:image|photo|picture))\b/i.test(
+          strippedEdit,
+        );
+      // True when the instruction describes a CSS/layout property of the existing element
+      // rather than the visual content of a replacement image.
+      const isImageCssChangeOnly = hasCssPropWord && !hasImgReplaceVerb;
+
+      if (!isRedesignIntent && !isImageCssChangeOnly && (hasImg || hasBgImage || isBgImgDescIntent) && !/https?:\/\//.test(editInstruction)) {
         const stripped = strippedEdit; // already computed above
 
         // Gate: must mention an image noun or have explicit bg+image intent
