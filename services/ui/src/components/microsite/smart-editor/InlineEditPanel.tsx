@@ -638,8 +638,31 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
   // still counts even when momentarily empty — that's the OTHER branch below,
   // deliberately not covered by this guard.
   const hasTextContent = (selected.text ?? '').trim().length > 0;
-  const isText = (isTextEl(tag) || (!isImg && !isIcon && !hasChildElements && hasTextContent)) && !isBgContainer;
-  const isLeaf = isText && isLeafEl(selected.outerHtml);
+
+  // Compute element type early — needed by isText to detect text-like wrapper divs.
+  const { elementType, sectionDisplay } = deriveContextLabel(
+    tag,
+    selected.sectionType,
+    selected.label,
+    selected.outerHtml,
+  );
+  // div/section wrappers whose class resolves to a text-type (e.g. div.s1-title → "Title")
+  // should show text styling controls, not background-image controls.
+  const TEXT_ELEMENT_TYPES = new Set([
+    'Title','Subtitle','Heading','Label','Text','Link','Paragraph',
+    'Button','Badge','Quote','Stat','List Item',
+  ]);
+  const isTextLikeByType = TEXT_ELEMENT_TYPES.has(elementType);
+
+  const isText = (isTextEl(tag) || (!isImg && !isIcon && !hasChildElements && hasTextContent) || isTextLikeByType) && !isBgContainer;
+  // Show the text-edit input when:
+  //   (a) element has no child HTML tags — selected.text is the full content, safe to replace, OR
+  //   (b) element type is a known text category (Title, Subtitle, etc.) — we always want a
+  //       text field for these even when they contain <br>/<em>/<span> children.
+  //       selected.text is populated from innerText (bridge fix) so <br> becomes a space
+  //       rather than being silently dropped; __TEXT_PATCH__ replaces the full innerHTML
+  //       so there is no leading-text prepend duplication.
+  const isLeaf = isText && (!hasChildElements || isTextLikeByType);
 
   const [localFontSize,   setLocalFontSize]   = useState(16);
   const [localFontFamily, setLocalFontFamily] = useState('');
@@ -714,12 +737,6 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
     ? Math.max(measuredHalfW + 8, Math.min(rawLeft, effectiveCW - measuredHalfW - 8))
     : rawLeft;
 
-  const { elementType, sectionDisplay } = deriveContextLabel(
-    tag,
-    selected.sectionType,
-    selected.label,
-    selected.outerHtml,
-  );
   const bold   = isBoldEl(selected.outerHtml);
   const italic = isItalicEl(selected.outerHtml);
 

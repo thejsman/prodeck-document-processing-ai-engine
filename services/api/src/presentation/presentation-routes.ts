@@ -2843,13 +2843,27 @@ ${(body.urlImages as string[]).map((url: string, i: number) => `Photo ${i + 1}: 
           },
         );
 
+      // Repair missing closing tags — the LLM occasionally stops generating before
+      // it writes </body></html> (long HTML on complex proposals, token pressure).
+      // This ensures the stored customHtml is always a well-formed document so
+      // subsequent deterministic edits are never blocked by validateHtml check 1.
+      let repairedHtml = html;
+      if (!repairedHtml.includes('</body>') && !repairedHtml.includes('</html>')) {
+        repairedHtml += '\n</body>\n</html>';
+      } else if (!repairedHtml.includes('</html>')) {
+        repairedHtml += '\n</html>';
+      } else if (!repairedHtml.includes('</body>')) {
+        const htmlClose = repairedHtml.lastIndexOf('</html>');
+        repairedHtml = repairedHtml.slice(0, htmlClose) + '</body>\n' + repairedHtml.slice(htmlClose);
+      }
+
       // Inject hard CSS constraints for PDF presentation mode — fallback if LLM drifts.
       // Only constrains layout/overflow; does NOT change colors, fonts, or visual style.
       const isPortrait = body?.pdfPresentation && body?.pdfOrientation === 'portrait';
       // Portrait: inject before </body> so rules come AFTER microsite-bridge CURSOR_RESET_CSS
       // (which resets aspect-ratio:auto at </head>). Landscape injects in <head>.
       // Both use aspect-ratio CSS — no hardcoded pixel dimensions, no JS scaler needed.
-      let finalHtml = html;
+      let finalHtml = repairedHtml;
       if (body?.pdfPresentation) {
         if (isPortrait) {
           // Portrait hard facts only: exact 9:16 pages, 12px gap, clipped overflow.
@@ -2859,7 +2873,7 @@ ${(body.urlImages as string[]).map((url: string, i: number) => `Photo ${i + 1}: 
           // export. In block flow, height:auto + aspect-ratio is a true hard lock and
           // overflow:hidden clips at exactly the 9:16 edge. Everything inside the
           // section is left untouched — full design freedom for the LLM.
-          finalHtml = html.replace(/(<\/body>)/i, `<style id="__pdf-slide-constraints__">
+          finalHtml = repairedHtml.replace(/(<\/body>)/i, `<style id="__pdf-slide-constraints__">
 html{overflow-x:hidden!important;}body{margin:0!important;padding:0!important;width:100%!important;overflow-x:hidden!important;display:block!important;}
 *:has(>[data-section-id]){display:block!important;width:100%!important;max-width:none!important;padding:0!important;margin:0!important;}
 [data-section-id]{width:100%!important;max-width:540px!important;aspect-ratio:9/16!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;margin:0 auto 12px!important;}
@@ -2877,7 +2891,7 @@ html{overflow-x:hidden!important;}body{margin:0!important;padding:0!important;wi
           // Chrome ignores break-after:page on flex children at export).
           // Everything inside the section is left untouched — full design
           // freedom for the LLM.
-          finalHtml = html.replace(/(<head[^>]*>)/i, `$1<meta charset="UTF-8">`);
+          finalHtml = repairedHtml.replace(/(<head[^>]*>)/i, `$1<meta charset="UTF-8">`);
           finalHtml = finalHtml.replace(/(<\/body>)/i, `<style id="__pdf-slide-constraints__">
 html{overflow-x:hidden!important;}body{margin:0!important;padding:0!important;width:100%!important;overflow-x:hidden!important;display:block!important;}
 *:has(>[data-section-id]){display:block!important;width:100%!important;max-width:none!important;padding:0!important;margin:0!important;}

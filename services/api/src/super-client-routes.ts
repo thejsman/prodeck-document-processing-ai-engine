@@ -2964,8 +2964,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // Run before EVERY write to disk — catches truncation, structure destruction,
     // CSS token removal, and oversized deletions caused by bad LLM output.
     function validateHtml(updated: string): { ok: true } | { ok: false; reason: string } {
-      // 1. Must have closing HTML tags — catches truncated LLM responses
-      if (!updated.includes('</body>') && !updated.includes('</html>')) {
+      // 1. Must have closing HTML tags — catches truncated LLM responses.
+      // Only enforce when the original was well-formed; if the stored HTML is
+      // already truncated, deterministic patches (TEXT_PATCH, STYLE_PATCH, etc.)
+      // should not be blocked for a problem they did not cause.
+      const originalWellFormed = html.includes('</body>') || html.includes('</html>');
+      if (originalWellFormed && !updated.includes('</body>') && !updated.includes('</html>')) {
         return { ok: false, reason: 'Result HTML is truncated (missing </body> — edit produced incomplete output)' };
       }
 
@@ -3289,18 +3293,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       const openTag = openTagMatch[1];
       const closeTag = `</${closeTagMatch[1]}>`;
-      const innerHtml = elementHtml.slice(openTag.length, elementHtml.lastIndexOf(closeTag));
-      const hasChildren = /<\w/.test(innerHtml);
 
-      // Replace only the leading text run (the part with no element wrapper of
-      // its own — the only part a plain text-edit input can ever mean). Leave
-      // every child element and its own text content completely untouched:
-      // stripping "inter-tag" text globally here used to wipe out sibling
-      // elements' text too (e.g. a <span> holding a second line of a two-line
-      // headline), silently destroying content the user never asked to change.
-      const newInner = hasChildren ? newText + innerHtml.replace(/^[^<]+/, '') : newText;
-
-      const updatedHtml = html.slice(0, bounds.start) + openTag + newInner + closeTag + html.slice(bounds.end);
+      // Always replace the full innerHTML — selected.text is derived from
+      // el.innerText (the complete flattened text), so newText represents
+      // what the user intends to be the entire content of the element.
+      const updatedHtml = html.slice(0, bounds.start) + openTag + newText + closeTag + html.slice(bounds.end);
       return saveValidatedEdit(updatedHtml, 'Text updated');
     }
 
