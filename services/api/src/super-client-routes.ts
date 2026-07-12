@@ -3151,6 +3151,67 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }
       }
 
+      // Deep-strip: clear background-image:url() from EVERY inline style within the
+      // element's full HTML subtree. clearBgFromElement only patches the element's
+      // own opening tag — child divs (e.g. .slide-bg, .hero-bg) that hold the
+      // actual photo as an inline background-image are not touched, so the visual
+      // background persists even though the outer element's style was cleared.
+      {
+        // Re-find bounds in `updated` (may have shifted after parent patch)
+        const freshBounds = findByPath(updated, cssPath) ?? bounds;
+        const elSpan = updated.slice(freshBounds.start, freshBounds.end);
+        const deepCleaned = elSpan.replace(
+          /\bbackground(?:-image)?\s*:\s*url\([^)]*\)/gi,
+          'background-image:none',
+        );
+        if (deepCleaned !== elSpan) {
+          updated = updated.slice(0, freshBounds.start) + deepCleaned + updated.slice(freshBounds.end);
+        }
+      }
+
+      // Strip background-image:url() from <style>-block CSS rules whose selector
+      // references the section's ID — covers patterns like #slide-1 .bg { background-image: ... }
+      const sectionId = cssPath.match(/#([\w-]+)/)?.[1];
+      if (sectionId) {
+        const esc = sectionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        updated = updated.replace(
+          /([^{}]+)\{([^}]*\bbackground(?:-image)?\s*:\s*url\([^)]*\)[^}]*)\}/gi,
+          (match, selector, body) => {
+            if (!new RegExp(`\\b${esc}\\b`, 'i').test(selector)) return match;
+            return `${selector}{${body.replace(/\bbackground(?:-image)?\s*:\s*url\([^)]*\)/gi, 'background-image:none')}}`;
+          },
+        );
+      }
+
+      // Strip background-image:url() from CSS rules that target ANY class found
+      // within the element's subtree. The background is typically a positioned child
+      // div (.s1-bg, .hero-bg, etc.) whose background comes from a CSS class rule,
+      // not an inline style — so the deep-strip above and the ID-based scan above
+      // both miss it. This catch-all covers that pattern.
+      {
+        const freshBounds3 = findByPath(updated, cssPath) ?? bounds;
+        const elSpanForClasses = updated.slice(freshBounds3.start, freshBounds3.end);
+        const classNames = new Set<string>();
+        const classRe = /\bclass="([^"]+)"/gi;
+        let cm: RegExpExecArray | null;
+        while ((cm = classRe.exec(elSpanForClasses)) !== null) {
+          cm[1].trim().split(/\s+/).forEach((c) => { if (c.length > 1) classNames.add(c); });
+        }
+        if (classNames.size > 0) {
+          updated = updated.replace(
+            /([^{}]+)\{([^}]*\bbackground(?:-image)?\s*:\s*url\([^)]*\)[^}]*)\}/gi,
+            (match, selector, body) => {
+              const matchesChildClass = [...classNames].some((c) => {
+                const ce = c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                return new RegExp(`\\.${ce}\\b`).test(selector);
+              });
+              if (!matchesChildClass) return match;
+              return `${selector}{${body.replace(/\bbackground(?:-image)?\s*:\s*url\([^)]*\)/gi, 'background-image:none')}}`;
+            },
+          );
+        }
+      }
+
       if (updated === html) {
         return reply.code(422).send({ error: 'No background found on this element or its parent' });
       }
