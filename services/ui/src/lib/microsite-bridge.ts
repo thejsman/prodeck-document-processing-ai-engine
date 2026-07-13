@@ -537,11 +537,17 @@ function sendMsg(msgType, rawEl) {
   var tag = (el.tagName || '').toLowerCase();
   var label = makeLabel(el);
   var text = '';
-  // On hover: truncate to 120 chars (breadcrumb display only).
-  // On select: send full text so the inline editor can show and edit the complete content.
+  // On hover: use textContent (fast, truncated). On select: use innerText so that
+  // <br> tags produce a space rather than being silently dropped — without this,
+  // "Line1<br>Line2" arrives as "Line1Line2" and the toolbar shows garbled text.
+  // NOTE: all regex backslashes must be doubled inside this template-literal string.
   try {
-    var rawText = (el.textContent || '').replace(/\\s+/g,' ').trim();
-    text = msgType === 'select' ? rawText : rawText.slice(0, 120);
+    if (msgType === 'select') {
+      var inner = (typeof el.innerText === 'string' ? el.innerText : el.textContent) || '';
+      text = inner.replace(/\\n+/g,' ').replace(/\\s+/g,' ').trim();
+    } else {
+      text = ((el.textContent || '').replace(/\\s+/g,' ').trim()).slice(0, 120);
+    }
   } catch(e) {}
 
   var outerHtml = '';
