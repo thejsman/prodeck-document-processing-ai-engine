@@ -9,6 +9,7 @@ import { fetchMicrositeContent, fetchMicrositeDirectHtml, generateMicrositeDirec
 import { Microsite } from '@/components/microsite/Microsite';
 import { MicrositePro } from '@/components/microsite/MicrositePro';
 import { buildHtml } from '@/components/MicrositeV2';
+import { injectSlideScaler } from '@/lib/microsite-bridge';
 import type { LayoutAST } from '@/types/presentation';
 
 type ViewMode = 'direct' | 'ast';
@@ -264,9 +265,11 @@ export default function MicrositeViewPage() {
   if (ast?.generationMode === 'v2') {
     const rawHtml = buildHtml(ast);
     const bodyOpen = rawHtml.search(/<body[^>]*>/i);
-    const NAV_FIX = `<style id="__fs-layout-fix__">body{display:block!important;}[data-section-id]{margin-left:auto!important;margin-right:auto!important;}</style><script>document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var id=a.getAttribute('href').slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
+    // Fixed-canvas scaler (injectSlideScaler) sizes/scales presentation pages to fit
+    // the viewport width; it owns section sizing/margins, so no margin:auto here.
+    const NAV_FIX = `<style id="__fs-layout-fix__">body{display:block!important;}</style><script>document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var id=a.getAttribute('href').slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
     const tagEnd = bodyOpen !== -1 ? rawHtml.indexOf('>', bodyOpen) + 1 : -1;
-    const fsHtml = tagEnd > 0 ? rawHtml.slice(0, tagEnd) + NAV_FIX + rawHtml.slice(tagEnd) : rawHtml;
+    const fsHtml = injectSlideScaler(tagEnd > 0 ? rawHtml.slice(0, tagEnd) + NAV_FIX + rawHtml.slice(tagEnd) : rawHtml);
 
     const pillStyle: React.CSSProperties = {
       padding: '9px 18px',

@@ -51,7 +51,7 @@ import { buildDesignSystemPrompt, buildFontUrls } from '@ai-engine/agent-microsi
 import { DesignEditorAgent } from '@ai-engine/agent-design-editor';
 import { renderMicrositeToHtml } from './html-exporter.js';
 import { renderMicrositeToPptx } from './pptx-exporter.js';
-import { findOverflowingSlides, findSectionBounds, extractSectionBlocks, buildReflowPrompt } from './slide-fit.js';
+import { closeDanglingTag, auditSlides, findSectionBounds, extractSectionBlocks, buildIssueFixPrompt } from './slide-fit.js';
 import {
   generateMicrositeDirectly,
   generateMicrositeStream as generateMicrositeStreamDirect,
@@ -2807,6 +2807,7 @@ When asked to create a website or microsite:
 - CRITICAL: NEVER use React, Vue, Angular, JSX, or any component framework. NEVER write JSX syntax like <ComponentName /> or ReactDOM.createRoot(). Output only vanilla HTML, CSS, and browser-native JavaScript. If a design spec references React or Framer Motion, translate those patterns directly into HTML+CSS+JS equivalents.
 - Output ONLY the complete HTML file starting with <!DOCTYPE html> — no explanations, no markdown, no commentary
 - STRICTLY FORBIDDEN: Never include <pre>, <code>, or any element that renders HTML, CSS, or JavaScript source code as visible text on the page. Never wrap any output in markdown code fences (\`\`\`html or \`\`\` of any kind) inside the HTML body. This is a rendered presentation website — source code must NEVER appear as visible text to the viewer under any circumstances.
+- ESCAPE LITERAL ANGLE BRACKETS AND AMPERSANDS IN COPY TEXT: any time your written content (not markup) contains a literal "<", ">", or "&" — e.g. "score < 90%", "ROI > 3x", "R&D", "Smith & Co." — you MUST write it as the HTML entity (&lt;, &gt;, &amp;) instead of the raw character. A raw "<" or ">" inside text content can be misread as the start of a tag by the HTML parser and corrupt everything that follows it in the document.
 
 FRAMEWORK TRANSLATION RULES — apply these when the prompt references any JS framework:
 - React component → vanilla JS function using document.createElement / innerHTML
@@ -2873,7 +2874,10 @@ ICON SYSTEM — always use modern icons:
 - Size icons at 20–24px; match colour to accent or muted text tone
 - Icons must be contextually meaningful — reinforce the content they accompany, never just decorate
 
-SMOOTH SCROLL — always:
+${
+  body?.pdfPresentation
+    ? ''
+    : `SMOOTH SCROLL — always:
 - html { scroll-behavior: smooth; }
 - All internal anchor links use href="#sectionId" with a matching id on the target section
 
@@ -2882,7 +2886,8 @@ MOTION BASELINE — when no explicit MOTION override is present:
 - Hero: subtle parallax on background image or gradient (CSS transform driven by scroll listener, 0.25× speed ratio)
 - Buttons: scale(1.04) + box-shadow lift on :hover, transition 0.18s ease
 - Cards: translateY(-4px) + shadow deepen on :hover, transition 0.2s ease
-- This is the floor — exceed it whenever the brand mood warrants it
+- This is the floor — exceed it whenever the brand mood warrants it`
+}
 
 LAYOUT INTEGRITY — outcome constraints only. Achieve these however best fits your design:
 - Content must never be hidden under the fixed navbar — anchor scroll targets and first-section top spacing must account for navbar height
@@ -2986,14 +2991,20 @@ Use color boldly. Not everything needs to be light-on-dark or dark-on-light. Con
 IMAGERY — make it contextual, not stock
 Derive every image query from the proposal's actual content. What is the client's world? What do the locations, services, outcomes, and people in this proposal look like? A query should pass this test: would it work for any other proposal? If yes, it's too generic. Make it specific to this one.
 
-MOTION — always include, calibrate to the mood you chose
+${
+  body?.pdfPresentation
+    ? `STATIC OUTPUT — this is a fixed-page PDF deck, not a scrolling webpage:
+- No scroll, no hover states, no CSS animations, transitions, or JS of any kind — every page is a single static, finished composition, exactly as it will appear when printed
+- All the visual energy goes into layout, color, typography, and imagery instead of motion — a still composition has to earn its impact through composition alone`
+    : `MOTION — always include, calibrate to the mood you chose
 - html { scroll-behavior: smooth; } always
 - IntersectionObserver scroll reveals on every section (opacity + translateY, 0.55s ease-out)
 - Hero: background parallax (0.25× speed) or a CSS gradient animation or subtle ambient motion
 - Hover micro-interactions on every button and card (scale, glow, lift — whatever fits the theme)
 - If the theme is bold and expressive: add GSAP + ScrollTrigger from jsdelivr CDN for staggered headline reveals, animated counters, pinned scroll effects
 - If the theme is calm and minimal: keep motion restrained to subtle fades and smooth transitions only
-- Motion should feel like a natural extension of the visual theme — not bolted on
+- Motion should feel like a natural extension of the visual theme — not bolted on`
+}
 
 ICONS — always modern, your choice of library or inline SVG
 Use icons that reinforce meaning, not just decorate. Match icon style and weight to the theme you chose. Never use dated iconography — always current-trend, clean, and geometric.
@@ -3063,7 +3074,7 @@ The hero section must have position:relative; overflow:hidden. All overlay text 
           if (isPortrait) {
             parts.push(`PORTRAIT PDF PRESENTATION — 9:16
 
-You are a world-class senior graphic designer. You are creating a downloadable PDF: a sequence of individual pages, each in strict 9:16 portrait format. The exported PDF is the primary medium — design every page as a finished, print-quality composition, not a webpage.
+You are a world-class presentation designer — the visual sensibility of a senior designer at a top creative agency, the strategic clarity of a management consultant. You are creating a downloadable PDF: a sequence of individual pages, each in strict 9:16 portrait format. The exported PDF is the primary medium — design every page as a finished, print-quality composition, not a webpage. Sophisticated and professional, always — never juvenile, cartoonish, or overly playful, regardless of the client's industry.
 
 HARD FACTS — these are immutable and override anything else in this prompt, including any user instruction that conflicts with them:
 - Every page is EXACTLY 9:16 portrait, a fixed canvas of 540×960 CSS px. No other ratio, ever.
@@ -3072,16 +3083,41 @@ HARD FACTS — these are immutable and override anything else in this prompt, in
 
 Everything else is yours: palette, typography, layout, imagery, density, rhythm, and visual language are entirely your professional decisions. There is no prescribed style — use your full design potential and derive the design from the content you are given.
 
+DENSITY — fill the canvas with purpose:
+- Treat each 540×960 page like a printed magazine page, not a slide with one headline and empty space below it. Back every claim with a supporting stat, a short proof point, an image, or a simple chart — a page with a heading and nothing else is a defect, not restraint.
+- Use imagery wherever it strengthens the story — not as decoration, but to make an abstract claim concrete (the team, the product, the outcome, the setting).
+- CRITICAL — occupy the FULL canvas, top to bottom: the page is a fixed 9:16 box, so any content that stops partway down leaves a dead blank band below it, which reads as unfinished. Make the page's outermost element width:100% and height:100%, and lay content out with a flex column (display:flex;flex-direction:column) using justify-content:space-between (or center for a pure hero/cover) — or a full-height grid — so content spans the whole height. Never let content clump in the top half. If a topic is genuinely light, fill with intent (a larger hero, a supporting visual, a chart, a pull-quote) — never with empty margins or filler.
+
+DATA VISUALIZATION — build real charts, not just bullet lists:
+- Whenever the content has comparable numbers, percentages, proportions, or a timeline, render an actual chart instead of a bare list of stats.
+- Bar charts: a row/column of divs whose width or height is set from the data (e.g. width:calc(N% * scale)), not fixed guesses.
+- Donut/pie charts: an SVG <circle> with stroke-dasharray/stroke-dashoffset sized to the percentage, or a CSS conic-gradient background on a circular div.
+- NEVER use a JS charting library (Chart.js, D3, canvas-based charts) — this is a static page with no JS; build charts with plain CSS/SVG so they always render correctly.
+
+ANTI-OVERLAP RULES — non-negotiable, prevent cards/text colliding:
+- Card grid columns MUST use minmax(0, 1fr), never plain 1fr — e.g. grid-template-columns: repeat(3, minmax(0, 1fr)). Every grid/flex child holding text also needs min-width:0.
+- NEVER use position:absolute to place cards inside a grid or flex row — absolute elements leave the flow and overlap their siblings. Absolute positioning is fine for decorative background layers only (with pointer-events:none and a lower z-index than text).
+- Card rows need flex-wrap:wrap and width:100% on the container so cards reflow instead of overflowing.
+- Every card needs box-sizing:border-box; never give a card a fixed pixel width — use width:100% inside its cell. Never pull cards together with negative margins — use the grid/flex gap property instead.
+
+CSS ISOLATION — non-negotiable, prevent invisible/low-contrast text:
+- Every page's CSS MUST be fully self-contained inside that page's own <style> block, scoped with that page's id (e.g. #slide-3 .card {...}). NEVER declare a shared/global rule (e.g. a bare .card {...} with no #slide-N prefix) that more than one page's markup relies on — a class written once and reused across pages with different themes is the single most common cause of invisible text: the page that inherits it forgets to override every property, especially background-color, leaving light text on a light background or dark text on a dark background.
+- If you copy a component's structure from one page to another (e.g. a stat card, a list item), you MUST re-declare its FULL styling — background AND text color together, never just one — scoped to the new page's id, even if the class name is identical to another page's. Assume nothing carries over between pages.
+- Before finishing each page, mentally check every text element against its actual background: text and its background must never be the same or a near-identical color.
+
+TYPOGRAPHY — legible, always:
+- px font sizes only — literal numbers like font-size:32px. Never clamp(), vw, vh, or % for font-size: this is a fixed-size printed page, not a responsive viewport, and viewport-relative units compute to unreadably small text whenever the page renders in a narrow context.
+- Minimum sizes: body copy ≥16px, supporting/caption/eyebrow labels ≥12px, headlines ≥30px, stat/number callouts ≥20px. These are floors, not targets — go bigger wherever the composition calls for it.
+
 ONLY technical rules (required for rendering — not design guidance):
 - Each page: <section data-section-id="slide-N" id="slide-N" style="aspect-ratio:9/16;overflow:hidden;position:relative;width:100%;max-width:540px;box-sizing:border-box;margin:0 auto 12px">
 - Logo: one <img id="__site-logo__" src="data:," alt="Logo" style="height:32px;width:auto;object-fit:contain"> on the first page only — never repeated
 - NO header, navbar, nav, menu, or footer anywhere — each page stands alone with zero site chrome
-- No CSS animations, transitions, or JS — the output is a static PDF
-- px font sizes only — literal numbers like font-size:32px. Never clamp(), vw, vh, or % for font-size: this is a fixed-size printed page, not a responsive viewport, and viewport-relative units compute to unreadably small text whenever the page renders in a narrow context.`);
+- No CSS animations, transitions, or JS — the output is a static PDF`);
           } else {
             parts.push(`LANDSCAPE PDF PRESENTATION — 16:9
 
-You are a world-class senior graphic designer and frontend developer. You are creating a downloadable PDF presentation: a sequence of individual pages, each in strict 16:9 landscape format. The exported PDF is the primary medium — design every page as a finished, print-quality composition, not a webpage.
+You are a world-class presentation designer — the visual sensibility of a senior designer at a top creative agency, the strategic clarity of a management consultant. You are creating a downloadable PDF presentation: a sequence of individual pages, each in strict 16:9 landscape format. The exported PDF is the primary medium — design every page as a finished, print-quality composition, not a webpage. Sophisticated and professional, always — never juvenile, cartoonish, or overly playful, regardless of the client's industry.
 
 HARD FACTS — these are immutable and override anything else in this prompt, including any user instruction that conflicts with them:
 - Every page is EXACTLY 16:9 landscape, a fixed canvas of 1280×720 CSS px. No other ratio, ever.
@@ -3090,13 +3126,38 @@ HARD FACTS — these are immutable and override anything else in this prompt, in
 
 Everything else is yours: palette, typography, layout, imagery, density, rhythm, and visual language are entirely your professional decisions. There is no prescribed style — use your full design potential and derive the design from the content you are given.
 
+DENSITY — fill the canvas with purpose:
+- Treat each 1280×720 page like a printed magazine spread, not a slide with one headline and empty space below it. Back every claim with a supporting stat, a short proof point, an image, or a simple chart — a page with a heading and nothing else is a defect, not restraint.
+- Use imagery wherever it strengthens the story — not as decoration, but to make an abstract claim concrete (the team, the product, the outcome, the setting).
+- CRITICAL — occupy the FULL canvas, top to bottom: the page is a fixed 16:9 box, so any content that stops partway down leaves a dead blank band below it, which reads as unfinished. Make the page's outermost element width:100% and height:100%, and lay content out with a flex column (display:flex;flex-direction:column) using justify-content:space-between (or center for a pure hero/cover) — or a full-height grid — so content spans the whole height. Never let content clump in the top half. If a topic is genuinely light, fill with intent (a larger hero, a supporting visual, a chart, a pull-quote) — never with empty margins or filler.
+
+DATA VISUALIZATION — build real charts, not just bullet lists:
+- Whenever the content has comparable numbers, percentages, proportions, or a timeline, render an actual chart instead of a bare list of stats.
+- Bar charts: a row/column of divs whose width or height is set from the data (e.g. width:calc(N% * scale)), not fixed guesses.
+- Donut/pie charts: an SVG <circle> with stroke-dasharray/stroke-dashoffset sized to the percentage, or a CSS conic-gradient background on a circular div.
+- NEVER use a JS charting library (Chart.js, D3, canvas-based charts) — this is a static page with no JS; build charts with plain CSS/SVG so they always render correctly.
+
+ANTI-OVERLAP RULES — non-negotiable, prevent cards/text colliding:
+- Card grid columns MUST use minmax(0, 1fr), never plain 1fr — e.g. grid-template-columns: repeat(3, minmax(0, 1fr)). Every grid/flex child holding text also needs min-width:0.
+- NEVER use position:absolute to place cards inside a grid or flex row — absolute elements leave the flow and overlap their siblings. Absolute positioning is fine for decorative background layers only (with pointer-events:none and a lower z-index than text).
+- Card rows need flex-wrap:wrap and width:100% on the container so cards reflow instead of overflowing.
+- Every card needs box-sizing:border-box; never give a card a fixed pixel width — use width:100% inside its cell. Never pull cards together with negative margins — use the grid/flex gap property instead.
+
+CSS ISOLATION — non-negotiable, prevent invisible/low-contrast text:
+- Every page's CSS MUST be fully self-contained inside that page's own <style> block, scoped with that page's id (e.g. #slide-3 .card {...}). NEVER declare a shared/global rule (e.g. a bare .card {...} with no #slide-N prefix) that more than one page's markup relies on — a class written once and reused across pages with different themes is the single most common cause of invisible text: the page that inherits it forgets to override every property, especially background-color, leaving light text on a light background or dark text on a dark background.
+- If you copy a component's structure from one page to another (e.g. a stat card, a list item), you MUST re-declare its FULL styling — background AND text color together, never just one — scoped to the new page's id, even if the class name is identical to another page's. Assume nothing carries over between pages.
+- Before finishing each page, mentally check every text element against its actual background: text and its background must never be the same or a near-identical color.
+
+TYPOGRAPHY — legible, always:
+- px font sizes only — literal numbers like font-size:32px. Never clamp(), vw, vh, or % for font-size: this is a fixed-size printed page, not a responsive viewport, and viewport-relative units compute to unreadably small text (well under 10px) whenever the page renders in a narrow context.
+- Minimum sizes: body copy ≥16px, supporting/caption/eyebrow labels ≥12px, headlines ≥30px, stat/number callouts ≥20px. These are floors, not targets — go bigger wherever the composition calls for it.
+
 ONLY technical rules (required for rendering):
 - Each page: <section data-section-id="slide-N" id="slide-N" style="aspect-ratio:16/9;overflow:hidden;position:relative;width:100%;box-sizing:border-box;margin-bottom:4px">
 - Logo: one <img id="__site-logo__" src="data:," alt="Logo" style="height:36px;width:auto;object-fit:contain"> composed INTO the first slide only (e.g. a corner of the cover) — never repeated, never outside a section
 - The <body> contains ONLY the <section> pages — no logo strip, header, text, or any other element before the first section, between sections, or after the last one (anything outside a section breaks the one-page-per-slide PDF export)
 - NO header, navbar, nav, menu, or footer anywhere — this is a slide deck with zero site chrome; each slide stands alone
 - No CSS animations, transitions, or JS — static output only
-- px font sizes only — literal numbers like font-size:32px. Never clamp(), vw, vh, or % for font-size: this is a fixed-size printed page, not a responsive viewport, and viewport-relative units compute to unreadably small text (well under 10px) whenever the page renders in a narrow context. Minimum sizes: body copy 14px, supporting/caption labels 11px, headlines 24px+
 - All content must stay within each page boundary — overflow is hidden in export`);
           }
         }
@@ -3234,7 +3295,14 @@ ${(body.urlImages as string[]).map((url: string, i: number) => `Photo ${i + 1}: 
         // it writes </body></html> (long HTML on complex proposals, token pressure).
         // This ensures the stored customHtml is always a well-formed document so
         // subsequent deterministic edits are never blocked by validateHtml check 1.
-        let repairedHtml = html;
+        // closeDanglingTag runs FIRST: if generation truncated mid-tag/mid-attribute
+        // (e.g. "...color:#b8956a;\">3</div" with no closing ">"), appending
+        // </body></html> right after that dangling fragment would merge it into the
+        // browser's in-progress tag parse, so the appended tags (and anything after
+        // them) render as literal visible text instead of real elements. Stripping
+        // the dangling fragment first guarantees the append always lands at a clean
+        // tag boundary.
+        let repairedHtml = closeDanglingTag(html);
         if (!repairedHtml.includes('</body>') && !repairedHtml.includes('</html>')) {
           repairedHtml += '\n</body>\n</html>';
         } else if (!repairedHtml.includes('</html>')) {
@@ -3244,116 +3312,69 @@ ${(body.urlImages as string[]).map((url: string, i: number) => `Photo ${i + 1}: 
           repairedHtml = repairedHtml.slice(0, htmlClose) + '</body>\n' + repairedHtml.slice(htmlClose);
         }
 
-        // Inject hard CSS constraints for PDF presentation mode — fallback if LLM drifts.
-        // Only constrains layout/overflow; does NOT change colors, fonts, or visual style.
+        // Hard CSS constraints for PDF presentation mode — fallback if LLM drifts.
+        // Only constrains layout/overflow; does NOT change colors, fonts, or visual
+        // style. Portrait/landscape hard-lock rationale: body and section wrappers
+        // are forced to block flow (not flex) — a flex item's min-height:auto lets a
+        // section stretch past its aspect-ratio when content is tall, and Chrome
+        // ignores break-after:page on flex children at export. In block flow,
+        // height:auto + aspect-ratio is a true hard lock and overflow:hidden clips at
+        // exactly the page edge. Everything inside the section is left untouched —
+        // full design freedom for the LLM. Injected via a real DOM API inside
+        // auditSlides() (not a string splice) so it can never be corrupted by
+        // pre-existing malformed markup elsewhere in the LLM's output — see
+        // closeDanglingTag's doc comment in slide-fit.ts for why that matters.
         const isPortrait = body?.pdfPresentation && body?.pdfOrientation === 'portrait';
-        // Portrait: inject before </body> so rules come AFTER microsite-bridge CURSOR_RESET_CSS
-        // (which resets aspect-ratio:auto at </head>). Landscape injects in <head>.
-        // Both use aspect-ratio CSS — no hardcoded pixel dimensions, no JS scaler needed.
         let finalHtml = repairedHtml;
         if (body?.pdfPresentation) {
-          if (isPortrait) {
-            // Portrait hard facts only: exact 9:16 pages, 12px gap, clipped overflow.
-            // Body and section wrappers are forced to block flow (not flex) — a flex
-            // item's min-height:auto lets a section stretch past its aspect-ratio when
-            // content is tall, and Chrome ignores break-after:page on flex children at
-            // export. In block flow, height:auto + aspect-ratio is a true hard lock and
-            // overflow:hidden clips at exactly the 9:16 edge. Everything inside the
-            // section is left untouched — full design freedom for the LLM.
-            finalHtml = repairedHtml.replace(
-              /(<\/body>)/i,
-              `<style id="__pdf-slide-constraints__">
-html{overflow-x:hidden!important;}body{margin:0!important;padding:0!important;width:100%!important;overflow-x:hidden!important;display:block!important;}
+          // meta charset in <head> is a trivial, low-risk prepend (head-open is
+          // always well-formed near doc start) — unrelated to the constraint-style
+          // injection below, which never touches the string directly.
+          if (!isPortrait) {
+            finalHtml = repairedHtml.replace(/(<head[^>]*>)/i, `$1<meta charset="UTF-8">`);
+          }
+
+          const constraintCss = isPortrait
+            ? `html{overflow-x:hidden!important;}body{margin:0!important;padding:0!important;width:100%!important;overflow-x:hidden!important;display:block!important;}
 *:has(>[data-section-id]){display:block!important;width:100%!important;max-width:none!important;padding:0!important;margin:0!important;}
 [data-section-id]{width:100%!important;max-width:540px!important;aspect-ratio:9/16!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;margin:0 auto 12px!important;}
 [data-section-id]:last-of-type{margin-bottom:0!important;}
 [data-pdf-hide]{display:none!important;}
-*:has(>[data-section-id])>*:not([data-section-id]):not(script):not(style):not(link):not(meta):has(~[data-section-id]){display:none!important;}
-</style>$1`,
-            );
-
-            // ── Fit pass: no clipped text or design, ever ──────────────────────
-            // The LLM cannot measure rendered text, so fit is verified after the
-            // fact: render the deck headlessly at the locked 9:16 size, find pages
-            // whose content crosses the page boundary, and have the LLM reflow
-            // each one across more pages. Two passes so a reflowed page that is
-            // still slightly overfull gets one more chance. Best-effort — a
-            // failure here never blocks generation (overflow:hidden remains the
-            // last-resort safety net).
-            try {
-              for (let pass = 0; pass < 2; pass++) {
-                send({ type: 'progress', message: pass === 0 ? 'Checking page fit…' : 'Re-checking page fit…' });
-                const overfull = (await findOverflowingSlides(finalHtml)).slice(0, 6);
-                if (overfull.length === 0) break;
-                send({
-                  type: 'progress',
-                  message: `Reflowing ${overfull.length} overfull page${overfull.length > 1 ? 's' : ''}…`,
-                });
-                for (const { id, overflowPx } of overfull) {
-                  const bounds = findSectionBounds(finalHtml, id);
-                  if (!bounds) continue;
-                  const sectionHtml = finalHtml.slice(bounds.start, bounds.end);
-                  const reply = await callLLMStream(
-                    [{ role: 'user', content: buildReflowPrompt(id, overflowPx, sectionHtml) }],
-                    16000,
-                  );
-                  const blocks = extractSectionBlocks(reply);
-                  if (!blocks) continue;
-                  const resolved = await resolveImagePlaceholders(blocks.replace(/ — /g, ', ').replace(/—/g, '-'));
-                  finalHtml = finalHtml.slice(0, bounds.start) + resolved + finalHtml.slice(bounds.end);
-                }
-              }
-            } catch (fitErr) {
-              console.error('[microsite-gen] portrait fit pass failed:', fitErr);
-            }
-          } else {
-            // meta charset goes in <head>; the constraint style goes before </body> so it
-            // is injected AFTER normalizeMicrositeHtml's CURSOR_RESET_CSS (which is also
-            // in <head>) and therefore wins the !important cascade battle.
-            // Landscape hard facts only: exact 16:9 pages, 12px gap, clipped
-            // overflow — same block-flow hard-lock rationale as the portrait
-            // branch above (flex items stretch past their aspect-ratio, and
-            // Chrome ignores break-after:page on flex children at export).
-            // Everything inside the section is left untouched — full design
-            // freedom for the LLM.
-            finalHtml = repairedHtml.replace(/(<head[^>]*>)/i, `$1<meta charset="UTF-8">`);
-            finalHtml = finalHtml.replace(
-              /(<\/body>)/i,
-              `<style id="__pdf-slide-constraints__">
-html{overflow-x:hidden!important;}body{margin:0!important;padding:0!important;width:100%!important;overflow-x:hidden!important;display:block!important;}
+*:has(>[data-section-id])>*:not([data-section-id]):not(script):not(style):not(link):not(meta):has(~[data-section-id]){display:none!important;}`
+            : `html{overflow-x:hidden!important;}body{margin:0!important;padding:0!important;width:100%!important;overflow-x:hidden!important;display:block!important;}
 *:has(>[data-section-id]){display:block!important;width:100%!important;max-width:none!important;padding:0!important;margin:0!important;}
 [data-section-id]{width:100%!important;max-width:none!important;aspect-ratio:16/9!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:hidden!important;position:relative!important;box-sizing:border-box!important;margin:0 0 12px!important;}
 [data-section-id]:last-of-type{margin-bottom:0!important;}
-[data-pdf-hide]{display:none!important;}
-</style>$1`,
-            );
-          }
+[data-pdf-hide]{display:none!important;}`;
 
-          // ── Fit pass: no clipped text or design, ever ────────────────────────
-          // The LLM cannot measure rendered text, so fit is verified after the
-          // fact: render the deck headlessly at the orientation's locked page
-          // size, find pages whose content crosses the page boundary, and have
-          // the LLM reflow each one across more pages. Two passes so a reflowed
-          // page that is still slightly overfull gets one more chance.
-          // Best-effort — a failure here never blocks generation
-          // (overflow:hidden remains the last-resort safety net).
+          // ── Design QA pass: no clipped/overlapping/illegible text or leaked code,
+          // ever. The LLM cannot measure its own rendered output, so this is verified
+          // after the fact: render the deck headlessly at the orientation's locked
+          // page size (which also injects the constraint style via DOM — see
+          // auditSlides), audit every page for overflow, text-on-text overlap,
+          // illegible text, and markup rendering as literal visible text, and have
+          // the LLM rewrite any offending page. Two passes so a fix that's still
+          // slightly off gets one more chance. Best-effort — a failure here never
+          // blocks generation (overflow:hidden remains the last-resort safety net).
           const fitOrientation = isPortrait ? 'portrait' : 'landscape';
           const fitViewport = isPortrait ? { width: 720, height: 1280 } : { width: 1280, height: 720 };
           try {
             for (let pass = 0; pass < 2; pass++) {
-              send({ type: 'progress', message: pass === 0 ? 'Checking page fit…' : 'Re-checking page fit…' });
-              const overfull = (await findOverflowingSlides(finalHtml, fitViewport)).slice(0, 6);
-              if (overfull.length === 0) break;
+              send({ type: 'progress', message: pass === 0 ? 'Checking design quality…' : 'Re-checking design quality…' });
+              const { html: auditedHtml, issues } = await auditSlides(finalHtml, fitViewport, constraintCss);
+              finalHtml = auditedHtml;
+              const flagged = issues.slice(0, 6);
+              if (flagged.length === 0) break;
               send({
                 type: 'progress',
-                message: `Reflowing ${overfull.length} overfull page${overfull.length > 1 ? 's' : ''}…`,
+                message: `Fixing ${flagged.length} page${flagged.length > 1 ? 's' : ''}…`,
               });
-              for (const { id, overflowPx } of overfull) {
-                const bounds = findSectionBounds(finalHtml, id);
+              for (const issue of flagged) {
+                const bounds = findSectionBounds(finalHtml, issue.id);
                 if (!bounds) continue;
                 const sectionHtml = finalHtml.slice(bounds.start, bounds.end);
                 const reply = await callLLMStream(
-                  [{ role: 'user', content: buildReflowPrompt(id, overflowPx, sectionHtml, fitOrientation) }],
+                  [{ role: 'user', content: buildIssueFixPrompt(issue, sectionHtml, fitOrientation) }],
                   16000,
                 );
                 const blocks = extractSectionBlocks(reply);
@@ -3363,7 +3384,7 @@ html{overflow-x:hidden!important;}body{margin:0!important;padding:0!important;wi
               }
             }
           } catch (fitErr) {
-            console.error(`[microsite-gen] ${fitOrientation} fit pass failed:`, fitErr);
+            console.error(`[microsite-gen] ${fitOrientation} design QA pass failed:`, fitErr);
           }
         }
 
