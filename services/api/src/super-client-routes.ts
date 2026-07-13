@@ -2964,8 +2964,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     // Run before EVERY write to disk — catches truncation, structure destruction,
     // CSS token removal, and oversized deletions caused by bad LLM output.
     function validateHtml(updated: string): { ok: true } | { ok: false; reason: string } {
-      // 1. Must have closing HTML tags — catches truncated LLM responses
-      if (!updated.includes('</body>') && !updated.includes('</html>')) {
+      // 1. Must have closing HTML tags — catches truncated LLM responses.
+      // Only enforce when the original was well-formed; if the stored HTML is
+      // already truncated, deterministic patches (TEXT_PATCH, STYLE_PATCH, etc.)
+      // should not be blocked for a problem they did not cause.
+      const originalWellFormed = html.includes('</body>') || html.includes('</html>');
+      if (originalWellFormed && !updated.includes('</body>') && !updated.includes('</html>')) {
         return { ok: false, reason: 'Result HTML is truncated (missing </body> — edit produced incomplete output)' };
       }
 
@@ -3147,6 +3151,67 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }
       }
 
+      // Deep-strip: clear background-image:url() from EVERY inline style within the
+      // element's full HTML subtree. clearBgFromElement only patches the element's
+      // own opening tag — child divs (e.g. .slide-bg, .hero-bg) that hold the
+      // actual photo as an inline background-image are not touched, so the visual
+      // background persists even though the outer element's style was cleared.
+      {
+        // Re-find bounds in `updated` (may have shifted after parent patch)
+        const freshBounds = findByPath(updated, cssPath) ?? bounds;
+        const elSpan = updated.slice(freshBounds.start, freshBounds.end);
+        const deepCleaned = elSpan.replace(
+          /\bbackground(?:-image)?\s*:\s*url\([^)]*\)/gi,
+          'background-image:none',
+        );
+        if (deepCleaned !== elSpan) {
+          updated = updated.slice(0, freshBounds.start) + deepCleaned + updated.slice(freshBounds.end);
+        }
+      }
+
+      // Strip background-image:url() from <style>-block CSS rules whose selector
+      // references the section's ID — covers patterns like #slide-1 .bg { background-image: ... }
+      const sectionId = cssPath.match(/#([\w-]+)/)?.[1];
+      if (sectionId) {
+        const esc = sectionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        updated = updated.replace(
+          /([^{}]+)\{([^}]*\bbackground(?:-image)?\s*:\s*url\([^)]*\)[^}]*)\}/gi,
+          (match, selector, body) => {
+            if (!new RegExp(`\\b${esc}\\b`, 'i').test(selector)) return match;
+            return `${selector}{${body.replace(/\bbackground(?:-image)?\s*:\s*url\([^)]*\)/gi, 'background-image:none')}}`;
+          },
+        );
+      }
+
+      // Strip background-image:url() from CSS rules that target ANY class found
+      // within the element's subtree. The background is typically a positioned child
+      // div (.s1-bg, .hero-bg, etc.) whose background comes from a CSS class rule,
+      // not an inline style — so the deep-strip above and the ID-based scan above
+      // both miss it. This catch-all covers that pattern.
+      {
+        const freshBounds3 = findByPath(updated, cssPath) ?? bounds;
+        const elSpanForClasses = updated.slice(freshBounds3.start, freshBounds3.end);
+        const classNames = new Set<string>();
+        const classRe = /\bclass="([^"]+)"/gi;
+        let cm: RegExpExecArray | null;
+        while ((cm = classRe.exec(elSpanForClasses)) !== null) {
+          cm[1].trim().split(/\s+/).forEach((c) => { if (c.length > 1) classNames.add(c); });
+        }
+        if (classNames.size > 0) {
+          updated = updated.replace(
+            /([^{}]+)\{([^}]*\bbackground(?:-image)?\s*:\s*url\([^)]*\)[^}]*)\}/gi,
+            (match, selector, body) => {
+              const matchesChildClass = [...classNames].some((c) => {
+                const ce = c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                return new RegExp(`\\.${ce}\\b`).test(selector);
+              });
+              if (!matchesChildClass) return match;
+              return `${selector}{${body.replace(/\bbackground(?:-image)?\s*:\s*url\([^)]*\)/gi, 'background-image:none')}}`;
+            },
+          );
+        }
+      }
+
       if (updated === html) {
         return reply.code(422).send({ error: 'No background found on this element or its parent' });
       }
@@ -3289,18 +3354,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       const openTag = openTagMatch[1];
       const closeTag = `</${closeTagMatch[1]}>`;
-      const innerHtml = elementHtml.slice(openTag.length, elementHtml.lastIndexOf(closeTag));
-      const hasChildren = /<\w/.test(innerHtml);
 
-      // Replace only the leading text run (the part with no element wrapper of
-      // its own — the only part a plain text-edit input can ever mean). Leave
-      // every child element and its own text content completely untouched:
-      // stripping "inter-tag" text globally here used to wipe out sibling
-      // elements' text too (e.g. a <span> holding a second line of a two-line
-      // headline), silently destroying content the user never asked to change.
-      const newInner = hasChildren ? newText + innerHtml.replace(/^[^<]+/, '') : newText;
-
-      const updatedHtml = html.slice(0, bounds.start) + openTag + newInner + closeTag + html.slice(bounds.end);
+      // Always replace the full innerHTML — selected.text is derived from
+      // el.innerText (the complete flattened text), so newText represents
+      // what the user intends to be the entire content of the element.
+      const updatedHtml = html.slice(0, bounds.start) + openTag + newText + closeTag + html.slice(bounds.end);
       return saveValidatedEdit(updatedHtml, 'Text updated');
     }
 
@@ -3793,7 +3851,23 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // This avoids asking the LLM to recall a valid Unsplash photo ID from
       // training memory, which reliably produces wrong or stale URLs.
       // Fire for: existing <img>, CSS background-image, OR explicit "background image" desc intent
-      if (!isRedesignIntent && (hasImg || hasBgImage || isBgImgDescIntent) && !/https?:\/\//.test(editInstruction)) {
+      //
+      // Skip when the instruction is about a CSS layout property (height, width, fit, etc.)
+      // even if it incidentally mentions "image". E.g. "the height of the image should match
+      // the slide" is a CSS change on the existing element, not a request to swap content.
+      const hasCssPropWord =
+        /\b(?:height|width|margin|padding|position|size|fit|fill|cover|contain|aspect[\s-]ratio|max-?(?:width|height)|min-?(?:width|height)|object-fit|overflow|z-index|flex|grid|display|font-size|border|radius|opacity|justify|vertical[\s-]align|horizontal)\b/i.test(
+          strippedEdit,
+        );
+      const hasImgReplaceVerb =
+        /\b(?:show(?:ing)?|replace|swap|use\s+(?:a|an|the)\s+(?:image|photo|picture)|change\s+(?:the\s+)?(?:image|photo|picture)\s+(?:to|with)|find\s+(?:a|an|me)\s+(?:image|photo|picture)|add\s+(?:a|an)\s+(?:image|photo|picture))\b/i.test(
+          strippedEdit,
+        );
+      // True when the instruction describes a CSS/layout property of the existing element
+      // rather than the visual content of a replacement image.
+      const isImageCssChangeOnly = hasCssPropWord && !hasImgReplaceVerb;
+
+      if (!isRedesignIntent && !isImageCssChangeOnly && (hasImg || hasBgImage || isBgImgDescIntent) && !/https?:\/\//.test(editInstruction)) {
         const stripped = strippedEdit; // already computed above
 
         // Gate: must mention an image noun or have explicit bg+image intent
