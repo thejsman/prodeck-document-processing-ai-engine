@@ -1848,6 +1848,9 @@ export default function SuperClientPage() {
 
   async function handleOpenMicrosite(m: SuperClientMicrosite) {
     if (!name) return;
+    // Clear any selection/hover state from the previous microsite so stale
+    // selectedElement doesn't suppress hover rectangles on the newly opened one.
+    clearBridgeSelection();
     try {
       const ast = await getSuperClientMicrosite(apiKey, name, m.id);
       const html = buildHtml(ast);
@@ -3476,6 +3479,12 @@ export default function SuperClientPage() {
             // artifact is currently open (source proposal or otherwise) is
             // replaced by the freshly generated microsite.
             {
+              // Reset edit mode so the new microsite opens in view-only state.
+              // Without this, if edit mode was active on a previous microsite,
+              // the iframe loads without the bridge (hardcoded false below) but
+              // editModeActive stays true — causing hover/click to silently fail.
+              setEditModeActive(false);
+              clearBridgeSelection();
               const genHtml = buildHtml(ast);
               setActiveSrcDoc(computeSrcDoc(genHtml, false));
               setViewingMicrosite({
