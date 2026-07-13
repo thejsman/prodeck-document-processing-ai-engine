@@ -308,16 +308,14 @@ export function patchHtml(html: string, instruction: string): PatchResult | null
     const openTag  = openTagMatch[1];
     const closeTag = `</${closeTagMatch[1]}>`;
     const innerHtml = elementHtml.slice(openTag.length, elementHtml.lastIndexOf(closeTag));
-    const hasChildren = /<\w/.test(innerHtml);
-    // Replace only the leading text run (the part with no element wrapper of its
-    // own — the only part a plain text-edit input can ever mean). Leave every
-    // child element and its own text content completely untouched: stripping
-    // "inter-tag" text globally here used to wipe out sibling elements' text too
-    // (e.g. a <span> holding a second line of a two-line headline), silently
-    // destroying content the user never asked to change.
-    const newInner = hasChildren
-      ? newText + innerHtml.replace(/^[^<]+/, '')
-      : newText;
+    // Always replace the entire innerHTML with newText.
+    // The text input is only shown for elements with no child HTML (enforced in
+    // InlineEditPanel via !hasChildElements), so hasChildren is always false in
+    // practice. When called on an element that does have children (e.g. a stale
+    // or hand-crafted instruction), replacing all innerHTML is still the safest
+    // behaviour — prepending newText to existing children duplicates content
+    // because selected.text is the concatenation of ALL descendant text nodes.
+    const newInner = newText;
 
     return { html: html.slice(0, bounds.start) + openTag + newInner + closeTag + html.slice(bounds.end), summary: 'Text updated' };
   }
