@@ -5,6 +5,13 @@ from typing import Optional
 
 from .base_provider import LLMProvider
 
+# Max output tokens per completion. generate()/generate_stream() are both
+# routed through the Python bridge's streaming path (llm_bridge.py /
+# llm_bridge_server.py), which avoids the non-streaming SDK read-timeout —
+# so this can safely sit well below the model's 128K ceiling while giving
+# large, richly-styled multi-slide decks real headroom.
+MAX_OUTPUT_TOKENS = 64000
+
 # Claude models with native vision support
 VISION_MODELS = {
     "claude-opus-4-7",
@@ -62,7 +69,7 @@ class AnthropicProvider(LLMProvider):
         try:
             response = self._client.messages.create(
                 model=self._generation_model,
-                max_tokens=8096,
+                max_tokens=MAX_OUTPUT_TOKENS,
                 temperature=t,
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -79,7 +86,7 @@ class AnthropicProvider(LLMProvider):
         try:
             with self._client.messages.stream(
                 model=self._generation_model,
-                max_tokens=8096,
+                max_tokens=MAX_OUTPUT_TOKENS,
                 temperature=t,
                 messages=[{"role": "user", "content": prompt}],
             ) as stream:
@@ -98,7 +105,7 @@ class AnthropicProvider(LLMProvider):
         try:
             response = self._client.messages.create(
                 model=vision_model,
-                max_tokens=8096,
+                max_tokens=MAX_OUTPUT_TOKENS,
                 messages=[{
                     "role": "user",
                     "content": [

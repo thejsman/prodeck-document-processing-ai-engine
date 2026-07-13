@@ -1,0 +1,63 @@
+{
+  "slug": "product-requirements",
+  "displayName": "Product Requirements Doc",
+  "description": "For generating Product Requirements Documents (PRDs) that define feature goals, user stories, functional requirements, and success metrics.",
+  "type": "document",
+  "structureMode": "guided",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["PRD", "product requirements", "feature spec", "user stories", "product management"],
+  "toneDescription": "Precise and user-centric. Requirements must be specific, testable, and traceable to user needs. Every 'shall' is a commitment.",
+  "triggers": [
+    "PRD",
+    "product requirements",
+    "product requirements document",
+    "write a PRD",
+    "create a PRD",
+    "build a PRD",
+    "product spec",
+    "product specification",
+    "feature spec",
+    "feature specification",
+    "feature requirements",
+    "requirements document",
+    "requirements doc",
+    "functional spec",
+    "functional requirements",
+    "write a spec",
+    "spec this out",
+    "spec out this feature",
+    "document this feature",
+    "define requirements",
+    "define the feature",
+    "product brief",
+    "feature brief",
+    "I want to build a feature",
+    "user requirements",
+    "what should we build"
+  ],
+  "outputFormats": ["md", "pdf", "docx"],
+  "clarifyingQuestions": [
+    {
+      "id": "feature",
+      "question": "What feature or product is this PRD for?",
+      "required": false
+    },
+    {
+      "id": "users",
+      "question": "Who are the primary target users for this feature?",
+      "required": false
+    },
+    {
+      "id": "problem",
+      "question": "What user problem does this feature solve?",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z"
+}

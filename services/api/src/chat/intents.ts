@@ -21,6 +21,8 @@ export type Intent =
   | 'LIST_SKILLS'      // list available skills
   | 'LIST_DESIGN_SKILLS' // list available design skills
   | 'CLIENT_DATA_COLLECTION'  // chat-driven client data collection for proposal prerequisites
+  | 'GENERATE_DOCUMENT'       // free-form document generation (strategy, blog, report, deck, etc.)
+  | 'DOWNLOAD_ARTIFACT'       // user requests export of a generated artifact in a specific format
 
 export const VALID_INTENTS: readonly Intent[] = [
   'GENERATE_PROPOSAL',
@@ -42,6 +44,8 @@ export const VALID_INTENTS: readonly Intent[] = [
   'LIST_SKILLS',
   'LIST_DESIGN_SKILLS',
   'CLIENT_DATA_COLLECTION',
+  'GENERATE_DOCUMENT',
+  'DOWNLOAD_ARTIFACT',
 ] as const
 
 export interface ClassificationResult {
@@ -49,6 +53,15 @@ export interface ClassificationResult {
   confidence: number
   source: 'rule' | 'llm'
   matchedRule?: string
+  /** Set when the LLM matched a generative intent but was not confident enough
+   *  to commit to generation (gray-band confidence, or it reported plausible
+   *  alternatives). The pipeline asks the user to disambiguate instead of
+   *  producing an artifact — Golden Rule #6 (missing/ambiguous input → ask,
+   *  never guess). Only ever set for source === 'llm'. */
+  needsClarification?: boolean
+  /** Candidate generative intents to choose between when needsClarification is
+   *  set. Always includes the winning intent first. */
+  candidates?: Intent[]
 }
 
 export interface ProposalRef {

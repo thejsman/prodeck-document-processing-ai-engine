@@ -54,7 +54,8 @@ import {
   buildGenerationConfirmation,
 } from './confirmation-gate.js';
 import type { ConfirmationRequest } from './confirmation-gate.js';
-import { buildBoundaryResponse, buildUnknownResponse } from './boundary-response.js';
+import { detectClarification } from './clarification.js';
+import { buildBoundaryResponse, buildUnknownResponse, buildClarificationChoiceResponse } from './boundary-response.js';
 import { appendChatTurn, loadHistory } from './chat-history.service.js';
 import { readMeta } from '../proposal-meta.js';
 import { CostTracker, DEFAULT_COST_CONFIG } from './cost-control.js';
@@ -640,21 +641,44 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
     return response;
   }
 
-  // --- Fresh confirm-generation gate: ask before generating when unsure ---
-  // Fires for big generations recognised via the LLM fallback (a guess) or
-  // below the confidence threshold. Confirmed replies skip this (matchedRule).
-  if (
-    BIG_GENERATION_INTENTS.includes(classification.intent) &&
-    classification.matchedRule !== 'ctx_confirm_generation_yes' &&
-    (classification.source === 'llm' || classification.confidence < GEN_CONFIRM_THRESHOLD)
-  ) {
-    onPhase('Confirming...');
-    const request = buildGenerationConfirmation(classification.intent);
-    const response = buildConfirmationResponse(request, { fields: {}, knowledge: [], raw: '' });
+  // --- Early exit: NEEDS CLARIFICATION ---
+  // The LLM fallback matched a generative intent but wasn't confident which
+  // artifact the user wants (gray-band confidence, or it named alternatives).
+  // Ask before generating — never guess an artifact into existence (Golden
+  // Rule #6). Rule-based classifications are trusted and never reach here.
+  if (classification.needsClarification) {
+    onPhase('Clarifying your request...');
+    const response = buildClarificationChoiceResponse(classification.candidates ?? []);
+    await persistState(workdir, namespace, apiKeyHash, chatSessionId, message, response, classification);
+    onDone(response);
+    return response;
+  }
+
+  // =========================================================================
+  // STAGE 1.5 — Clarification Gate (deterministic, no LLM)
+  // =========================================================================
+  // When the user names a generation artifact with no actionable specifics
+  // (e.g. bare "microsite" / "landing page"), ask a short contextual
+  // questionnaire before generating instead of guessing (Golden Rules #4, #6).
+  const clarification = detectClarification(classification.intent, message, chatContext);
+  if (clarification) {
+    onPhase('Getting a few details...');
+    const response: ChatResponse = {
+      text: clarification.intro,
+      actionCards: [],
+      requirementsUpdated: false,
+      toolsCalled: [],
+      questions: clarification.questions,
+    };
     await persistState(
-      workdir, namespace, apiKeyHash, chatSessionId, message, response, classification,
-      undefined,
-      { kind: 'confirm_generation', targetIntent: classification.intent },
+      workdir,
+      namespace,
+      apiKeyHash,
+      chatSessionId,
+      message,
+      response,
+      classification,
+      { intent: clarification.resumeIntent },
     );
     onDone(response);
     return response;
@@ -1048,7 +1072,7 @@ export async function runChatAgent(input: ChatAgentInput): Promise<ChatResponse>
   // is generic (list/count-style), the RESPOND enriches it. For tools that
   // produce content in their own message (search_documents, generate_proposal),
   // skip the override so the actual content isn't lost.
-  const contentTools: ToolName[] = ['search_documents', 'generate_proposal', 'generate_template', 'generate_microsite', 'recommend_template'];
+  const contentTools: ToolName[] = ['search_documents', 'generate_proposal', 'generate_template', 'generate_microsite', 'recommend_template', 'generate_document'];
   const hasContentTool = toolActions.some((a) => contentTools.includes(a.tool));
 
   if (respondActions.length > 0 && !hasContentTool) {

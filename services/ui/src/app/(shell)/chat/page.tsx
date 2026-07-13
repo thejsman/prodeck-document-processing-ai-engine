@@ -37,7 +37,7 @@ import { useProposalGenerationStore } from '@/core/proposal-generation-store';
 import { MemoryEditor } from '@/components/MemoryEditor';
 import { ConfigEditor } from '@/components/ConfigEditor';
 import { ProposalForm } from '@/components/ProposalForm';
-import { fetchMicrositeContent, saveMicrositeAst, fetchKnowledgeFiles, postUploadMessage, listSkills, type ProposalDocument, type Presentation, type SkillSummaryApi } from '@/lib/api';
+import { fetchMicrositeContent, saveMicrositeAst, fetchKnowledgeFiles, postUploadMessage, listSkills, fetchProposals, type ProposalDocument, type Presentation, type SkillSummaryApi } from '@/lib/api';
 import type { LayoutAST } from '@/types/presentation';
 import { Microsite, type MicrositeHandle } from '@/components/microsite/Microsite';
 import { MicrositePro } from '@/components/microsite/MicrositePro';
@@ -1616,6 +1616,26 @@ export default function ChatPage() {
     }
   }, [isStreaming, isRevealing, sections.length, finishPendingGeneration]);
 
+  // Poll for completion when a generating state was restored from localStorage on refresh
+  useEffect(() => {
+    if (!pendingGeneration || pendingGeneration.status !== 'generating') return;
+    const isRestored = Date.now() - pendingGeneration.startedAt > 5_000;
+    if (!isRestored) return;
+    const iv = setInterval(() => {
+      fetchProposals(apiKey)
+        .then((proposals) => {
+          const found = proposals.some(
+            (p) =>
+              p.client.toLowerCase() === pendingGeneration.client.toLowerCase() &&
+              p.fileName.startsWith(`${pendingGeneration.namespace}::`)
+          );
+          if (found) finishPendingGeneration();
+        })
+        .catch(() => {});
+    }, 5_000);
+    return () => clearInterval(iv);
+  }, [pendingGeneration, apiKey, finishPendingGeneration]);
+
   if (viewMicrosite) {
     const dismiss = () => {
       setViewMicrosite(null);
@@ -2244,6 +2264,16 @@ export default function ChatPage() {
                               className="proposal-done-link proposal-done-link--primary"
                             >
                               View Template Draft ↗
+                            </a>
+                          </div>
+                        )}
+                        {!isStreaming && doneActions?.openDocumentUrl && (
+                          <div className="proposal-done-actions" style={{ marginTop: 12 }}>
+                            <a
+                              href={`${doneActions.openDocumentUrl}&from=chat`}
+                              className="proposal-done-link proposal-done-link--primary"
+                            >
+                              View Document ↗
                             </a>
                           </div>
                         )}

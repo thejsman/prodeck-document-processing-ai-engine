@@ -1,0 +1,61 @@
+{
+  "slug": "press-release",
+  "displayName": "Press Release",
+  "description": "For generating professional press releases and announcements for product launches, partnerships, funding, or company news.",
+  "type": "document",
+  "structureMode": "strict",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["press release", "PR", "announcement", "news", "media", "launch"],
+  "toneDescription": "Journalistic and punchy. The lead paragraph answers who, what, when, where, and why. Inverted pyramid structure — most important information first.",
+  "triggers": [
+    "press release",
+    "write a press release",
+    "draft a press release",
+    "create a press release",
+    "news release",
+    "launch announcement",
+    "product launch announcement",
+    "funding announcement",
+    "partnership announcement",
+    "media announcement",
+    "public announcement",
+    "PR announcement",
+    "company announcement",
+    "company news",
+    "announce our product",
+    "announce a partnership",
+    "announce our funding",
+    "series A announcement",
+    "seed round announcement",
+    "we are launching",
+    "going public with",
+    "announce this",
+    "make an announcement",
+    "write up this announcement"
+  ],
+  "outputFormats": ["md", "txt", "pdf"],
+  "clarifyingQuestions": [
+    {
+      "id": "announcement",
+      "question": "What is being announced? (e.g. product launch, partnership, funding round)",
+      "required": false
+    },
+    {
+      "id": "spokesperson",
+      "question": "Who is the company spokesperson for the quote? (Name and title)",
+      "required": false
+    },
+    {
+      "id": "release_date",
+      "question": "What is the embargo date or release date?",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z"
+}

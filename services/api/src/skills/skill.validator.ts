@@ -47,6 +47,13 @@ export const PricingDefaultsSchema = z.object({
   currency: z.string().length(3).default('USD'),
 });
 
+export const ClarifyingQuestionSchema = z.object({
+  id: z.string().min(1).max(50),
+  question: z.string().min(1).max(500),
+  required: z.boolean(),
+  contextField: z.string().max(100).optional(),
+});
+
 export const SkillSchema = z.object({
   slug: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/, 'Slug must be lowercase kebab-case'),
   displayName: z.string().min(1).max(200),
@@ -64,6 +71,12 @@ export const SkillSchema = z.object({
   updatedAt: z.string(),
   scope: z.enum(['global', 'namespace']),
   namespace: z.string().optional(),
+  // Document generation fields
+  type: z.enum(['proposal', 'document']).optional(),
+  structureMode: z.enum(['free', 'guided', 'strict']).optional(),
+  triggers: z.array(z.string().max(100)).max(30).optional(),
+  outputFormats: z.array(z.enum(['md', 'txt', 'pdf', 'docx', 'pptx', 'notion'])).optional(),
+  clarifyingQuestions: z.array(ClarifyingQuestionSchema).max(10).optional(),
 });
 
 export const SkillSectionsSchema = z.object({
@@ -104,6 +117,11 @@ export const GeneratedSkillSchema = z.object({
       }),
     )
     .optional(),
+  type: z.enum(['proposal', 'document']).optional(),
+  structureMode: z.enum(['free', 'guided', 'strict']).optional(),
+  triggers: z.array(z.string()).optional(),
+  outputFormats: z.array(z.enum(['md', 'txt', 'pdf', 'docx', 'pptx', 'notion'])).optional(),
+  clarifyingQuestions: z.array(ClarifyingQuestionSchema).optional(),
 });
 
 // Inferred type aliases

@@ -1,0 +1,64 @@
+{
+  "slug": "business-case",
+  "displayName": "Business Case",
+  "description": "For generating business cases and investment justifications that connect proposed initiatives to financial outcomes, ROI, and strategic goals.",
+  "type": "document",
+  "structureMode": "guided",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["business case", "investment justification", "ROI", "cost benefit", "business justification"],
+  "toneDescription": "Financial and ROI-focused. Every claim should connect to a dollar figure or measurable outcome. Objectivity builds credibility.",
+  "triggers": [
+    "business case",
+    "write a business case",
+    "build a business case",
+    "create a business case",
+    "make a business case",
+    "make the case for",
+    "investment justification",
+    "justify this investment",
+    "investment case",
+    "investment analysis",
+    "ROI analysis",
+    "ROI calculation",
+    "calculate ROI",
+    "cost benefit analysis",
+    "cost benefit study",
+    "cost justification",
+    "financial justification",
+    "business justification",
+    "cost benefit",
+    "feasibility study",
+    "should we do this",
+    "is this worth it",
+    "pitch to leadership",
+    "get budget approval",
+    "executive approval",
+    "help me get budget",
+    "justify the spend"
+  ],
+  "outputFormats": ["md", "pdf", "docx"],
+  "clarifyingQuestions": [
+    {
+      "id": "initiative",
+      "question": "What initiative or investment is being justified?",
+      "required": false
+    },
+    {
+      "id": "cost",
+      "question": "What is the estimated cost or investment required?",
+      "required": false
+    },
+    {
+      "id": "return",
+      "question": "What is the expected return or benefit? (financial or otherwise)",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z"
+}

@@ -1,0 +1,64 @@
+{
+  "slug": "project-status-report",
+  "displayName": "Project Status Report",
+  "description": "For generating concise project status reports and weekly updates that pull from meeting notes and project context to surface progress, risks, and next steps.",
+  "type": "document",
+  "structureMode": "guided",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["status report", "project update", "weekly update", "progress report", "project management"],
+  "toneDescription": "Concise and RAG-aware. Pull facts from ingested context where possible. Flag risks explicitly. Lead with decisions and blockers, not activity.",
+  "triggers": [
+    "status report",
+    "project status report",
+    "write a status report",
+    "project update",
+    "write a project update",
+    "project status",
+    "weekly update",
+    "weekly status",
+    "weekly report",
+    "monthly report",
+    "bi-weekly update",
+    "progress report",
+    "sprint update",
+    "sprint report",
+    "iteration report",
+    "stakeholder update",
+    "executive update",
+    "update the team",
+    "update stakeholders",
+    "project check-in",
+    "project summary",
+    "summarize the project",
+    "how is the project going",
+    "what is the status",
+    "write an update",
+    "send an update",
+    "status update"
+  ],
+  "outputFormats": ["md", "pdf"],
+  "clarifyingQuestions": [
+    {
+      "id": "reporting_period",
+      "question": "What is the reporting period? (e.g. Week of June 23, Sprint 12)",
+      "required": false
+    },
+    {
+      "id": "project",
+      "question": "What project or workstream is this report for?",
+      "required": false
+    },
+    {
+      "id": "blockers",
+      "question": "Are there any current blockers or risks that need to be flagged?",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z"
+}

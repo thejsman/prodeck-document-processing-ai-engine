@@ -225,6 +225,11 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
         // clip rect when Puppeteer scrolls the page before capturing.
         // Also hide elements marked data-pdf-hide (e.g. portrait top/bottom nav bars that
         // are browser-only UI and should not appear in the exported PDF).
+        // Also hide any other flow content that is not a slide section (e.g. the logo strip
+        // some 16:9 decks render before slide 1). Pagination assumes each section starts
+        // exactly at a page boundary — any extra flow height above or between sections
+        // shifts every slide down: slide 1's bottom sliver spills onto a near-blank page 2
+        // and the last slide drifts past the pageRanges cap and is silently dropped.
         await page.evaluate(() => {
           document.querySelectorAll<HTMLElement>('*').forEach(el => {
             if (getComputedStyle(el).position === 'fixed') {
@@ -234,6 +239,18 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
           document.querySelectorAll<HTMLElement>('[data-pdf-hide]').forEach(el => {
             el.style.setProperty('display', 'none', 'important');
           });
+          const pruneNonSlideChrome = (container: HTMLElement): void => {
+            for (const child of Array.from(container.children) as HTMLElement[]) {
+              if (child.matches('section[data-section-id]')) continue;
+              if (/^(script|style|link|template|meta)$/i.test(child.tagName)) continue;
+              if (child.querySelector('section[data-section-id]')) {
+                pruneNonSlideChrome(child);
+                continue;
+              }
+              child.style.setProperty('display', 'none', 'important');
+            }
+          };
+          pruneNonSlideChrome(document.body);
         });
 
         // Verify slides exist before generating
@@ -267,6 +284,13 @@ export function registerPdfExportRoutes(app: FastifyInstance, workdir: string): 
           style.textContent = [
             `@page { size: ${w}px ${h}px; margin: 0; }`,
             `html, body { margin: 0 !important; padding: 0 !important; width: ${w}px !important; background: #fff; }`,
+            // Chrome ignores break-after:page on flex children — the microsite's baked-in
+            // constraint style makes body (and any section wrapper) a flex column, so
+            // force block flow here or pagination falls back to raw slicing and content
+            // drifts across page boundaries. Higher specificity than the baked-in rules
+            // (html body / body :has) because that style sits later in document order.
+            `html body { display: block !important; }`,
+            `body :has(> section[data-section-id]) { display: block !important; }`,
             `section[data-section-id] {`,
             `  width: ${w}px !important; height: ${h}px !important;`,
             `  min-width: ${w}px !important; max-width: none !important;`,

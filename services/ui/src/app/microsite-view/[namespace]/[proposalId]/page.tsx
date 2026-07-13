@@ -5,9 +5,10 @@ import { LoaderCircle, AlertTriangle, Zap } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { fetchMicrositeContent, fetchMicrositeDirectHtml, generateMicrositeDirectStream } from '@/lib/api';
+import { fetchMicrositeContent, fetchMicrositeDirectHtml, generateMicrositeDirectStream, getSuperClientMicrosite } from '@/lib/api';
 import { Microsite } from '@/components/microsite/Microsite';
 import { MicrositePro } from '@/components/microsite/MicrositePro';
+import { buildHtml } from '@/components/MicrositeV2';
 import type { LayoutAST } from '@/types/presentation';
 
 type ViewMode = 'direct' | 'ast';
@@ -17,6 +18,8 @@ export default function MicrositeViewPage() {
   const searchParams = useSearchParams();
   const entryId = searchParams.get('entryId') ?? undefined;
   const modeParam = searchParams.get('mode') as 'pro' | 'classic' | null;
+  const scClient = searchParams.get('scClient') ?? undefined;
+  const scId = searchParams.get('scId') ?? undefined;
   const { apiKey } = useAuth();
   const router = useRouter();
 
@@ -35,6 +38,23 @@ export default function MicrositeViewPage() {
   useEffect(() => {
     if (!namespace || !proposalId) return;
     setLoading(true);
+
+    // Super-client microsite: load directly from the SC API
+    if (scClient && scId) {
+      getSuperClientMicrosite(apiKey, scClient, scId)
+        .then((loadedAst) => {
+          setAst(loadedAst);
+          setDirectHtml(null);
+          setViewMode('ast');
+          setLoading(false);
+        })
+        .catch(err => {
+          setError(err instanceof Error ? err.message : String(err));
+          setLoading(false);
+        });
+      return;
+    }
+
     // When entryId is provided, skip directHtml and load the specific AST entry.
     const tasks = entryId
       ? [Promise.resolve(null), fetchMicrositeContent(apiKey, namespace, proposalId, undefined, entryId).catch(() => ({ ast: null }))]
@@ -51,7 +71,7 @@ export default function MicrositeViewPage() {
         setError(err instanceof Error ? err.message : String(err));
         setLoading(false);
       });
-  }, [namespace, proposalId, entryId, modeParam, apiKey]);
+  }, [namespace, proposalId, entryId, modeParam, scClient, scId, apiKey]);
 
   async function startFastGeneration() {
     if (!apiKey || !namespace || !proposalId || generating) return;
@@ -239,21 +259,56 @@ export default function MicrositeViewPage() {
     );
   }
 
-  // v2 microsites (super-client generated) store the full HTML in sections[0].customHtml
-  // Render them the same way the super-client panel does — plain iframe, no component wrapper.
+  // v2 microsites — full-viewport iframe + floating pill buttons (Back + Download)
+  // matching the same control bar style used by the Microsite component.
   if (ast?.generationMode === 'v2') {
-    const html = (ast.sections?.[0] as { customHtml?: string } | undefined)?.customHtml ?? '';
+    const rawHtml = buildHtml(ast);
+    const bodyOpen = rawHtml.search(/<body[^>]*>/i);
+    const NAV_FIX = `<style id="__fs-layout-fix__">body{display:block!important;}[data-section-id]{margin-left:auto!important;margin-right:auto!important;}</style><script>document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var id=a.getAttribute('href').slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
+    const tagEnd = bodyOpen !== -1 ? rawHtml.indexOf('>', bodyOpen) + 1 : -1;
+    const fsHtml = tagEnd > 0 ? rawHtml.slice(0, tagEnd) + NAV_FIX + rawHtml.slice(tagEnd) : rawHtml;
+
+    const pillStyle: React.CSSProperties = {
+      padding: '9px 18px',
+      borderRadius: 100,
+      border: '1px solid rgba(0,0,0,0.15)',
+      background: 'rgba(255,255,255,0.95)',
+      backdropFilter: 'blur(12px)',
+      WebkitBackdropFilter: 'blur(12px)',
+      color: '#111',
+      fontSize: '0.8rem',
+      fontWeight: 400,
+      cursor: 'pointer',
+      boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6,
+    };
+
+    function downloadV2Html() {
+      const blob = new Blob([rawHtml], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${ast!.meta?.client || 'microsite'}.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
     return (
       <>
         {genOverlay}
-        {toolbar}
         <iframe
-          srcDoc={html}
-          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
-          allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
+          srcDoc={fsHtml}
           style={{ width: '100%', height: '100vh', border: 'none', display: 'block' }}
+          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation allow-forms"
+          allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
           title="Generated Microsite"
         />
+        <div style={{ position: 'fixed', bottom: 24, right: 24, display: 'flex', alignItems: 'center', gap: 8, zIndex: 99999 }}>
+          <button onClick={() => router.back()} style={pillStyle}>← Back</button>
+          <button onClick={downloadV2Html} style={pillStyle}>↓ Download</button>
+        </div>
       </>
     );
   }
@@ -272,6 +327,7 @@ export default function MicrositeViewPage() {
       <MicrositeComponent
         ast={ast!}
         mode="fullscreen"
+        onBack={() => router.back()}
         onEdit={() => router.push(editorPath)}
       />
     </>

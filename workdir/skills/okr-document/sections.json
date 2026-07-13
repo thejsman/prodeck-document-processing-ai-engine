@@ -1,0 +1,44 @@
+{
+  "sections": [
+    {
+      "id": "mission-alignment",
+      "title": "Mission Alignment",
+      "order": 1,
+      "required": true,
+      "promptHint": "1–2 paragraphs connecting these OKRs to the company mission, strategy, or prior quarter's results. Answer: why these objectives, why now, and how they ladder up to what matters most.",
+      "maxWords": 200,
+      "useRagContext": true,
+      "ragQuery": "company mission strategy priorities previous quarter goals"
+    },
+    {
+      "id": "objectives-key-results",
+      "title": "Objectives & Key Results",
+      "order": 2,
+      "required": true,
+      "promptHint": "3–5 Objectives. Each Objective should be: qualitative, inspiring, and slightly uncomfortable (a stretch goal). Under each Objective, list 3–5 Key Results. Each KR must be: quantitative, specific, time-bound, and binary (hit or miss). Include a 1–2 sentence rationale for each Objective. Format: ## Objective: [text], then numbered KRs below it.",
+      "maxWords": 800,
+      "minWords": 300,
+      "useRagContext": true,
+      "ragQuery": "goals objectives metrics targets KPIs performance priorities"
+    },
+    {
+      "id": "dependencies",
+      "title": "Dependencies",
+      "order": 3,
+      "required": false,
+      "promptHint": "List cross-team or external dependencies that could block KR achievement. For each: the KR affected, the dependency, who owns it, and the risk level if it is not resolved.",
+      "maxWords": 200,
+      "useRagContext": true,
+      "ragQuery": "dependencies blockers cross-team collaboration external constraints"
+    },
+    {
+      "id": "tracking-cadence",
+      "title": "Tracking Cadence",
+      "order": 4,
+      "required": true,
+      "promptHint": "Describe how OKRs will be tracked: weekly check-in format, monthly scoring ritual, end-of-quarter review process, and who is responsible for keeping the OKR document updated.",
+      "maxWords": 150,
+      "useRagContext": false
+    }
+  ]
+}

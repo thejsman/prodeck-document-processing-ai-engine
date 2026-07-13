@@ -62,6 +62,19 @@ Intent → Extract → Merge → Readiness → Plan → Validate → Execute →
 Detect Type → Preprocess → Validate → Extract → Knowledge → Validate → Merge → Index
 ```
 
+### Two Chat Surfaces (deliberate — do not merge)
+
+There are **two distinct, intentionally separate chat endpoints**. This is a conscious product decision, not tech debt or an accident — do not "fix" it by routing one through the other.
+
+| Surface | Route | Handler | Truth source | Pipeline |
+|---|---|---|---|---|
+| **Namespace chat** | `POST /chat/message` | `runChatAgent` (`services/api/src/chat/chat-agent.ts`) | `namespaces/{ns}/context.json` | Full deterministic 9-stage Chat V2 pipeline + Golden Rules above |
+| **Super-client chat** | `POST /super-clients/:name/chat` | inline handler in `services/api/src/super-client-routes.ts` | `super-clients/{name}/context.md` + `clients/{slug}/memory.json` | Self-contained single-LLM-call generator (its own intent detection, prompt build, `<slides>`/`<proposal>`/`<document>` tag parsing, and background memory distillation) |
+
+- The **super-client chat deliberately does NOT run the Chat V2 pipeline** and does not follow every Golden Rule above (e.g. it generates artifacts directly and validates slide HTML by structure rather than Zod). That is by design for this surface.
+- The Chat V2 Golden Rules and the 9-stage pipeline govern the **namespace chat only**.
+- Keep the two surfaces independent. Shared, side-effect-free helpers (format detection, slide validation, memory service) may be reused; the orchestration must not be forcibly unified.
+
 > The old `ChatOrchestrator` / `WorkflowInstance` / state-machine system described in `docs/chat-workflows.md` is the **V1 system being replaced**. Do not extend it. Do not use it as a reference for new Chat V2 code.
 
 ---

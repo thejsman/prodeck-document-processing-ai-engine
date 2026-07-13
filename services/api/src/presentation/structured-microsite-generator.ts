@@ -30,6 +30,7 @@ export interface StructuredSection {
 export interface StructuredAST {
   proposalId: string;
   generatedAt: string;
+  plugin?: string;  // 'cobalt' | 'obsidian' | 'ivory' | 'sage' — LLM-chosen based on client industry
   meta: { title?: string; client?: string; author?: string; date?: string };
   brand: { companyName: string; tagline?: string; primaryColor?: string; logoUrl?: string | null };
   brief: {
@@ -76,8 +77,9 @@ SECTION MAPPING:
 OUTPUT FORMAT: Return ONLY valid JSON matching this schema exactly. No markdown fences, no explanation.
 
 {
+  "plugin": "choose ONE based on client industry: cobalt (tech/SaaS/fintech/digital/B2B software), obsidian (luxury/fashion/premium brands/entertainment/high-end), ivory (consulting/legal/finance/professional services/traditional), sage (wellness/health/food/sustainability/education/lifestyle/organic)",
   "meta": { "title": "string", "client": "string", "date": "string" },
-  "brand": { "companyName": "proposing company name", "tagline": "optional", "primaryColor": "#hex — choose warm/light for recreation/family, dark/minimal for tech/SaaS" },
+  "brand": { "companyName": "proposing company name", "tagline": "optional", "primaryColor": "#hex — choose warm/light for recreation/family/wellness, dark/rich for luxury/premium, minimal/cool for tech/SaaS, professional for consulting/finance" },
   "brief": {
     "clientName": "company receiving the proposal",
     "clientIndustry": "specific industry",
@@ -322,11 +324,15 @@ export async function generateStructuredMicrosite(
     : cleaned;
 
   const parsed = JSON.parse(jsonStr) as {
+    plugin?: string;
     meta?: Record<string, unknown>;
     brand?: Record<string, unknown>;
     brief?: Record<string, unknown>;
     sections?: Array<{ sectionType?: string; heading?: string; content?: Record<string, unknown>; id?: string }>;
   };
+
+  const VALID_PLUGINS = new Set(['cobalt', 'obsidian', 'ivory', 'sage']);
+  const resolvedPlugin = VALID_PLUGINS.has(parsed.plugin ?? '') ? parsed.plugin : undefined;
 
   // Normalise sections — add ids and image stubs
   const sections: StructuredSection[] = (parsed.sections ?? []).map((s, i) => ({
@@ -340,6 +346,7 @@ export async function generateStructuredMicrosite(
   const ast: StructuredAST = {
     proposalId,
     generatedAt: new Date().toISOString(),
+    ...(resolvedPlugin ? { plugin: resolvedPlugin } : {}),
     meta:    (parsed.meta   ?? {}) as StructuredAST['meta'],
     brand:   (parsed.brand  ?? { companyName: brandHint.companyName ?? '' }) as StructuredAST['brand'],
     brief:   (parsed.brief  ?? {

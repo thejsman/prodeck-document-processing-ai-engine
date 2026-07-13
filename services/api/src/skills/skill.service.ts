@@ -82,7 +82,10 @@ function bumpMinorVersion(version: string): string {
 // CRUD
 // ---------------------------------------------------------------------------
 
-export async function listSkills(workdir: string): Promise<SkillSummary[]> {
+export async function listSkills(
+  workdir: string,
+  opts?: { type?: 'proposal' | 'document' },
+): Promise<SkillSummary[]> {
   const dir = skillsDir(workdir);
   let entries: string[];
   try {
@@ -98,6 +101,8 @@ export async function listSkills(workdir: string): Promise<SkillSummary[]> {
       const parsed = SkillSchema.safeParse(JSON.parse(raw));
       if (!parsed.success) continue;
       const s = parsed.data;
+      const effectiveType = s.type ?? 'proposal';
+      if (opts?.type && effectiveType !== opts.type) continue;
       summaries.push({
         slug: s.slug,
         displayName: s.displayName,
@@ -105,6 +110,9 @@ export async function listSkills(workdir: string): Promise<SkillSummary[]> {
         industries: s.industries,
         version: s.version,
         updatedAt: s.updatedAt,
+        type: effectiveType,
+        triggers: s.triggers,
+        outputFormats: s.outputFormats,
       });
     } catch {
       // skip invalid/corrupt entries
@@ -189,6 +197,11 @@ export async function createSkill(workdir: string, input: CreateSkillInput): Pro
     namespace: input.namespace,
     createdAt: now,
     updatedAt: now,
+    type: input.type,
+    structureMode: input.structureMode,
+    triggers: input.triggers,
+    outputFormats: input.outputFormats,
+    clarifyingQuestions: input.clarifyingQuestions,
   };
 
   const validated = SkillSchema.safeParse(skill);
@@ -312,6 +325,73 @@ export async function findBestMatch(
     return getSkill(workdir, bestSlug);
   }
   return null;
+}
+
+export async function findBestDocumentSkill(
+  workdir: string,
+  userMessage: string,
+): Promise<Skill | null> {
+  const documentSkills = await listSkills(workdir, { type: 'document' });
+  if (documentSkills.length === 0) return null;
+
+  const msgLower = userMessage.toLowerCase();
+  let bestSlug: string | null = null;
+  let bestScore = 0;
+
+  for (const summary of documentSkills) {
+    if (!summary.triggers?.length) continue;
+    let score = 0;
+    for (const trigger of summary.triggers) {
+      if (msgLower.includes(trigger.toLowerCase())) {
+        // longer triggers are more specific — weight them higher
+        score += trigger.split(' ').length;
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      bestSlug = summary.slug;
+    }
+  }
+
+  if (bestSlug && bestScore > 0) {
+    return getSkill(workdir, bestSlug);
+  }
+  return null;
+}
+
+/**
+ * Compose a prompt block that lets the slide generator apply a matched document
+ * skill's narrative expertise (instructions.md) and recommended slide arc
+ * (sections.json). Pure — no I/O. Returns '' when there is nothing worth
+ * injecting. The block is content/narrative only: the requested slide count and
+ * the caller's hardcoded HTML/visual rules stay authoritative.
+ */
+export function formatSkillForSlides(
+  skill: Skill,
+  instructionsMd: string,
+  sections: SectionDefinition[],
+): string {
+  const instructions = instructionsMd.trim();
+  const orderedSections = [...sections].sort((a, b) => a.order - b.order);
+  if (!instructions && orderedSections.length === 0) return '';
+
+  const parts: string[] = [`\n## Slide Content Expertise: ${skill.displayName}`];
+  if (instructions) parts.push(instructions);
+
+  if (orderedSections.length > 0) {
+    const arc = orderedSections
+      .map((s, i) => {
+        const hint = s.promptHint?.trim() ? ` — ${s.promptHint.trim().slice(0, 160)}` : '';
+        return `${i + 1}. ${s.title}${s.required ? ' (required)' : ''}${hint}`;
+      })
+      .join('\n');
+    const lead = skill.structureMode === 'strict'
+      ? "Follow this slide structure. The user's requested slide count still governs — if fewer slides are requested, merge or drop the least critical, but keep the required ones."
+      : "Recommended narrative arc — adapt to the requested slide count, which takes precedence. If fewer slides are requested, prioritise the most important sections and merge related points; do not pad to match this list.";
+    parts.push(`\n### Slide narrative arc\n${lead}\n${arc}`);
+  }
+
+  return parts.join('\n');
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,59 @@
+{
+  "slug": "statement-of-work",
+  "displayName": "Statement of Work",
+  "description": "For generating formal Statements of Work (SOWs) that define project scope, deliverables, timeline, and payment terms.",
+  "type": "document",
+  "structureMode": "strict",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["SOW", "statement of work", "scope", "contract", "deliverables", "legal"],
+  "toneDescription": "Precise, unambiguous, and contractual. Every deliverable must be concrete and measurable. Passive constructions are acceptable here — clarity beats style.",
+  "triggers": [
+    "statement of work",
+    "SOW",
+    "write a SOW",
+    "draft a SOW",
+    "create a SOW",
+    "write an SOW",
+    "scope of work",
+    "project scope document",
+    "scope document",
+    "define the scope",
+    "document the scope",
+    "write up the scope",
+    "project agreement",
+    "work agreement",
+    "client agreement",
+    "project contract",
+    "service agreement",
+    "engagement document",
+    "turn this into a SOW",
+    "proposal to SOW",
+    "formalize the scope",
+    "contract for this project"
+  ],
+  "outputFormats": ["md", "pdf", "docx"],
+  "clarifyingQuestions": [
+    {
+      "id": "project_name",
+      "question": "What is the name of the project or engagement?",
+      "required": false
+    },
+    {
+      "id": "deliverables",
+      "question": "What are the key deliverables or outputs?",
+      "required": false
+    },
+    {
+      "id": "timeline",
+      "question": "What is the project timeline and payment structure?",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z"
+}

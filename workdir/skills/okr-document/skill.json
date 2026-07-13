@@ -1,0 +1,64 @@
+{
+  "slug": "okr-document",
+  "displayName": "OKR Document",
+  "description": "For generating OKR (Objectives and Key Results) documents that align teams around ambitious, measurable quarterly goals.",
+  "type": "document",
+  "structureMode": "guided",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["OKR", "objectives and key results", "goals", "quarterly planning", "goal setting"],
+  "toneDescription": "Ambitious and measurable. Objectives are qualitative and inspiring; key results are quantitative and binary — achieved or not.",
+  "triggers": [
+    "OKR",
+    "OKRs",
+    "write OKRs",
+    "create OKRs",
+    "set up OKRs",
+    "help me define OKRs",
+    "objectives and key results",
+    "quarterly goals",
+    "quarterly OKRs",
+    "quarterly planning",
+    "annual goals",
+    "team goals",
+    "company goals",
+    "team objectives",
+    "set goals",
+    "define goals",
+    "goal setting",
+    "set objectives",
+    "key results",
+    "performance goals",
+    "strategic goals",
+    "set our priorities",
+    "define our priorities",
+    "strategic planning",
+    "planning session",
+    "help me set goals",
+    "what should we focus on this quarter"
+  ],
+  "outputFormats": ["md", "pdf"],
+  "clarifyingQuestions": [
+    {
+      "id": "level",
+      "question": "What team or company level are these OKRs for? (e.g. company-wide, engineering team, product team)",
+      "required": false
+    },
+    {
+      "id": "period",
+      "question": "What time period? (e.g. Q3 2026, H2 2026)",
+      "required": false
+    },
+    {
+      "id": "themes",
+      "question": "What are the 2-3 strategic themes or priorities for this period?",
+      "required": false
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-28T00:00:00.000Z",
+  "updatedAt": "2026-06-28T00:00:00.000Z"
+}

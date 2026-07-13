@@ -37,6 +37,12 @@ textarea {
 
 /* ── Base ──────────────────────────────────────────────────────── */
 
+/* Global thin scrollbar — consistent across all panels and pages */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+*::-webkit-scrollbar { width: 4px; height: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
 html,
 body {
   height: 100%;
@@ -2671,7 +2677,7 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Shared shape indicator — single element morphing through 5 shapes ── */
+/* ── Shared shape indicator — single element morphing through 3 shapes ── */
 /*
   All shapes use 12 polygon points at equal 30° angular intervals from centre,
   so CSS can interpolate vertex coordinates smoothly between every keyframe.
@@ -2679,8 +2685,6 @@ body {
   square   — points on the square's perimeter at 0°,30°,60°… from centre
   triangle — top corners collapse to apex; bottom corners stay
   circle   — regular 12-gon
-  star     — alternating outer (r=50%) / inner (r=18%) radii
-  flower   — alternating outer (r=50%) / inner (r=32%) — shallower than star
 */
 .status-glyph {
   display: inline-block;
@@ -2689,12 +2693,12 @@ body {
   flex-shrink: 0;
   background: currentColor;
   color: var(--muted);
-  animation: shape-morph 3.8s ease-in-out infinite;
+  animation: shape-morph 1.5s ease-in-out infinite;
 }
 
 @keyframes shape-morph {
   /* ── square ── */
-  0%, 10% {
+  0%, 15% {
     clip-path: polygon(
       50% 0%,  79% 0%,  100% 21%, 100% 50%,
       100% 79%, 79% 100%, 50% 100%, 21% 100%,
@@ -2702,7 +2706,7 @@ body {
     );
   }
   /* ── triangle ── */
-  17%, 27% {
+  30%, 45% {
     clip-path: polygon(
       50% 0%,  50% 0%,  50% 0%,  75% 50%,
       100% 100%, 75% 100%, 50% 100%, 25% 100%,
@@ -2710,40 +2714,14 @@ body {
     );
   }
   /* ── circle ── */
-  34%, 44% {
+  60%, 75% {
     clip-path: polygon(
       50% 0%,  79% 7%,  97% 25%, 100% 50%,
       97% 75%, 79% 93%, 50% 100%, 21% 93%,
       3% 75%,  0% 50%,  3% 25%,  21% 7%
     );
   }
-  /* ── star ── */
-  51%, 61% {
-    clip-path: polygon(
-      50% 0%,  59% 34%, 93% 25%, 68% 50%,
-      93% 75%, 59% 66%, 50% 100%, 41% 66%,
-      7% 75%,  32% 50%, 7% 25%,  41% 34%
-    );
-  }
-  /* ── flower ── */
-  68%, 76% {
-    clip-path: polygon(
-      50% 0%,  66% 22%, 93% 25%, 82% 50%,
-      93% 75%, 66% 78%, 50% 100%, 34% 78%,
-      7% 75%,  18% 50%, 7% 25%,  34% 22%
-    );
-    animation-timing-function: cubic-bezier(0.4, 0, 1, 1);
-  }
-  /* ── dot (all points collapse to centre) ── */
-  83%, 91% {
-    clip-path: polygon(
-      50% 50%, 50% 50%, 50% 50%, 50% 50%,
-      50% 50%, 50% 50%, 50% 50%, 50% 50%,
-      50% 50%, 50% 50%, 50% 50%, 50% 50%
-    );
-    animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
-  }
-  /* ── expand back to square ── */
+  /* ── back to square ── */
   100% {
     clip-path: polygon(
       50% 0%,  79% 0%,  100% 21%, 100% 50%,
@@ -3223,6 +3201,29 @@ body {
 @keyframes section-appear {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Clarifying-question composer overlay — glides up into place, never abrupt. */
+.sc-question-overlay {
+  animation: sc-question-in 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: bottom center;
+  will-change: transform, opacity;
+}
+@keyframes sc-question-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+/* Inner elements settle in with a gentle stagger for a considered, expert feel. */
+.sc-question-overlay .sc-q-stagger {
+  animation: sc-q-rise 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes sc-q-rise {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sc-question-overlay,
+  .sc-question-overlay .sc-q-stagger { animation: none; }
 }
 
 .proposal-inline-heading {
@@ -8808,6 +8809,7 @@ html {
 .brief-side-panel-body::-webkit-scrollbar-track { background: transparent; }
 .brief-side-panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
+
 .brief-side-panel-section {
   padding: 12px 12px 6px;
 }
@@ -9274,6 +9276,14 @@ html {
   border: none;
   border-top: 1px solid var(--border);
   margin: 24px 0;
+}
+/* Remove the prose h1 underline inside panels — the header already separates context */
+.proposal-body .prose h1 {
+  border-bottom: none;
+}
+/* Hide the hr that immediately follows an h1 (common markdown title+--- pattern) */
+.proposal-body .prose h1 + hr {
+  display: none;
 }
 .proposal-body blockquote {
   border-left: 3px solid var(--primary);

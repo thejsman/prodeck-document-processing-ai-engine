@@ -1,0 +1,52 @@
+{
+  "slug": "strategy-document",
+  "displayName": "Strategy Document",
+  "description": "For generating business strategy documents — go-to-market plans, product strategies, competitive analyses, and roadmaps.",
+  "type": "document",
+  "structureMode": "free",
+  "industries": [],
+  "projectTypes": [],
+  "tags": ["strategy", "gtm", "roadmap", "business", "planning"],
+  "toneDescription": "Clear, direct, and executive-ready. Lead with insight and data. Structure for decision-makers.",
+  "triggers": [
+    "strategy document",
+    "strategic plan",
+    "go-to-market",
+    "gtm strategy",
+    "go-to-market strategy",
+    "market strategy",
+    "product strategy",
+    "business strategy",
+    "competitive analysis",
+    "roadmap document",
+    "growth strategy",
+    "market entry",
+    "strategic roadmap"
+  ],
+  "outputFormats": ["md", "pdf", "docx", "txt"],
+  "clarifyingQuestions": [
+    {
+      "id": "target_market",
+      "question": "Who is the target market or audience for this strategy?",
+      "required": false,
+      "contextField": "clientName"
+    },
+    {
+      "id": "strategic_goal",
+      "question": "What is the primary strategic goal or objective?",
+      "required": false
+    },
+    {
+      "id": "timeframe",
+      "question": "What is the timeframe for this strategy (e.g. 6 months, 1 year, 3 years)?",
+      "required": false,
+      "contextField": "timeline"
+    }
+  ],
+  "micrositeDefaults": {},
+  "author": "prodeck-builtin",
+  "version": "1.0",
+  "scope": "global",
+  "createdAt": "2026-06-26T00:00:00.000Z",
+  "updatedAt": "2026-06-26T00:00:00.000Z"
+}

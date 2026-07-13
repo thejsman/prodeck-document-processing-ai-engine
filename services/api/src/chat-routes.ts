@@ -126,6 +126,7 @@ export function registerChatRoutes(
               if (card.type === 'view_microsite') actions.openMicrositeUrl = card.href;
               if (card.type === 'view_templates') actions.openTemplatesUrl = card.href;
               if (card.type === 'view_template') actions.openTemplateUrl = card.href;
+              if (card.type === 'view_document') actions.openDocumentUrl = card.href;
             }
             // Emit structured confirmation request before done so the frontend
             // can render an interactive confirmation block

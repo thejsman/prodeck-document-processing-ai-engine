@@ -1,0 +1,80 @@
+{
+  "sections": [
+    {
+      "id": "project-overview",
+      "title": "Project Overview",
+      "order": 1,
+      "required": true,
+      "promptHint": "Provide a concise description of the engagement: what is being built or delivered, who the parties are (Vendor and Client), and the high-level purpose of this SOW. Define key terms on first use.",
+      "maxWords": 300,
+      "useRagContext": true,
+      "ragQuery": "project overview objectives scope purpose"
+    },
+    {
+      "id": "scope-of-work",
+      "title": "Scope of Work",
+      "order": 2,
+      "required": true,
+      "promptHint": "Describe in detail the work to be performed. Use numbered or bulleted lists for each workstream. Be specific about what is and is not included. Use active voice for obligations (Vendor shall...).",
+      "maxWords": 600,
+      "useRagContext": true,
+      "ragQuery": "scope deliverables requirements features workstreams"
+    },
+    {
+      "id": "deliverables",
+      "title": "Deliverables",
+      "order": 3,
+      "required": true,
+      "promptHint": "List each deliverable as a discrete item. For each: name, description, format (e.g. deployed app, PDF report, Figma file), acceptance criteria, and number of revision rounds included.",
+      "maxWords": 500,
+      "useRagContext": false
+    },
+    {
+      "id": "timeline-milestones",
+      "title": "Timeline & Milestones",
+      "order": 4,
+      "required": true,
+      "promptHint": "Provide a milestone-based timeline. List each milestone with: name, associated deliverable(s), target date (use relative dates like 'Week 4 from kickoff' if exact dates are unknown), and completion criteria.",
+      "maxWords": 400,
+      "useRagContext": true,
+      "ragQuery": "timeline milestones schedule phases duration"
+    },
+    {
+      "id": "assumptions-exclusions",
+      "title": "Assumptions & Exclusions",
+      "order": 5,
+      "required": true,
+      "promptHint": "List all assumptions the Vendor is making (e.g. Client provides brand assets by Week 1, Client designates a single point of contact). Then explicitly list what this SOW does NOT cover.",
+      "maxWords": 400,
+      "useRagContext": false
+    },
+    {
+      "id": "payment-terms",
+      "title": "Payment Terms",
+      "order": 6,
+      "required": true,
+      "promptHint": "Describe the payment structure: total contract value, payment schedule tied to milestones, invoice process, and payment due date (e.g. Net 15). Include late payment terms if applicable.",
+      "maxWords": 300,
+      "useRagContext": true,
+      "ragQuery": "pricing payment terms budget investment total cost"
+    },
+    {
+      "id": "change-management",
+      "title": "Change Management",
+      "order": 7,
+      "required": true,
+      "promptHint": "Describe how scope changes are handled: the change request process, how out-of-scope work is priced (reference the hourly rate), and who must approve changes on each side.",
+      "maxWords": 250,
+      "useRagContext": false
+    },
+    {
+      "id": "signatures",
+      "title": "Signatures",
+      "order": 8,
+      "required": true,
+      "promptHint": "Provide a signature block for both Vendor and Client. Each block should include: Name (placeholder), Title (placeholder), Company, Signature line, and Date (placeholder).",
+      "maxWords": 150,
+      "useRagContext": false
+    }
+  ]
+}
