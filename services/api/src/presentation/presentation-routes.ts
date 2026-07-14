@@ -51,7 +51,7 @@ import { buildDesignSystemPrompt, buildFontUrls } from '@ai-engine/agent-microsi
 import { DesignEditorAgent } from '@ai-engine/agent-design-editor';
 import { renderMicrositeToHtml } from './html-exporter.js';
 import { renderMicrositeToPptx } from './pptx-exporter.js';
-import { closeDanglingTag, auditSlides, findSectionBounds, extractSectionBlocks, buildIssueFixPrompt } from './slide-fit.js';
+import { closeDanglingTag, auditSlides, fitOverflowingSections, findSectionBounds, extractSectionBlocks, buildIssueFixPrompt } from './slide-fit.js';
 import {
   generateMicrositeDirectly,
   generateMicrositeStream as generateMicrositeStreamDirect,
@@ -3083,10 +3083,11 @@ HARD FACTS — these are immutable and override anything else in this prompt, in
 
 Everything else is yours: palette, typography, layout, imagery, density, rhythm, and visual language are entirely your professional decisions. There is no prescribed style — use your full design potential and derive the design from the content you are given.
 
-DENSITY — fill the canvas with purpose:
-- Treat each 540×960 page like a printed magazine page, not a slide with one headline and empty space below it. Back every claim with a supporting stat, a short proof point, an image, or a simple chart — a page with a heading and nothing else is a defect, not restraint.
+COMPOSE TO FILL — the single most important rule for this format:
+- You are laying out a fixed-size deck. Like a print/editorial designer, compose EVERY page as a finished composition that fills its exact 540×960 canvas edge-to-edge — deliberately full, never a large dead/blank band, never cropped or cramped. A page that is 30% empty at the bottom is as much a defect as one whose content spills off the edge.
+- BUDGET CONTENT ACROSS PAGES. You decide the page count — choose it so each page carries the right amount to fill it. If a topic is thin, give it a FULLER treatment (a larger hero, a supporting stat/visual, a chart, a pull-quote, an image) rather than a heading floating in empty space. If a topic is heavy, SPLIT it across more pages rather than cram or shrink type.
+- USE THE CANVAS SHAPE. 540×960 is TALL — flow content top-to-bottom filling the full height: make the page's outermost element width:100% and height:100% and distribute with a flex column (display:flex;flex-direction:column, using justify-content:space-between, or center for a pure hero/cover) or a full-height grid, so content reaches the bottom. Never let content clump in the top half.
 - Use imagery wherever it strengthens the story — not as decoration, but to make an abstract claim concrete (the team, the product, the outcome, the setting).
-- CRITICAL — occupy the FULL canvas, top to bottom: the page is a fixed 9:16 box, so any content that stops partway down leaves a dead blank band below it, which reads as unfinished. Make the page's outermost element width:100% and height:100%, and lay content out with a flex column (display:flex;flex-direction:column) using justify-content:space-between (or center for a pure hero/cover) — or a full-height grid — so content spans the whole height. Never let content clump in the top half. If a topic is genuinely light, fill with intent (a larger hero, a supporting visual, a chart, a pull-quote) — never with empty margins or filler.
 
 DATA VISUALIZATION — build real charts, not just bullet lists:
 - Whenever the content has comparable numbers, percentages, proportions, or a timeline, render an actual chart instead of a bare list of stats.
@@ -3126,10 +3127,11 @@ HARD FACTS — these are immutable and override anything else in this prompt, in
 
 Everything else is yours: palette, typography, layout, imagery, density, rhythm, and visual language are entirely your professional decisions. There is no prescribed style — use your full design potential and derive the design from the content you are given.
 
-DENSITY — fill the canvas with purpose:
-- Treat each 1280×720 page like a printed magazine spread, not a slide with one headline and empty space below it. Back every claim with a supporting stat, a short proof point, an image, or a simple chart — a page with a heading and nothing else is a defect, not restraint.
-- Use imagery wherever it strengthens the story — not as decoration, but to make an abstract claim concrete (the team, the product, the outcome, the setting).
-- CRITICAL — occupy the FULL canvas, top to bottom: the page is a fixed 16:9 box, so any content that stops partway down leaves a dead blank band below it, which reads as unfinished. Make the page's outermost element width:100% and height:100%, and lay content out with a flex column (display:flex;flex-direction:column) using justify-content:space-between (or center for a pure hero/cover) — or a full-height grid — so content spans the whole height. Never let content clump in the top half. If a topic is genuinely light, fill with intent (a larger hero, a supporting visual, a chart, a pull-quote) — never with empty margins or filler.
+COMPOSE TO FILL — the single most important rule for this format:
+- You are laying out a fixed-size deck. Like a print/editorial designer, compose EVERY page as a finished composition that fills its exact 1280×720 canvas edge-to-edge — deliberately full, never a large dead/blank band, never cropped or cramped. A page that is 30% empty at the bottom is as much a defect as one whose content spills off the edge.
+- BUDGET CONTENT ACROSS PAGES. You decide the page count — choose it so each page carries the right amount to fill it: enough to be full, little enough to never overflow. If a topic is thin, give it a FULLER treatment (a larger hero, a supporting stat/visual, a chart, a pull-quote, or a full-height image column) rather than a heading floating in empty space. If a topic is heavy, SPLIT it across more pages rather than cram or shrink type.
+- USE THE CANVAS SHAPE. 1280×720 is WIDE and SHORT (only 720px tall). Fill it horizontally with columnar / split-screen / side-by-side composition (e.g. grid-template-columns:repeat(N,minmax(0,1fr)), a left-headline / right-content split, or a hero image occupying one half) AND make the layout span the full height — root element height:100%, distribute content with flex/grid so it reaches top to bottom. The finished page must have no large blank region in either dimension.
+- Use imagery wherever it strengthens the story — not as decoration, but to make an abstract claim concrete. A full-height image column is an excellent way to fill a 16:9 page while keeping text focused.
 
 DATA VISUALIZATION — build real charts, not just bullet lists:
 - Whenever the content has comparable numbers, percentages, proportions, or a timeline, render an actual chart instead of a bare list of stats.
@@ -3249,7 +3251,11 @@ ${(body.urlImages as string[]).map((url: string, i: number) => `Photo ${i + 1}: 
                 },
               ]
             : [{ role: 'user', content: prompt }];
-          raw = await callLLMStream(messages, 32000, (chunk) => {
+          // 64k output headroom: a rich 10–12 page deck of verbose inline-CSS HTML
+          // can exceed 32k tokens and truncate the final slide mid-markup (leaving a
+          // content-less trailing page). Sonnet 4.x supports 64k output; the empty-
+          // section removal in the QA loop is the safety net if it still truncates.
+          raw = await callLLMStream(messages, 64000, (chunk) => {
             send({ type: 'html_chunk', chunk });
           });
         } finally {
@@ -3347,31 +3353,48 @@ ${(body.urlImages as string[]).map((url: string, i: number) => `Photo ${i + 1}: 
 [data-section-id]:last-of-type{margin-bottom:0!important;}
 [data-pdf-hide]{display:none!important;}`;
 
-          // ── Design QA pass: no clipped/overlapping/illegible text or leaked code,
-          // ever. The LLM cannot measure its own rendered output, so this is verified
-          // after the fact: render the deck headlessly at the orientation's locked
-          // page size (which also injects the constraint style via DOM — see
-          // auditSlides), audit every page for overflow, text-on-text overlap,
-          // illegible text, and markup rendering as literal visible text, and have
-          // the LLM rewrite any offending page. Two passes so a fix that's still
-          // slightly off gets one more chance. Best-effort — a failure here never
-          // blocks generation (overflow:hidden remains the last-resort safety net).
+          // ── Design QA loop: compose every page to fill its fixed canvas — no
+          // clipped/overflowing content, no large dead/blank band, and no
+          // overlapping/illegible/leaked-code text. The LLM is blind (cannot
+          // measure its own rendered output), so this is the "designer looks and
+          // adjusts" step: render the deck headlessly at the orientation's locked
+          // page size (auditSlides injects the constraint style via DOM), measure
+          // every page, and hand each offending page back to the LLM with precise,
+          // directional feedback to redesign. Iterate until every page is inside the
+          // fill band (no overflow AND no under-fill) or the pass cap is hit — the
+          // fill band is the convergence gate (a range target, which damps the
+          // add-content ↔ remove-content oscillation). Best-effort: a failure here
+          // never blocks generation, and the scale-to-fit backstop below is the
+          // last-resort net so a page can never crop even if the loop caps out.
           const fitOrientation = isPortrait ? 'portrait' : 'landscape';
           const fitViewport = isPortrait ? { width: 720, height: 1280 } : { width: 1280, height: 720 };
+          const MAX_FIT_PASSES = 5;
           try {
-            for (let pass = 0; pass < 2; pass++) {
+            for (let pass = 0; pass < MAX_FIT_PASSES; pass++) {
               send({ type: 'progress', message: pass === 0 ? 'Checking design quality…' : 'Re-checking design quality…' });
               const { html: auditedHtml, issues } = await auditSlides(finalHtml, fitViewport, constraintCss);
               finalHtml = auditedHtml;
+              // Converge on everything that matters — fill band (overflow/underfill),
+              // contrast, overlap, broken markup. Stop once the deck is clean, or once
+              // only a stubborn minor legibility label remains (a 1px-under caption the
+              // design legitimately wants small — not worth burning more full passes).
+              const substantive = issues.filter((i) => i.kind !== 'legibility');
               const flagged = issues.slice(0, 6);
-              if (flagged.length === 0) break;
+              if (flagged.length === 0 || (substantive.length === 0 && pass > 0)) break;
               send({
                 type: 'progress',
-                message: `Fixing ${flagged.length} page${flagged.length > 1 ? 's' : ''}…`,
+                message: `Composing ${flagged.length} page${flagged.length > 1 ? 's' : ''} to fill…`,
               });
               for (const issue of flagged) {
                 const bounds = findSectionBounds(finalHtml, issue.id);
                 if (!bounds) continue;
+                // Empty page (content-less section, usually a truncated trailing
+                // slide): remove it deterministically — no LLM. Trim a leading
+                // newline left behind so the markup stays tidy.
+                if (issue.kind === 'empty') {
+                  finalHtml = (finalHtml.slice(0, bounds.start) + finalHtml.slice(bounds.end)).replace(/\n[ \t]*\n(\s*<\/body>)/i, '\n$1');
+                  continue;
+                }
                 const sectionHtml = finalHtml.slice(bounds.start, bounds.end);
                 const reply = await callLLMStream(
                   [{ role: 'user', content: buildIssueFixPrompt(issue, sectionHtml, fitOrientation) }],
@@ -3383,6 +3406,12 @@ ${(body.urlImages as string[]).map((url: string, i: number) => `Photo ${i + 1}: 
                 finalHtml = finalHtml.slice(0, bounds.start) + resolved + finalHtml.slice(bounds.end);
               }
             }
+
+            // Deterministic no-crop backstop: after the LLM reflow passes, any page
+            // whose content still overflows its fixed height is scaled to fit so it
+            // is never clipped. No-op on pages that already fit. Best-effort.
+            send({ type: 'progress', message: 'Finalizing page fit…' });
+            finalHtml = await fitOverflowingSections(finalHtml, fitViewport, constraintCss);
           } catch (fitErr) {
             console.error(`[microsite-gen] ${fitOrientation} design QA pass failed:`, fitErr);
           }

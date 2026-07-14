@@ -42,7 +42,7 @@ const CONTRAST_RATIO_FLOOR = 2;
  *  flagging deliberately centered/distributed airy layouts — it targets only the
  *  top-clumped-with-dead-bottom pattern users read as unfinished. */
 const UNDERFILL_TOP_MAX_FRACTION = 0.15;
-const UNDERFILL_EMPTY_BOTTOM_FRACTION = 0.25;
+const UNDERFILL_EMPTY_BOTTOM_FRACTION = 0.15;
 
 /**
  * Byte bounds of `<section … data-section-id="{id}" …>…</section>` in `html`,
@@ -123,7 +123,7 @@ HARD FACTS (immutable):
 - The page canvas is EXACTLY ${canvas}.
 - All content must sit fully inside the canvas — nothing may touch or cross the boundary.
 
-Rewrite this ONE <section> so everything fits comfortably. Prefer redistributing the content across TWO OR MORE consecutive pages of the exact same format over shrinking type or spacing — never cram, never drop or truncate any text. Keep the page's visual language (palette, typography, styling) unchanged.
+Rewrite this ONE <section> so everything fits comfortably. Prefer redistributing the content across TWO OR MORE consecutive pages of the exact same format over shrinking type or spacing — never cram, never drop or truncate any text. Keep the page's visual language (palette, typography, styling) unchanged. Each resulting page must still read as a finished, deliberately-composed page that FILLS its canvas — aim for each to occupy roughly 90–98% of the ${canvas} (well-filled, edge to edge) without any element crossing the boundary. Do not split so aggressively that a page is left mostly empty.
 
 Technical frame for every page (unchanged): ${template}. Keep id "${sectionId}" for the first page; name added pages "${sectionId}-2", "${sectionId}-3", … (data-section-id and id identical). Static output only, px font sizes only.
 
@@ -133,7 +133,7 @@ CURRENT SECTION:
 ${sectionHtml}`;
 }
 
-export type SlideIssueKind = 'overflow' | 'overlap' | 'legibility' | 'brokenMarkup' | 'contrast' | 'underfill';
+export type SlideIssueKind = 'overflow' | 'overlap' | 'legibility' | 'brokenMarkup' | 'contrast' | 'underfill' | 'empty';
 
 export interface SlideIssue {
   id: string;
@@ -173,7 +173,7 @@ export function buildIssueFixPrompt(
         : issue.kind === 'contrast'
           ? `This page has text that is nearly invisible against its own background: ${issue.detail}. This is almost always caused by reusing a CSS class name (or a shared/global base style) across differently-themed pages without fully overriding every color-critical property for this specific page — e.g. a class styled for a light card elsewhere keeps its light background here while only its text color got the dark-page treatment, or vice versa. Fix it by giving the affected element(s) an explicit, correct background AND text color scoped to this page — do not rely on any shared/global rule for either property.`
           : issue.kind === 'underfill'
-            ? `This page's content fills only the upper portion of the canvas, leaving a large blank band at the bottom: ${issue.detail}. A fixed 16:9 page with a dead lower half reads as unfinished. Redesign the page so its content occupies the FULL canvas, top to bottom: make the page's outermost container width:100%;height:100% and use a flex column (justify-content:space-between, or center for a hero) or a full-height grid so content is distributed across the whole page. Prefer real substance over stretching — enlarge the headline/hero, add a supporting stat, a short proof point, a simple CSS/SVG chart, or a relevant image — but do NOT create filler or inflate spacing with giant empty margins. It must look intentional and professional, never padded.`
+            ? `This page is under-filled — ${issue.detail}. A fixed ${ratio} page with a large dead band reads as unfinished; a real designer would never ship it. Redesign the page so its content occupies the FULL ${canvas} edge to edge — aim to fill roughly 90–98% of the canvas. Give the content a genuinely fuller composition: a larger hero/headline, a supporting stat or proof point, a simple CSS/SVG chart, a full-height image column, or better distribution across the whole height (outermost container width:100%;height:100% with a flex column using justify-content:space-between, or a full-height grid). Prefer real substance and a deliberate layout — do NOT merely inflate margins, stretch gaps, or zoom a sparse composition. It must look intentionally composed to fill the page, professional and print-quality, never padded.`
             : `This page's own markup is corrupted — some of its CSS/code is rendering as literal visible text instead of being applied as a stylesheet: ${issue.detail}. The section HTML below is broken; rewrite it from scratch as clean, well-formed HTML with the same content and visual language.`;
   return `One page of a ${ratio} PDF presentation has a design defect that must be fixed.
 
@@ -386,6 +386,25 @@ export async function auditSlides(
         sectionsList.forEach((sec) => {
           const id = idOf(sec);
           if (flaggedBroken.has(id)) return; // already getting a full rewrite this pass
+
+          // ── Empty page: a section with a background but NO actual content —
+          // typically a trailing section truncated mid-generation (token cutoff)
+          // whose content elements were never written, leaving only a <style>.
+          // It renders as a blank colored page and slips past the fill checks
+          // (no text/img to measure → neither overflow nor underfill). Flagged
+          // for deterministic removal (an empty page is never wanted).
+          const contentEls = sec.querySelectorAll(':scope *:not(style):not(script):not(link):not(meta)');
+          let sectionText = '';
+          const tw0 = document.createTreeWalker(sec, NodeFilter.SHOW_TEXT);
+          while (tw0.nextNode()) {
+            const p = tw0.currentNode.parentElement;
+            if (p && p.tagName !== 'STYLE' && p.tagName !== 'SCRIPT') sectionText += tw0.currentNode.textContent;
+          }
+          if (contentEls.length === 0 && !sectionText.trim()) {
+            found.push({ id, kind: 'empty', detail: 'section has a background but no content (likely truncated mid-generation) — remove it' });
+            return;
+          }
+
           const sr = sec.getBoundingClientRect();
           if (!sr.width || !sr.height) return;
 
@@ -511,8 +530,11 @@ export async function auditSlides(
           }
         });
 
-        // Dedupe to at most one issue per section id, worst-first.
-        const priority: Record<string, number> = { brokenMarkup: 0, overflow: 1, contrast: 2, overlap: 3, legibility: 4, underfill: 5 };
+        // Dedupe to at most one issue per section id, worst-first. Fill defects
+        // (overflow, underfill) lead — they are the structural "does this page fill
+        // its canvas" defects — with underfill just under contrast (invisible text
+        // still outranks a merely-sparse page).
+        const priority: Record<string, number> = { empty: 0, brokenMarkup: 1, overflow: 2, contrast: 3, underfill: 4, overlap: 5, legibility: 6 };
         const bySection = new Map<string, (typeof found)[number]>();
         for (const issue of found) {
           const existing = bySection.get(issue.id);
@@ -531,6 +553,125 @@ export async function auditSlides(
 
     const outerHtml = await page.evaluate(() => document.documentElement.outerHTML);
     return { html: `<!DOCTYPE html>\n${outerHtml}`, issues: issues as SlideIssue[] };
+  } finally {
+    await browser.close();
+  }
+}
+
+/** Overflow beyond this many px (rounding tolerance) triggers the scale-to-fit backstop. */
+const FIT_TOLERANCE_PX = 6;
+
+/**
+ * Deterministic no-crop backstop, run ONCE after the LLM reflow passes. The LLM
+ * can't measure its own output and doesn't always converge within the reflow
+ * budget, so this guarantees a page is never clipped: render the deck at the
+ * native canvas, and for any `[data-section-id]` whose content still overflows
+ * its fixed height, wrap that section's content in a `<div data-fit-wrap>` and
+ * uniformly `transform: scale(canvasH/contentH)` it down so everything fits.
+ *
+ * Baked into the returned HTML (unlike the view-time slide-scaler) because the
+ * fit ratio is fixed (not viewport-dependent) and the PDF export — which reads
+ * the saved customHtml raw and forces the section to its native fixed size —
+ * must render the fitted content un-cropped too. Composes cleanly with the
+ * outer view-time slide-scaler (nested transforms) and the PDF export.
+ *
+ * Uniform scaling of content that already fills the width leaves a small
+ * right/bottom margin on the rare pages this fires on (the section's own
+ * background fills it, reading as extra padding). That is the accepted
+ * last-resort tradeoff: whole-but-slightly-smaller beats clipped. Never
+ * distorts (uniform), never crops. A no-op on pages that already fit.
+ */
+export async function fitOverflowingSections(
+  html: string,
+  viewport: { width: number; height: number },
+  constraintCss: string,
+): Promise<string> {
+  const browser = await puppeteer.launch({
+    headless: true,
+    ...(process.env.PUPPETEER_EXECUTABLE_PATH
+      ? { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }
+      : {}),
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  });
+
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: viewport.width, height: viewport.height, deviceScaleFactor: 1 });
+
+    await page.goto('about:blank', { waitUntil: 'load', timeout: 10_000 });
+    await page.evaluate((h: string) => {
+      document.open('text/html', 'replace');
+      document.write(h);
+      document.close();
+    }, html);
+
+    await Promise.race([
+      page.evaluate(() => (document as Document & { fonts: FontFaceSet }).fonts.ready.then(() => {})).catch(() => {}),
+      new Promise<void>((r) => setTimeout(r, 4_000)),
+    ]);
+    await Promise.race([
+      page.evaluate(() =>
+        Promise.all(
+          Array.from(document.images)
+            .filter((img) => !img.complete)
+            .map((img) => new Promise<void>((resolve) => { img.onload = img.onerror = () => resolve(); }))
+        )
+      ).catch(() => {}),
+      new Promise<void>((r) => setTimeout(r, 4_000)),
+    ]);
+    await page.evaluate(() => {
+      const style = document.createElement('style');
+      style.textContent = '*{animation:none!important;transition:none!important;}';
+      document.head.appendChild(style);
+    });
+    await page.evaluate((css: string) => {
+      document.getElementById('__pdf-slide-constraints__')?.remove();
+      const style = document.createElement('style');
+      style.id = '__pdf-slide-constraints__';
+      style.textContent = css;
+      document.head.appendChild(style);
+    }, constraintCss);
+
+    const fittedCount = await page.evaluate((tolerance: number) => {
+      let fitted = 0;
+      document.querySelectorAll<HTMLElement>('section[data-section-id]').forEach((sec) => {
+        if (sec.querySelector(':scope > [data-fit-wrap]')) return; // already wrapped
+        const boxH = sec.clientHeight;
+        if (!boxH) return;
+        // scrollHeight reflects the true content height including the part clipped by
+        // the section's overflow:hidden — the actual overflow we must scale away.
+        const contentH = sec.scrollHeight;
+        if (contentH <= boxH + tolerance) return; // fits — leave untouched
+
+        const s = boxH / contentH;
+        const W = sec.clientWidth;
+        // Move only the section's real content into the wrapper; leave <style>/<script>/
+        // <link> at the section level so stylesheets are not scaled or displaced.
+        const wrap = document.createElement('div');
+        wrap.setAttribute('data-fit-wrap', '');
+        wrap.style.cssText = `position:relative;width:${W}px;height:${contentH}px;transform-origin:top left;transform:scale(${s.toFixed(4)});`;
+        const kept: Node[] = [];
+        while (sec.firstChild) {
+          const node = sec.firstChild;
+          const tag = node.nodeType === 1 ? (node as Element).tagName : '';
+          if (tag === 'STYLE' || tag === 'SCRIPT' || tag === 'LINK') {
+            kept.push(node);
+            sec.removeChild(node);
+          } else {
+            wrap.appendChild(node);
+          }
+        }
+        for (const k of kept) sec.appendChild(k);
+        sec.appendChild(wrap);
+        fitted++;
+      });
+      return fitted;
+    }, FIT_TOLERANCE_PX);
+
+    if (fittedCount === 0) return html; // nothing overflowed — return input unchanged
+
+    const outerHtml = await page.evaluate(() => document.documentElement.outerHTML);
+    return `<!DOCTYPE html>\n${outerHtml}`;
   } finally {
     await browser.close();
   }

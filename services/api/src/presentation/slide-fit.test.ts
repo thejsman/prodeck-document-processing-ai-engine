@@ -190,10 +190,11 @@ describe('buildIssueFixPrompt', () => {
       detail: 'content fills only the top 67% of the page, leaving the bottom 33% blank',
     };
     const p = buildIssueFixPrompt(issue, sectionHtml, 'landscape');
-    expect(p).toContain('large blank band at the bottom');
+    expect(p).toContain('under-filled');
     expect(p).toContain('leaving the bottom 33% blank');
     expect(p).toContain('height:100%');
-    expect(p).toContain('do NOT create filler');
+    expect(p).toContain('90–98%'); // range target to damp oscillation
+    expect(p).toContain('never padded');
   });
 
   it('describes a broken-markup defect and asks for a clean rewrite', () => {
