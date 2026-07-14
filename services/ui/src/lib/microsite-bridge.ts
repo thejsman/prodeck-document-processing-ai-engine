@@ -218,29 +218,42 @@ const NAV_FIX_SCRIPT = `<script id="__nav-anchor-fix">document.addEventListener(
 // fixed canvas (1280×720 landscape / 540×960 portrait). Rendering them with the
 // baked `aspect-ratio;width:100%` CSS in a viewport narrower than the native
 // width shrinks the box but leaves the px-authored content at native scale, so
-// it overflows/reflows/clips. This scales each page as ONE unit to fit the
-// viewport width (fit-width; pages stack and scroll vertically), preserving the
-// design exactly. It is VIEW-TIME ONLY — never baked into saved HTML, so the PDF
-// export (which renders the raw saved HTML at a native 1280px viewport, scale=1)
-// is unaffected. Centering is left-aligned via transform-origin:top left (at
-// fit-width the scaled width equals the viewport width, so no h-centering), and
-// body stays display:block — both deliberately avoid the flex-centering scrollbar
-// layout-shift that got the previous scaler removed.
+// it overflows/reflows/clips. This scales each page as ONE unit (pages stack
+// and scroll vertically), preserving the design exactly: landscape is fit-width;
+// portrait shrinks to fit but never upscales past its authored 540px width and
+// is horizontally centered via a computed left margin. It is VIEW-TIME ONLY —
+// never baked into saved HTML, so the PDF export (which renders the raw saved
+// HTML at a native 1280px viewport, scale=1) is unaffected. Centering uses a
+// margin (not flex), and body stays display:block — both deliberately avoid the
+// flex-centering scrollbar layout-shift that got the previous scaler removed.
+// (At landscape fit-width the scaled width equals the viewport width, so the
+// computed left margin is 0 and behavior is unchanged for 16:9 decks.)
 const SLIDE_SCALER_CSS = `<style id="__slide-scaler-css__">html,body{overflow-x:hidden!important;}body{display:block!important;}[data-section-id]{flex-shrink:0!important;transform-origin:top left!important;}</style>`;
 
+// The canvas size is detected once and cached: the first sc() pass sets
+// aspect-ratio:auto on every section, so later passes (load event, resize) can
+// no longer read the authored ratio from computed style — without the cache
+// they fall back to 16:9 and squash 9:16 decks into a 1280×720 canvas
+// (clipped slide bottoms + overlapping sections). 16:9 decks are unaffected
+// either way since their detected canvas equals the fallback.
 const SLIDE_SCALER_SCRIPT = `<script id="__slide-scaler__">(function(){
+var W=0,H=0;
 function sc(){
   var secs=document.querySelectorAll('[data-section-id]');
   if(!secs.length)return;
   var vw=document.documentElement.clientWidth||window.innerWidth;
   if(!vw)return;
-  var ar=(getComputedStyle(secs[0]).aspectRatio||'').match(/([\\d.]+)\\s*\\/\\s*([\\d.]+)/);
-  var rw=ar?parseFloat(ar[1]):16, rh=ar?parseFloat(ar[2]):9;
-  if(!rw||!rh){rw=16;rh=9;}
-  var W=rw>=rh?1280:540;
-  var H=Math.round(W*rh/rw);
+  if(!W||!H){
+    var ar=(getComputedStyle(secs[0]).aspectRatio||'').match(/([\\d.]+)\\s*\\/\\s*([\\d.]+)/);
+    var rw=ar?parseFloat(ar[1]):16, rh=ar?parseFloat(ar[2]):9;
+    if(!rw||!rh){rw=16;rh=9;}
+    W=rw>=rh?1280:540;
+    H=Math.round(W*rh/rw);
+  }
   var s=vw/W;
+  if(W<H&&s>1)s=1;
   var gap=Math.round(12*s);
+  var ml=Math.max(0,Math.round((vw-W*s)/2));
   for(var i=0;i<secs.length;i++){
     var el=secs[i];
     el.style.setProperty('width',W+'px','important');
@@ -251,10 +264,10 @@ function sc(){
     el.style.setProperty('transform-origin','top left','important');
     if(Math.abs(s-1)<0.005){
       el.style.setProperty('transform','none','important');
-      el.style.setProperty('margin','0 0 '+gap+'px 0','important');
+      el.style.setProperty('margin','0 0 '+gap+'px '+ml+'px','important');
     }else{
       el.style.setProperty('transform','scale('+s+')','important');
-      el.style.setProperty('margin','0 0 '+(Math.round(H*(s-1))+gap)+'px 0','important');
+      el.style.setProperty('margin','0 0 '+(Math.round(H*(s-1))+gap)+'px '+ml+'px','important');
     }
   }
 }
