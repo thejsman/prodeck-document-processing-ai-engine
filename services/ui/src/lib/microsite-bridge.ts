@@ -213,9 +213,74 @@ setTimeout(fix,600);
 // because it has no real base URL).
 const NAV_FIX_SCRIPT = `<script id="__nav-anchor-fix">document.addEventListener('click',function(e){if(window.__editMode)return;var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var href=a.getAttribute('href');if(!href||href==='#')return;var id=href.slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
 
+// ── Fixed-canvas slide scaler (presentation decks only) ────────────────────
+// PDF-friendly 16:9 / 9:16 microsites are authored as fixed-pixel designs on a
+// fixed canvas (1280×720 landscape / 540×960 portrait). Rendering them with the
+// baked `aspect-ratio;width:100%` CSS in a viewport narrower than the native
+// width shrinks the box but leaves the px-authored content at native scale, so
+// it overflows/reflows/clips. This scales each page as ONE unit to fit the
+// viewport width (fit-width; pages stack and scroll vertically), preserving the
+// design exactly. It is VIEW-TIME ONLY — never baked into saved HTML, so the PDF
+// export (which renders the raw saved HTML at a native 1280px viewport, scale=1)
+// is unaffected. Centering is left-aligned via transform-origin:top left (at
+// fit-width the scaled width equals the viewport width, so no h-centering), and
+// body stays display:block — both deliberately avoid the flex-centering scrollbar
+// layout-shift that got the previous scaler removed.
+const SLIDE_SCALER_CSS = `<style id="__slide-scaler-css__">html,body{overflow-x:hidden!important;}body{display:block!important;}[data-section-id]{flex-shrink:0!important;transform-origin:top left!important;}</style>`;
+
+const SLIDE_SCALER_SCRIPT = `<script id="__slide-scaler__">(function(){
+function sc(){
+  var secs=document.querySelectorAll('[data-section-id]');
+  if(!secs.length)return;
+  var vw=document.documentElement.clientWidth||window.innerWidth;
+  if(!vw)return;
+  var ar=(getComputedStyle(secs[0]).aspectRatio||'').match(/([\\d.]+)\\s*\\/\\s*([\\d.]+)/);
+  var rw=ar?parseFloat(ar[1]):16, rh=ar?parseFloat(ar[2]):9;
+  if(!rw||!rh){rw=16;rh=9;}
+  var W=rw>=rh?1280:540;
+  var H=Math.round(W*rh/rw);
+  var s=vw/W;
+  var gap=Math.round(12*s);
+  for(var i=0;i<secs.length;i++){
+    var el=secs[i];
+    el.style.setProperty('width',W+'px','important');
+    el.style.setProperty('height',H+'px','important');
+    el.style.setProperty('min-height',H+'px','important');
+    el.style.setProperty('max-height',H+'px','important');
+    el.style.setProperty('aspect-ratio','auto','important');
+    el.style.setProperty('transform-origin','top left','important');
+    if(Math.abs(s-1)<0.005){
+      el.style.setProperty('transform','none','important');
+      el.style.setProperty('margin','0 0 '+gap+'px 0','important');
+    }else{
+      el.style.setProperty('transform','scale('+s+')','important');
+      el.style.setProperty('margin','0 0 '+(Math.round(H*(s-1))+gap)+'px 0','important');
+    }
+  }
+}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',sc);else sc();
+window.addEventListener('resize',sc);
+window.addEventListener('load',sc);
+}());</script>`;
+
+/**
+ * Inject the fixed-canvas slide scaler before </body>, but ONLY for presentation
+ * decks (detected by the server-baked `__pdf-slide-constraints__` marker). Regular
+ * responsive microsites must keep reflowing and are returned unchanged. Idempotent:
+ * callers that also run stripPreviewInjections re-strip and re-add cleanly.
+ */
+export function injectSlideScaler(html: string): string {
+  if (!html || !html.includes('__pdf-slide-constraints__')) return html;
+  if (html.includes('id="__slide-scaler__"')) return html; // already present
+  const inject = SLIDE_SCALER_CSS + SLIDE_SCALER_SCRIPT;
+  const bodyClose = html.lastIndexOf('</body>');
+  return bodyClose !== -1 ? html.slice(0, bodyClose) + inject + html.slice(bodyClose) : html + inject;
+}
+
 // IDs of all elements injected by normalizeMicrositeHtml / injectBridgeScript.
 // Used to strip stale saved copies before re-injecting the latest code.
-// '__slide-scaler__' is included so any old server-baked scaler is stripped on load.
+// '__slide-scaler__' / '__slide-scaler-css__' are included so any old (possibly
+// server-baked) scaler is stripped before the latest one is re-injected.
 const PREVIEW_INJECTION_IDS = [
   '__preview-cursor-reset',
   '__nav-anchor-fix',
@@ -223,6 +288,7 @@ const PREVIEW_INJECTION_IDS = [
   '__microsite-iframe-edit',
   '__scroll-restore',
   '__slide-scaler__',
+  '__slide-scaler-css__',
 ] as const;
 
 // Strip any previously-saved preview injections so stale code is never reused.
@@ -284,6 +350,9 @@ export function normalizeMicrositeHtml(html: string): string {
   out = bodyClose !== -1
     ? out.slice(0, bodyClose) + PREVIEW_REVEAL_SCRIPT + out.slice(bodyClose)
     : out + PREVIEW_REVEAL_SCRIPT;
+
+  // 4. Fixed-canvas scaler → before </body> (presentation decks only; no-op otherwise).
+  out = injectSlideScaler(out);
 
   return out;
 }
