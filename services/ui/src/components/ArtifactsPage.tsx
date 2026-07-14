@@ -404,9 +404,9 @@ export function ArtifactsPage() {
               rawDate: p.savedAt,
               clientName: slugToDisplayName(clientName),
               clientSlug: clientName,
-              // Deep link into the super client page so the proposal opens in the
-              // same right-panel viewer as the client's own artifacts tab.
-              navUrl: `/super-client/${encodeURIComponent(clientName)}?open=proposal&id=${encodeURIComponent(p.fileName)}&from=artifacts`,
+              // Open in the dedicated proposal page (full viewer with its own
+              // edit/export options) — not the super client chat panel.
+              navUrl: `/proposal?artifact=${encodeURIComponent(p.fileName)}&namespace=${encodeURIComponent('sc-' + clientName)}&from=chat`,
               deleteInfo: { kind: 'sc', client: clientName, fileName: p.fileName },
             });
           });
