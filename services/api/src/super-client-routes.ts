@@ -3303,6 +3303,70 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       return saveValidatedEdit(updatedHtml, `${prop} set to ${value}`);
     }
 
+    // ── Gradient text patch (from InlineEditPanel gradient editor) ───────────
+    // Format: __GRADIENT_TEXT_PATCH__:[cssPath]||[gradientCss]||[hintHtml?]
+    // Deterministic — no LLM. Atomically sets all gradient-text CSS properties.
+    const gradientTextPatchMatch = instruction.match(
+      /^__GRADIENT_TEXT_PATCH__:([\s\S]+?)\|\|([\s\S]+?)(?:\|\|([\s\S]*))?$/s,
+    );
+    if (gradientTextPatchMatch) {
+      const cssPath = gradientTextPatchMatch[1].trim();
+      const rawGradient = gradientTextPatchMatch[2].trim();
+      const hintHtml = (gradientTextPatchMatch[3] ?? '').trim();
+
+      if (!/^(?:linear|radial|conic)-gradient\(/i.test(rawGradient)) {
+        return reply.code(400).send({ error: 'Invalid gradient CSS' });
+      }
+      const safeGradient = rawGradient.replace(/['"<>]/g, '').trim().slice(0, 500);
+
+      let gBounds = findByPath(html, cssPath);
+      if (!gBounds && hintHtml) {
+        const hs = locateElement(html, hintHtml);
+        if (hs !== -1) {
+          const ht = html.indexOf('>', hs);
+          if (ht !== -1) gBounds = { start: hs, end: ht + 1 };
+        }
+      }
+      if (!gBounds) return reply.code(422).send({ error: 'Target element not found — click it again to re-select' });
+
+      const gElementHtml = html.slice(gBounds.start, gBounds.end);
+      const gTagEnd = gElementHtml.indexOf('>');
+      if (gTagEnd === -1) return reply.code(422).send({ error: 'Malformed element' });
+
+      const gOpenTag = gElementHtml.slice(0, gTagEnd);
+      const gRest = gElementHtml.slice(gTagEnd);
+      const gStyleRx = /\bstyle\s*=\s*"([^"]*)"/i;
+      const gSm = gStyleRx.exec(gOpenTag);
+
+      const GRADIENT_STRIP_PROPS = new Set([
+        'background', 'background-image', '-webkit-background-clip',
+        'background-clip', '-webkit-text-fill-color', 'color',
+      ]);
+      const gradientProps =
+        `background-image:${safeGradient};` +
+        `-webkit-background-clip:text;background-clip:text;` +
+        `-webkit-text-fill-color:transparent;color:transparent`;
+
+      let gPatchedTag: string;
+      if (gSm) {
+        const cleaned = gSm[1]
+          .split(';')
+          .map((s) => s.trim())
+          .filter((s) => {
+            if (!s) return false;
+            const propName = s.split(':')[0]?.trim().toLowerCase() ?? '';
+            return !GRADIENT_STRIP_PROPS.has(propName);
+          })
+          .join('; ');
+        gPatchedTag = gOpenTag.replace(gStyleRx, `style="${cleaned ? cleaned + '; ' : ''}${gradientProps}"`);
+      } else {
+        gPatchedTag = `${gOpenTag} style="${gradientProps}"`;
+      }
+
+      const gUpdatedHtml = html.slice(0, gBounds.start) + gPatchedTag + gRest + html.slice(gBounds.end);
+      return saveValidatedEdit(gUpdatedHtml, 'Gradient text updated');
+    }
+
     // ── Inline text content patch (from InlineEditPanel) ────────────────────
     // Format: __TEXT_PATCH__:[cssPath]||[newText]
     // Deterministic — no LLM. Replaces text nodes, preserves child elements.
@@ -5177,6 +5241,13 @@ ${sectionHtml}`;
       const hintHtml = parts[3] ?? '';
       resolvedInstruction = `Set the CSS property "${prop}" to "${value}" on the element matching CSS path "${cssPath}". Keep everything else unchanged.${hintHtml ? `\nElement hint: ${hintHtml.slice(0, 400)}` : ''}`;
       displaySummary = `${prop}: ${value}`;
+    } else if (instruction.startsWith('__GRADIENT_TEXT_PATCH__:')) {
+      const parts = instruction.slice('__GRADIENT_TEXT_PATCH__:'.length).split('||');
+      const cssPath = parts[0] ?? '';
+      const gradientCss = parts[1] ?? '';
+      const hintHtml = parts[2] ?? '';
+      resolvedInstruction = `Apply gradient text effect to the element at CSS path "${cssPath}": set background-image to "${gradientCss}", -webkit-background-clip to text, background-clip to text, -webkit-text-fill-color to transparent, and color to transparent. Keep all other styles and content unchanged.${hintHtml ? `\nElement hint: ${hintHtml.slice(0, 400)}` : ''}`;
+      displaySummary = 'Gradient text updated';
     } else if (instruction.startsWith('__TEXT_PATCH__:')) {
       const parts = instruction.slice('__TEXT_PATCH__:'.length).split('||');
       const cssPath = parts[0] ?? '';

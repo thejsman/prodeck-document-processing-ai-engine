@@ -2362,6 +2362,14 @@ export default function SuperClientPage() {
     );
   }
 
+  async function handleGradientTextPatch(gradientCss: string) {
+    if (!selectedElement?.path) return;
+    await applyMicrositeInstruction(
+      `__GRADIENT_TEXT_PATCH__:${selectedElement.path}||${gradientCss}||${hint()}`,
+      'Gradient updated',
+    );
+  }
+
   async function handleTextPatch(newText: string) {
     if (!selectedElement?.path) return;
     await applyMicrositeInstruction(`__TEXT_PATCH__:${selectedElement.path}||${newText}||${hint()}`, 'Text updated');
@@ -2466,6 +2474,10 @@ export default function SuperClientPage() {
   async function handleSlideStylePatch(prop: string, value: string) {
     if (!selectedSlideElement?.path) return;
     await applySlideInstruction(`__STYLE_PATCH__:${selectedSlideElement.path}||${prop}||${value}||${slideHint()}`, `${prop} updated`);
+  }
+  async function handleSlideGradientTextPatch(gradientCss: string) {
+    if (!selectedSlideElement?.path) return;
+    await applySlideInstruction(`__GRADIENT_TEXT_PATCH__:${selectedSlideElement.path}||${gradientCss}||${slideHint()}`, 'Gradient updated');
   }
   async function handleSlideTextPatch(newText: string) {
     if (!selectedSlideElement?.path) return;
@@ -6686,6 +6698,7 @@ export default function SuperClientPage() {
                     containerH={iframeContainerH}
                     containerW={iframeContainerW}
                     onStylePatch={handleStylePatch}
+                    onGradientTextPatch={handleGradientTextPatch}
                     onTextPatch={handleTextPatch}
                     onImageReplace={handleImageReplace}
                     onBgImagePatch={handleBgImagePatch}
@@ -7525,6 +7538,7 @@ export default function SuperClientPage() {
                     containerH={slideIframeContainerH}
                     containerW={slideIframeContainerW}
                     onStylePatch={handleSlideStylePatch}
+                    onGradientTextPatch={handleSlideGradientTextPatch}
                     onTextPatch={handleSlideTextPatch}
                     onImageReplace={handleSlideImageReplace}
                     onBgImagePatch={handleSlideBgImagePatch}

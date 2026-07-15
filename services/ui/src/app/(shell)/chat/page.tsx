@@ -827,6 +827,25 @@ export default function ChatPage() {
       return doc.documentElement.outerHTML;
     }
 
+    const gradientTextPatch = instruction.match(/^__GRADIENT_TEXT_PATCH__:([\s\S]+?)\|\|([\s\S]+?)(?:\|\|[\s\S]*)?$/);
+    if (gradientTextPatch) {
+      const [, path, gradientCss] = gradientTextPatch;
+      if (/^(?:linear|radial|conic)-gradient\(/i.test(gradientCss.trim())) {
+        const el = findEl(path) as HTMLElement | null;
+        if (el) {
+          const existing = el.getAttribute('style') ?? '';
+          const STRIP = ['background', 'background-image', '-webkit-background-clip', 'background-clip', '-webkit-text-fill-color', 'color'];
+          const cleaned = existing
+            .split(';').map(s => s.trim())
+            .filter(s => { if (!s) return false; const p = s.split(':')[0]?.trim().toLowerCase() ?? ''; return !STRIP.includes(p); })
+            .join('; ');
+          const gradProps = `background-image:${gradientCss};-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent`;
+          el.setAttribute('style', cleaned ? `${cleaned}; ${gradProps}` : gradProps);
+        }
+      }
+      return doc.documentElement.outerHTML;
+    }
+
     return null;
   }
 
@@ -892,6 +911,10 @@ export default function ChatPage() {
   async function handleChatStylePatch(prop: string, value: string) {
     if (!chatSelectedElement?.path) return;
     await applyChatMicrositeInstruction(`__STYLE_PATCH__:${chatSelectedElement.path}||${prop}||${value}||${chatHint()}`, `${prop} updated`);
+  }
+  async function handleChatGradientTextPatch(gradientCss: string) {
+    if (!chatSelectedElement?.path) return;
+    await applyChatMicrositeInstruction(`__GRADIENT_TEXT_PATCH__:${chatSelectedElement.path}||${gradientCss}||${chatHint()}`, 'Gradient updated');
   }
   async function handleChatTextPatch(newText: string) {
     if (!chatSelectedElement?.path) return;
@@ -1769,6 +1792,7 @@ export default function ChatPage() {
                   containerH={chatIframeContainerH}
                   containerW={chatIframeContainerW}
                   onStylePatch={handleChatStylePatch}
+                  onGradientTextPatch={handleChatGradientTextPatch}
                   onTextPatch={handleChatTextPatch}
                   onImageReplace={handleChatImageReplace}
                   onBgImagePatch={handleChatBgImagePatch}
