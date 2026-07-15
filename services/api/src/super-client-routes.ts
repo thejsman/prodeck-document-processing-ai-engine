@@ -1330,7 +1330,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             `- Slide titles are insights, not labels — "Revenue grew 3× in 12 months" beats "Revenue Growth".`,
             resolvedSlideCount
               ? `- Create exactly ${resolvedSlideCount} slides.`
-              : `- Create 6–8 slides unless the content genuinely needs more — favor fewer, richer slides over many thin ones.`,
+              : `- Create AT LEAST 10 slides (aim for 10–12, more if the content genuinely needs it). Every slide must still be substantive — expand the story with deeper sections, data, and examples rather than padding with thin filler slides.`,
             ``,
             `Output: ONLY the <slides>...</slides> tag with the full HTML document inside. After the tag, write ONE plain sentence (MAX 25 words) describing only WHAT the deck covers — the subject and message — as if telling a colleague over the phone. It must contain NO visual or design detail. BANNED words: slide, deck, 16:9, cover, hero, headline, panel, grid, card, column, CTA, footer, bar, layout, SVG, palette, and every colour name. Example: "A quick overview of your services and why clients trust you, ending with an invitation to book a consultation."`,
           ]
