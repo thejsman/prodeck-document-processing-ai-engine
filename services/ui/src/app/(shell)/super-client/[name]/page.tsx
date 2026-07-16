@@ -5863,7 +5863,9 @@ export default function SuperClientPage() {
                     onChange={(e) =>
                       micrositeEditActive
                         ? setMicrositeEditInput(e.target.value)
-                        : setInput(e.target.value)
+                        : slideEditActive
+                          ? setSlideEditInput(e.target.value)
+                          : setInput(e.target.value)
                     }
                     onKeyDown={
                       micrositeEditActive
@@ -6066,13 +6068,48 @@ export default function SuperClientPage() {
                           <Pencil size={16} />
                         </button>
                       )}
+                      {viewingSlide && (
+                        <button
+                          disabled={slideEditing}
+                          onClick={() => {
+                            if (slideEditing) return;
+                            const next = !slideEditModeActive;
+                            setSlideEditModeActive(next);
+                            if (!next) clearSlideSelection();
+                            const html = slideCurrentHtmlRef.current;
+                            if (html) applySlideHtml(html, next);
+                          }}
+                          title={
+                            slideEditing
+                              ? 'Applying edit…'
+                              : slideEditModeActive
+                                ? 'Exit smart edit mode'
+                                : 'Smart edit — click any element to target it'
+                          }
+                          className="theme-toggle"
+                          style={{
+                            background: slideEditModeActive
+                              ? 'color-mix(in srgb, var(--primary) 12%, transparent)'
+                              : 'transparent',
+                            border: '1px solid transparent',
+                            color: slideEditModeActive ? 'var(--primary)' : undefined,
+                            transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+                            opacity: slideEditing ? 0.4 : 1,
+                            cursor: slideEditing ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
                       {/* Send button */}
                       <button
                         className="chat-v2-send-btn"
                         onClick={() =>
                           micrositeEditActive
                             ? void handleMicrositeEdit()
-                            : void sendMessage()
+                            : slideEditActive
+                              ? void handleSlideEdit()
+                              : void sendMessage()
                         }
                         disabled={
                           micrositeEditActive
@@ -6080,7 +6117,9 @@ export default function SuperClientPage() {
                               (!micrositeEditInput.trim() &&
                                 !editingLogo &&
                                 !editingLogoUrl.trim())
-                            : streaming || !input.trim()
+                            : slideEditActive
+                              ? slideEditing || !slideEditInput.trim()
+                              : streaming || !input.trim()
                         }
                       >
                         <Icon

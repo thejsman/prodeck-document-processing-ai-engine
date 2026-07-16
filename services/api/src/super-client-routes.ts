@@ -4116,6 +4116,11 @@ Strict rules:
         return reply.code(502).send({ error: 'LLM returned empty response — try rephrasing' });
       }
 
+      // ── Guard: reject non-HTML — prose or JSON text would be spliced in as content ──
+      if (!modified.trimStart().startsWith('<')) {
+        return reply.code(502).send({ error: 'LLM returned non-HTML content — try rephrasing or selecting the element directly' });
+      }
+
       // ── Guard: reject full-page HTML — these would corrupt the document ──
       if (/<!doctype|<html[\s>]/i.test(modified) || /<\/?(head|body)\b/i.test(modified)) {
         console.log('✗ LLM returned full-page HTML — rejecting');
@@ -4372,6 +4377,21 @@ Strict rules:
       return { html: result, applied, missed };
     }
 
+    // Rescue extractor: pull out complete find/replace pairs from malformed/truncated patches JSON
+    function rescuePatchesFromMicrositeText(rawText: string): Array<{ find: string; replace: string }> | null {
+      const patches: Array<{ find: string; replace: string }> = [];
+      const re = /"find"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"replace"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+      let m;
+      while ((m = re.exec(rawText)) !== null) {
+        try {
+          const find = JSON.parse(`"${m[1]}"`);
+          const replace = JSON.parse(`"${m[2]}"`);
+          if (find) patches.push({ find, replace });
+        } catch { /* skip malformed pair */ }
+      }
+      return patches.length > 0 ? patches : null;
+    }
+
     function extractBlockFromResponse(rawText: string): { block: string; tag: string } | null {
       // Reject JSON responses — LLM "find" values contain HTML tags that would be
       // extracted as fake blocks and written as garbage into the microsite.
@@ -4584,8 +4604,10 @@ Works across ALL sections in one pass. Use multiple patches for values repeated 
 { "op": "patches", "patches": [{ "find": "exact substring", "replace": "new value" }], "summary": "..." }
 Rules:
 - Copy each "find" string EXACTLY from the HTML — character-for-character, no paraphrasing
-- Include 15–40 chars of surrounding context so each "find" is unique in the document
+- For style/color changes, prefer SHORT "find" strings targeting just the CSS value (e.g. "#C8A96E" or "color:#C8A96E;") rather than wrapping HTML — this avoids escaping issues and matches every occurrence
+- Include 15–40 chars of surrounding context only when needed to make "find" unique
 - NEVER put newlines inside "find" or "replace" — single-line strings only
+- CRITICAL: if "find" or "replace" must include HTML with attribute values, you MUST escape every inner double-quote with a backslash (e.g. style=\"color:red\" NOT style="color:red") — unescaped quotes break JSON parsing
 - Include EVERY patch needed to fully and consistently apply the instruction.
   If the change affects many repeated values (e.g. recalculating percentages
   and dollar amounts across an entire pricing/breakdown table when the total
@@ -4660,6 +4682,24 @@ ${html}`;
     } else {
       const op = parseOp(raw);
       if (!op) {
+        // If the response looks like a patches op that failed to parse (malformed or truncated
+        // JSON), rescue whatever complete patches are present via regex — the HTML fallback
+        // would otherwise inject raw JSON text as microsite content.
+        if (/"op"\s*:\s*"patches"/.test(raw ?? '')) {
+          const rescued = rescuePatchesFromMicrositeText(raw ?? '');
+          if (rescued && rescued.length > 0) {
+            const { html: patched, applied, missed } = applyPatches(html, rescued);
+            if (applied > 0) {
+              updatedHtml = patched;
+              summary = `Updated (${applied} change${applied !== 1 ? 's' : ''}${missed > 0 ? `, ${missed} skipped` : ''})`;
+              console.log(`↩️  Rescued ${applied} patches via regex from malformed/truncated JSON`);
+            } else {
+              return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
+            }
+          } else {
+            return reply.code(502).send({ error: 'Edit could not be applied — try rephrasing' });
+          }
+        } else {
         // LLM returned raw HTML instead of JSON (common for section rewrites) — treat as section_replace.
         const fallbackBlock = extractBlockFromResponse(raw);
         if (fallbackBlock) {
@@ -4686,6 +4726,7 @@ ${html}`;
             return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
           }
         }
+        } // close: else (not patches format — HTML fallback)
       } else {
         if (op.op === 'patches') {
           const { html: patched, applied, missed } = applyPatches(html, op.patches);
@@ -5521,6 +5562,25 @@ ${slideHtml}`;
       return { html: result, applied, missed };
     }
 
+    // Rescue extractor: when the full JSON fails to parse (malformed or truncated),
+    // pull out whatever complete find/replace pairs are present using regex.
+    function rescuePatchesFromText(rawText: string): Array<{ find: string; replace: string }> | null {
+      const patches: Array<{ find: string; replace: string }> = [];
+      // Match well-formed JSON string pairs — stops at any unescaped quote
+      const re = /"find"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"replace"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+      let m;
+      while ((m = re.exec(rawText)) !== null) {
+        try {
+          const find = JSON.parse(`"${m[1]}"`);
+          const replace = JSON.parse(`"${m[2]}"`);
+          if (find) patches.push({ find, replace });
+        } catch {
+          // skip malformed pair
+        }
+      }
+      return patches.length > 0 ? patches : null;
+    }
+
     const opPrompt = `You are editing an HTML slide presentation — a single scrollable page where each slide is a <div class="slide">. Pick the ONE operation that best fits the instruction and respond with a single JSON object — nothing else.
 
 OPERATION TYPES:
@@ -5529,8 +5589,10 @@ OP patches — targeted changes to existing content (text, values, colors, image
 { "op": "patches", "patches": [{ "find": "exact substring", "replace": "new value" }], "summary": "..." }
 Rules:
 - Copy each "find" string EXACTLY from the HTML — character-for-character, no paraphrasing
-- Include 15–40 chars of surrounding context so each "find" is unique in the document
+- For style/color changes, prefer SHORT "find" strings targeting just the CSS value (e.g. "#C8A96E" or "color:#C8A96E;") rather than wrapping HTML — this avoids escaping issues and matches every occurrence
+- Include 15–40 chars of surrounding context only when needed to make "find" unique
 - NEVER put newlines inside "find" or "replace" — single-line strings only
+- CRITICAL: if "find" or "replace" must include HTML with attribute values, you MUST escape every inner double-quote with a backslash (e.g. style=\"color:red\" NOT style="color:red") — unescaped quotes break JSON parsing
 - Include EVERY patch needed to fully and consistently apply the instruction.
   If the change affects many repeated values (e.g. recalculating percentages
   and dollar amounts across an entire pricing/breakdown table when the total
@@ -5588,6 +5650,25 @@ ${html}`;
 
       const op = parseSlideOp(raw ?? '');
       if (!op) {
+        // Guard: if the response looks like a patches op that failed to parse (malformed or
+        // truncated JSON), try to rescue whatever complete patches are present via regex before
+        // falling through — the HTML fallback would inject raw JSON text as slide content.
+        if (/"op"\s*:\s*"patches"/.test(raw ?? '')) {
+          const rescued = rescuePatchesFromText(raw ?? '');
+          if (rescued && rescued.length > 0) {
+            const { html: patched, applied, missed } = applySlidePatches(html, rescued);
+            if (applied > 0) {
+              updatedHtml = patched;
+              summary = `Updated (${applied} change${applied !== 1 ? 's' : ''}${missed > 0 ? `, ${missed} skipped` : ''})`;
+              console.log(`↩️  Rescued ${applied} patches via regex from malformed/truncated JSON`);
+            } else {
+              return reply.code(502).send({ error: 'Edit could not be applied — the target text was not found. Try being more specific.' });
+            }
+          } else {
+            console.warn('⚠️  parseSlideOp null on patches response — no rescuable patches found');
+            return reply.code(502).send({ error: 'Edit could not be applied — try rephrasing' });
+          }
+        } else {
         // Fallback: LLM returned raw HTML instead of JSON
         const stripped = extractHtmlFromResponseGlobal(raw ?? '');
         const startIdx = stripped.search(/<div\b/i);
@@ -5613,6 +5694,7 @@ ${html}`;
         } else {
           return reply.code(502).send({ error: 'LLM returned no recognisable format — try rephrasing' });
         }
+        } // close: else (not patches format — HTML fallback)
       } else {
         if (op.op === 'patches') {
           const { html: patched, applied, missed } = applySlidePatches(html, op.patches);
