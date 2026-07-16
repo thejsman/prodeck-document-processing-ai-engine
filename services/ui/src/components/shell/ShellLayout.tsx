@@ -5,6 +5,8 @@ import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { ExecutionDrawer } from '@/components/system/ExecutionDrawer';
 import { ExecutionTransportManager } from '@/components/system/ExecutionTransportManager';
+import { HelpDrawer } from '@/components/help/HelpDrawer';
+import { HelpLauncher } from '@/components/help/HelpLauncher';
 import { useMobileNav } from '@/lib/mobile-nav-store';
 
 interface Props {
@@ -37,6 +39,8 @@ export function ShellLayout({ children }: Props) {
 
       <ExecutionDrawer />
       <ExecutionTransportManager />
+      <HelpDrawer />
+      <HelpLauncher />
     </div>
   );
 }

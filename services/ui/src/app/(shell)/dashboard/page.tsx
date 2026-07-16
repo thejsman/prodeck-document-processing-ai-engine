@@ -28,7 +28,7 @@ export default function DashboardPage() {
 
   return (
     <PageContainer>
-      <PageHeader title="Dashboard" subtitle="AI document processing overview" />
+      <PageHeader title="Dashboard" subtitle="AI document processing overview" helpTopicId="dashboard" />
 
       <div className="dash-stat-grid">
         <StatCard

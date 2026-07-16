@@ -7,12 +7,14 @@ import { useAuth } from '@/lib/auth-context';
 import { NamespacesSection } from './NamespacesSection';
 import { Archive, MoreVertical, ChevronsLeft, ChevronsRight, Sparkles } from 'lucide-react';
 import { Icon } from '@/components/ui/Icon';
+import { HelpButton } from '@/components/help/HelpButton';
 import { useSidebar } from '@/lib/sidebar-store';
 
 const OVERFLOW_ITEMS = [
   { href: '/proposal/templates', label: 'Templates' },
   { href: '/chat', label: 'Chat' },
   { href: '/dashboard', label: 'Dashboard' },
+  { href: '/help', label: 'Help & FAQ' },
 ];
 
 interface SidebarProps {
@@ -105,6 +107,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             <Icon icon={Sparkles} size="md" className="sidebar-icon" />
             <span className="sidebar-label">Inspiration</span>
           </Link>
+          <HelpButton variant="sidebar" />
           {/* TEMP: Skills section hidden
           <Link
             href="/skills"

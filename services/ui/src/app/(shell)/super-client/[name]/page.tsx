@@ -28,6 +28,7 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
+import { HelpTip } from "@/components/help/HelpTip";
 import { Icon } from "@/components/ui/Icon";
 import { useAuth } from "@/lib/auth-context";
 import { useSidebar } from "@/lib/sidebar-store";
@@ -4278,6 +4279,7 @@ export default function SuperClientPage() {
               <span className="chat-v2-ns">{meta.displayName}</span>
             </div>
             <div className="chat-v2-header-right">
+              <HelpTip topicId="super-client-workspace" size="md" label="Help: client workspace" />
               <ThemeToggle />
               <button
                 className="chat-v2-panel-toggle"

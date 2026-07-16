@@ -11,8 +11,9 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { RefreshCw, Download, Check, ArrowLeft, Loader2, Save, Sparkles, Undo2, Redo2, PanelLeft } from 'lucide-react';
+import { RefreshCw, Download, Check, ArrowLeft, Loader2, Save, Sparkles, Undo2, Redo2, PanelLeft, HelpCircle } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
+import { useHelp } from '@/lib/help/help-store';
 import {
   regenerateSection,
   editSectionHtml,
@@ -526,6 +527,18 @@ export function MicrositeEditorPro({
         <span style={{ fontSize: 12, color: tok.muted }}>
           {localAst.sections.length} sections
         </span>
+
+        {/* Help */}
+        <button
+          onClick={() => useHelp.getState().openHelp('microsite-editor-pro')}
+          title="Help — microsite editor (Pro)"
+          aria-label="Help — microsite editor (Pro)"
+          style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'transparent', border: 'none', borderRadius: 6, cursor: 'pointer', color: tok.muted }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = tok.panelSoft; (e.currentTarget as HTMLElement).style.color = tok.text; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = tok.muted; }}
+        >
+          <HelpCircle size={15} />
+        </button>
 
         {/* Undo / Redo */}
         <div style={{ display: 'flex', gap: 2, marginLeft: 4 }}>
