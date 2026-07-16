@@ -13,6 +13,7 @@ import { TypographyPicker } from './TypographyPicker';
 import { ColorPaletteEditor } from './ColorPaletteEditor';
 import { resolveTokens, getPlugin, THEME_REGISTRY } from '../../../lib/presentation/pluginRegistry';
 import type { LayoutAST, PluginMeta } from '../../../types/presentation';
+import { useHelp } from '@/lib/help/help-store';
 
 // Popular themes shown in quick picker (first 8)
 const QUICK_THEMES = THEME_REGISTRY.slice(0, 8);
@@ -1096,6 +1097,16 @@ function EditorInner({ onClose, onExport, namespace, proposalId }: InnerProps) {
 
         {/* Zone 5 — Tools */}
         <div className="mse-group" style={{ gap: 6, marginLeft: 6 }}>
+
+          {/* Help */}
+          <button
+            className="mse-icon-btn"
+            onClick={() => useHelp.getState().openHelp('microsite-editor')}
+            title="Help — microsite editor"
+            aria-label="Help — microsite editor"
+          >
+            ?
+          </button>
 
           {/* Preview mode toggle */}
           <button
