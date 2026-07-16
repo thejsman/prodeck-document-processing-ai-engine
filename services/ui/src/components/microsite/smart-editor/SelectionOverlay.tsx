@@ -7,6 +7,7 @@ interface Props {
   hovered: BridgeMessage | null;
   selected: BridgeMessage | null;
   isProcessing: boolean;
+  processingLabel?: string;
   onClearSelected: () => void;
 }
 
@@ -15,7 +16,7 @@ function chipLabel(msg: BridgeMessage): string {
   return `${section}${msg.label}`;
 }
 
-export function SelectionOverlay({ hovered, selected, isProcessing, onClearSelected }: Props) {
+export function SelectionOverlay({ hovered, selected, isProcessing, processingLabel = 'Applying edit…', onClearSelected }: Props) {
   return (
     <div
       style={{
@@ -42,7 +43,7 @@ export function SelectionOverlay({ hovered, selected, isProcessing, onClearSelec
           }}
         >
           <SpinnerIcon />
-          Applying edit…
+          {processingLabel}
         </div>
       )}
 

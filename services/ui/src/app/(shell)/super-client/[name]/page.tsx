@@ -6048,7 +6048,7 @@ export default function SuperClientPage() {
                           }}
                           title={
                             micrositeEditing
-                              ? 'Applying edit…'
+                              ? 'Updating microsite…'
                               : editModeActive
                                 ? 'Exit smart edit mode'
                                 : 'Smart edit — click any element to target it'
@@ -6081,7 +6081,7 @@ export default function SuperClientPage() {
                           }}
                           title={
                             slideEditing
-                              ? 'Applying edit…'
+                              ? 'Updating presentation…'
                               : slideEditModeActive
                                 ? 'Exit smart edit mode'
                                 : 'Smart edit — click any element to target it'
@@ -6603,6 +6603,7 @@ export default function SuperClientPage() {
                     hovered={hoveredElement}
                     selected={selectedElement}
                     isProcessing={micrositeEditing}
+                    processingLabel="Updating microsite…"
                     onClearSelected={() => clearBridgeSelection()}
                   />
                 )}
@@ -7566,7 +7567,7 @@ export default function SuperClientPage() {
                   <SelectionOverlay
                     hovered={hoveredSlideElement}
                     selected={selectedSlideElement}
-                    isProcessing={slideEditing}
+                    isProcessing={false}
                     onClearSelected={() => clearSlideSelection()}
                   />
                 )}
