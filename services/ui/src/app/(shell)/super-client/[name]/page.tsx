@@ -28,6 +28,7 @@ import {
   HelpCircle,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
+import { HelpTip } from "@/components/help/HelpTip";
 import { Icon } from "@/components/ui/Icon";
 import { useAuth } from "@/lib/auth-context";
 import { useSidebar } from "@/lib/sidebar-store";
@@ -49,6 +50,7 @@ import {
   injectBridgeScript,
   stripPreviewInjections,
   normalizeMicrositeHtml,
+  injectSlideScaler,
   buildInstruction,
 } from '@/lib/microsite-bridge';
 import { generationStore, type Generation } from '@/lib/generation-store';
@@ -1848,6 +1850,9 @@ export default function SuperClientPage() {
 
   async function handleOpenMicrosite(m: SuperClientMicrosite) {
     if (!name) return;
+    // Clear any selection/hover state from the previous microsite so stale
+    // selectedElement doesn't suppress hover rectangles on the newly opened one.
+    clearBridgeSelection();
     try {
       const ast = await getSuperClientMicrosite(apiKey, name, m.id);
       const html = buildHtml(ast);
@@ -2358,6 +2363,14 @@ export default function SuperClientPage() {
     );
   }
 
+  async function handleGradientTextPatch(gradientCss: string) {
+    if (!selectedElement?.path) return;
+    await applyMicrositeInstruction(
+      `__GRADIENT_TEXT_PATCH__:${selectedElement.path}||${gradientCss}||${hint()}`,
+      'Gradient updated',
+    );
+  }
+
   async function handleTextPatch(newText: string) {
     if (!selectedElement?.path) return;
     await applyMicrositeInstruction(`__TEXT_PATCH__:${selectedElement.path}||${newText}||${hint()}`, 'Text updated');
@@ -2462,6 +2475,10 @@ export default function SuperClientPage() {
   async function handleSlideStylePatch(prop: string, value: string) {
     if (!selectedSlideElement?.path) return;
     await applySlideInstruction(`__STYLE_PATCH__:${selectedSlideElement.path}||${prop}||${value}||${slideHint()}`, `${prop} updated`);
+  }
+  async function handleSlideGradientTextPatch(gradientCss: string) {
+    if (!selectedSlideElement?.path) return;
+    await applySlideInstruction(`__GRADIENT_TEXT_PATCH__:${selectedSlideElement.path}||${gradientCss}||${slideHint()}`, 'Gradient updated');
   }
   async function handleSlideTextPatch(newText: string) {
     if (!selectedSlideElement?.path) return;
@@ -3476,6 +3493,12 @@ export default function SuperClientPage() {
             // artifact is currently open (source proposal or otherwise) is
             // replaced by the freshly generated microsite.
             {
+              // Reset edit mode so the new microsite opens in view-only state.
+              // Without this, if edit mode was active on a previous microsite,
+              // the iframe loads without the bridge (hardcoded false below) but
+              // editModeActive stays true — causing hover/click to silently fail.
+              setEditModeActive(false);
+              clearBridgeSelection();
               const genHtml = buildHtml(ast);
               setActiveSrcDoc(computeSrcDoc(genHtml, false));
               setViewingMicrosite({
@@ -4256,6 +4279,7 @@ export default function SuperClientPage() {
               <span className="chat-v2-ns">{meta.displayName}</span>
             </div>
             <div className="chat-v2-header-right">
+              <HelpTip topicId="super-client-workspace" size="md" label="Help: client workspace" />
               <ThemeToggle />
               <button
                 className="chat-v2-panel-toggle"
@@ -5841,7 +5865,9 @@ export default function SuperClientPage() {
                     onChange={(e) =>
                       micrositeEditActive
                         ? setMicrositeEditInput(e.target.value)
-                        : setInput(e.target.value)
+                        : slideEditActive
+                          ? setSlideEditInput(e.target.value)
+                          : setInput(e.target.value)
                     }
                     onKeyDown={
                       micrositeEditActive
@@ -6024,7 +6050,7 @@ export default function SuperClientPage() {
                           }}
                           title={
                             micrositeEditing
-                              ? 'Applying edit…'
+                              ? 'Updating microsite…'
                               : editModeActive
                                 ? 'Exit smart edit mode'
                                 : 'Smart edit — click any element to target it'
@@ -6044,13 +6070,48 @@ export default function SuperClientPage() {
                           <Pencil size={16} />
                         </button>
                       )}
+                      {viewingSlide && (
+                        <button
+                          disabled={slideEditing}
+                          onClick={() => {
+                            if (slideEditing) return;
+                            const next = !slideEditModeActive;
+                            setSlideEditModeActive(next);
+                            if (!next) clearSlideSelection();
+                            const html = slideCurrentHtmlRef.current;
+                            if (html) applySlideHtml(html, next);
+                          }}
+                          title={
+                            slideEditing
+                              ? 'Updating presentation…'
+                              : slideEditModeActive
+                                ? 'Exit smart edit mode'
+                                : 'Smart edit — click any element to target it'
+                          }
+                          className="theme-toggle"
+                          style={{
+                            background: slideEditModeActive
+                              ? 'color-mix(in srgb, var(--primary) 12%, transparent)'
+                              : 'transparent',
+                            border: '1px solid transparent',
+                            color: slideEditModeActive ? 'var(--primary)' : undefined,
+                            transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+                            opacity: slideEditing ? 0.4 : 1,
+                            cursor: slideEditing ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          <Pencil size={16} />
+                        </button>
+                      )}
                       {/* Send button */}
                       <button
                         className="chat-v2-send-btn"
                         onClick={() =>
                           micrositeEditActive
                             ? void handleMicrositeEdit()
-                            : void sendMessage()
+                            : slideEditActive
+                              ? void handleSlideEdit()
+                              : void sendMessage()
                         }
                         disabled={
                           micrositeEditActive
@@ -6058,7 +6119,9 @@ export default function SuperClientPage() {
                               (!micrositeEditInput.trim() &&
                                 !editingLogo &&
                                 !editingLogoUrl.trim())
-                            : streaming || !input.trim()
+                            : slideEditActive
+                              ? slideEditing || !slideEditInput.trim()
+                              : streaming || !input.trim()
                         }
                       >
                         <Icon
@@ -6542,6 +6605,7 @@ export default function SuperClientPage() {
                     hovered={hoveredElement}
                     selected={selectedElement}
                     isProcessing={micrositeEditing}
+                    processingLabel="Updating microsite…"
                     onClearSelected={() => clearBridgeSelection()}
                   />
                 )}
@@ -6676,6 +6740,7 @@ export default function SuperClientPage() {
                     containerH={iframeContainerH}
                     containerW={iframeContainerW}
                     onStylePatch={handleStylePatch}
+                    onGradientTextPatch={handleGradientTextPatch}
                     onTextPatch={handleTextPatch}
                     onImageReplace={handleImageReplace}
                     onBgImagePatch={handleBgImagePatch}
@@ -7504,7 +7569,7 @@ export default function SuperClientPage() {
                   <SelectionOverlay
                     hovered={hoveredSlideElement}
                     selected={selectedSlideElement}
-                    isProcessing={slideEditing}
+                    isProcessing={false}
                     onClearSelected={() => clearSlideSelection()}
                   />
                 )}
@@ -7515,6 +7580,7 @@ export default function SuperClientPage() {
                     containerH={slideIframeContainerH}
                     containerW={slideIframeContainerW}
                     onStylePatch={handleSlideStylePatch}
+                    onGradientTextPatch={handleSlideGradientTextPatch}
                     onTextPatch={handleSlideTextPatch}
                     onImageReplace={handleSlideImageReplace}
                     onBgImagePatch={handleSlideBgImagePatch}
@@ -9040,22 +9106,17 @@ export default function SuperClientPage() {
         />
       )}
 
-      {/* Full-screen viewer — raw HTML so it matches the published URL exactly.
-          The landscape HTML already contains __slide-scaler__ which reads
-          window.innerWidth inside the iframe and applies transform:scale() to
-          every slide automatically. We just give it a full-viewport iframe and
-          let it do its job — no external CSS transform needed. */}
+      {/* Full-screen viewer. The fixed-canvas scaler (injectSlideScaler) renders each
+          presentation page at its native size scaled uniformly to fit the viewport
+          width — pixel-perfect, no reflow. It owns section sizing/margins, so the old
+          margin:auto centering is dropped; body stays display:block. */}
       {fullscreenMicrosite &&
         (() => {
           const rawHtml = buildHtml(fullscreenMicrosite);
           const bodyOpen = rawHtml.search(/<body[^>]*>/i);
-          // Keep body as display:block regardless of what __slide-scaler__ sets (it uses
-          // flex+align-items:center when vs≥1, which can shift after a scrollbar appears).
-          // Centering slides via margin:auto gives the same result but is stable across
-          // resize events because the centering lives in CSS, not the scaler's inline style.
-          const NAV_FIX = `<style id="__fs-layout-fix__">body{display:block!important;}[data-section-id]{margin-left:auto!important;margin-right:auto!important;}</style><script>document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var id=a.getAttribute('href').slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
+          const NAV_FIX = `<style id="__fs-layout-fix__">body{display:block!important;}</style><script>document.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;e.preventDefault();var id=a.getAttribute('href').slice(1);var el=document.getElementById(id)||document.querySelector('[name="'+id+'"]');if(el)el.scrollIntoView({behavior:'smooth'});},true);</script>`;
           const tagEnd = bodyOpen !== -1 ? rawHtml.indexOf('>', bodyOpen) + 1 : -1;
-          const fsHtml = tagEnd > 0 ? rawHtml.slice(0, tagEnd) + NAV_FIX + rawHtml.slice(tagEnd) : rawHtml;
+          const fsHtml = injectSlideScaler(tagEnd > 0 ? rawHtml.slice(0, tagEnd) + NAV_FIX + rawHtml.slice(tagEnd) : rawHtml);
           const FS_BAR = 40;
           return (
             <div style={{ position: 'fixed', inset: 0, zIndex: 40000, background: '#000', overflow: 'hidden' }}>

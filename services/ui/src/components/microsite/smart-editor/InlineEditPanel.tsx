@@ -223,6 +223,7 @@ interface Props {
   /** Width of the iframe container — used to clamp panel so it never overflows the right edge */
   containerW?: number;
   onStylePatch: (prop: string, value: string) => Promise<void>;
+  onGradientTextPatch: (gradientCss: string) => Promise<void>;
   onTextPatch: (newText: string) => Promise<void>;
   onImageReplace: (url: string) => Promise<void>;
   onBgImagePatch: (url: string) => Promise<void>;
@@ -356,6 +357,59 @@ function bestHexColor(inline: string, computed: string, fallback: string): strin
   if (computed.startsWith('rgb')) return rgbToHex(computed) || fallback;
   if (/^#[0-9a-f]{3,8}$/i.test(computed)) return computed;
   return fallback;
+}
+
+// ── Gradient text detection and parsing ──────────────────────────────────────
+function hasGradientText(outerHtml: string): boolean {
+  const hasGrad = /(?:background(?:-image)?)\s*:\s*(?:linear|radial|conic)-gradient/i.test(outerHtml);
+  const hasClip = /(?:-webkit-)?background-clip\s*:\s*text/i.test(outerHtml);
+  const hasTransparent = /(?:-webkit-text-fill-color|(?:^|;|\s)color)\s*:\s*transparent/i.test(outerHtml);
+  return hasGrad && (hasClip || hasTransparent);
+}
+
+interface GradientSpec { angle: number; stops: string[] }
+
+function parseGradientSpec(outerHtml: string): GradientSpec {
+  const style = outerHtml.match(/style="([^"]*)"/i)?.[1] ?? '';
+  const m = style.match(/(?:background(?:-image)?)\s*:\s*((?:linear|radial|conic)-gradient\([^)]+\))/i);
+  if (!m) return { angle: 135, stops: ['#667eea', '#764ba2'] };
+
+  const inner = m[1].replace(/^(?:linear|radial|conic)-gradient\(/, '').replace(/\)$/, '');
+  const parts: string[] = [];
+  let depth = 0, cur = '';
+  for (const ch of inner) {
+    if (ch === '(') { depth++; cur += ch; }
+    else if (ch === ')') { depth--; cur += ch; }
+    else if (ch === ',' && depth === 0) { parts.push(cur.trim()); cur = ''; }
+    else cur += ch;
+  }
+  if (cur.trim()) parts.push(cur.trim());
+
+  let angle = 135;
+  let stopParts = [...parts];
+  const first = (parts[0] ?? '').trim();
+  if (/^\d+(?:\.\d+)?deg$/i.test(first)) {
+    angle = parseFloat(first); stopParts = parts.slice(1);
+  } else if (/^to\s+/i.test(first)) {
+    const dm = first.match(/to\s+(top|bottom|left|right)(?:\s+(top|bottom|left|right))?/i);
+    if (dm) {
+      const dirs: Record<string, number> = {
+        right: 90, bottom: 180, left: 270, top: 0,
+        'bottom right': 135, 'bottom left': 225, 'top right': 45, 'top left': 315,
+      };
+      angle = dirs[[dm[1], dm[2]].filter(Boolean).join(' ').toLowerCase()] ?? 135;
+    }
+    stopParts = parts.slice(1);
+  }
+
+  const stops = stopParts
+    .map(s => s.replace(/\s+\d+(?:\.\d+)?%$/, '').trim())
+    .filter(s => s.length > 0);
+  return { angle, stops: stops.length >= 2 ? stops : ['#667eea', '#764ba2'] };
+}
+
+function gradientSpecToCss(spec: GradientSpec): string {
+  return `linear-gradient(${spec.angle}deg, ${spec.stops.join(', ')})`;
 }
 
 // ── Font options ─────────────────────────────────────────────────────────────
@@ -544,6 +598,146 @@ function ColorSwatch({ initial, title, disabled, onCommit }: {
   );
 }
 
+// ── Gradient editor popup ────────────────────────────────────────────────────
+function GradientEditor({ spec, disabled, openBelow, onCommit, onClose }: {
+  spec: GradientSpec;
+  disabled: boolean;
+  openBelow?: boolean;
+  onCommit: (spec: GradientSpec) => void;
+  onClose: () => void;
+}) {
+  const [angle, setAngle] = useState(spec.angle);
+  const [stops, setStops] = useState<string[]>(spec.stops);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  function stopHex(color: string): string {
+    if (/^#[0-9a-f]{6}$/i.test(color)) return color;
+    if (/^#[0-9a-f]{3}$/i.test(color)) {
+      const c = color.slice(1);
+      return `#${c[0]}${c[0]}${c[1]}${c[1]}${c[2]}${c[2]}`;
+    }
+    if (color.startsWith('rgb')) return rgbToHex(color) || '#ffffff';
+    return '#ffffff';
+  }
+
+  function updateStop(i: number, hex: string) {
+    const next = [...stops];
+    next[i] = hex;
+    setStops(next);
+  }
+
+  const preview = `linear-gradient(${angle}deg, ${stops.join(', ')})`;
+  const PRESETS = [
+    { l: '→', a: 90 }, { l: '↓', a: 180 }, { l: '↗', a: 45 }, { l: '↘', a: 135 },
+  ];
+
+  return (
+    <div style={{
+      position: 'absolute',
+      ...(openBelow ? { top: 'calc(100% + 10px)' } : { bottom: 'calc(100% + 10px)' }),
+      left: '50%',
+      transform: 'translateX(-50%)',
+      width: 224,
+      maxWidth: 'calc(100vw - 32px)',
+      background: 'rgba(12,12,12,0.97)',
+      backdropFilter: 'blur(24px)',
+      WebkitBackdropFilter: 'blur(24px)',
+      border: '1px solid rgba(255,255,255,0.14)',
+      borderRadius: 12,
+      boxShadow: '0 -12px 40px rgba(0,0,0,0.65)',
+      padding: 12,
+      zIndex: 50,
+    }}>
+      {/* Gradient preview bar */}
+      <div style={{
+        height: 26, borderRadius: 6, background: preview, marginBottom: 10,
+        border: '1px solid rgba(255,255,255,0.1)',
+      }} />
+
+      {/* Color stops */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 10 }}>
+        {stops.map((stop, i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', width: 30, flexShrink: 0 }}>
+              {i === 0 ? 'Start' : i === stops.length - 1 ? 'End' : `Stop ${i + 1}`}
+            </span>
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <div
+                onClick={() => inputRefs.current[i]?.click()}
+                style={{
+                  width: 20, height: 20, borderRadius: '50%',
+                  background: stop,
+                  border: '2px solid rgba(255,255,255,0.3)',
+                  cursor: 'pointer',
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+                }}
+              />
+              <input
+                ref={el => { inputRefs.current[i] = el; }}
+                type="color"
+                value={stopHex(stop)}
+                onChange={e => updateStop(i, e.target.value)}
+                disabled={disabled}
+                style={{ position: 'absolute', opacity: 0, width: 0, height: 0, top: 0, left: 0 }}
+              />
+            </div>
+            <span style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.4)', fontFamily: 'monospace' }}>
+              {stopHex(stop)}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Angle row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 12 }}>
+        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', width: 30, flexShrink: 0 }}>Angle</span>
+        {PRESETS.map(p => (
+          <button key={p.l} onClick={() => setAngle(p.a)} style={{
+            width: 22, height: 22, borderRadius: 4, flexShrink: 0,
+            border: `1px solid ${angle === p.a ? 'rgba(99,102,241,0.6)' : 'rgba(255,255,255,0.12)'}`,
+            background: angle === p.a ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.06)',
+            color: angle === p.a ? '#a5b4fc' : 'rgba(255,255,255,0.55)',
+            cursor: 'pointer', fontSize: 11,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>{p.l}</button>
+        ))}
+        <input
+          type="number" min={0} max={360} value={angle}
+          onChange={e => setAngle(Math.max(0, Math.min(360, Number(e.target.value))))}
+          style={{
+            width: 40, height: 22, textAlign: 'center', fontSize: 10, borderRadius: 4,
+            border: '1px solid rgba(255,255,255,0.12)',
+            background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)',
+            outline: 'none', flexShrink: 0,
+          }}
+        />
+        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>°</span>
+      </div>
+
+      {/* Footer buttons */}
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button onClick={onClose} style={{
+          flex: 1, height: 26, borderRadius: 6,
+          border: '1px solid rgba(255,255,255,0.1)',
+          background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.45)',
+          cursor: 'pointer', fontSize: 11,
+        }}>Cancel</button>
+        <button
+          disabled={disabled}
+          onClick={() => onCommit({ angle, stops })}
+          style={{
+            flex: 2, height: 26, borderRadius: 6,
+            border: '1px solid rgba(99,102,241,0.5)',
+            background: disabled ? 'rgba(255,255,255,0.05)' : 'rgba(99,102,241,0.75)',
+            color: disabled ? 'rgba(255,255,255,0.25)' : '#fff',
+            cursor: disabled ? 'not-allowed' : 'pointer',
+            fontSize: 11, fontWeight: 600,
+          }}>Apply Gradient</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Small icon button ────────────────────────────────────────────────────────
 function IconBtn({ active, disabled, onClick, children, title }: {
   active?: boolean; disabled?: boolean; onClick: () => void;
@@ -578,7 +772,7 @@ function isNavLogoEl(path: string, tag: string, outerHtml: string): boolean {
   return tag === 'img' || tag === 'span' || tag === 'svg';
 }
 
-export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, containerW = 0, onStylePatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onSvgReplace, onLogoReplace, onVideoReplace, onRemoveSection, onRemoveSectionContainer, onClose }: Props) {
+export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, containerW = 0, onStylePatch, onGradientTextPatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onSvgReplace, onLogoReplace, onVideoReplace, onRemoveSection, onRemoveSectionContainer, onClose }: Props) {
   const tag      = selected.tag?.toLowerCase() ?? '';
   const isImg    = isImgEl(tag);
   // A container (div/section) elevated from an <img> click via elevateToContainer:
@@ -663,6 +857,8 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
   //       rather than being silently dropped; __TEXT_PATCH__ replaces the full innerHTML
   //       so there is no leading-text prepend duplication.
   const isLeaf = isText && (!hasChildElements || isTextLikeByType);
+  const isGradientText = isText && hasGradientText(selected.outerHtml);
+  const gradientSpec   = isGradientText ? parseGradientSpec(selected.outerHtml) : null;
 
   const [localFontSize,   setLocalFontSize]   = useState(16);
   const [localFontFamily, setLocalFontFamily] = useState('');
@@ -689,6 +885,7 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
   }, [selected.path, selected.outerHtml, selected.text]);
 
   const [showIconPicker, setShowIconPicker] = useState(false);
+  const [showGradientEditor, setShowGradientEditor] = useState(false);
 
   // Self-measure panel width AND container width via offsetParent.
   // useLayoutEffect is synchronous before paint, so there is never a visible flicker
@@ -789,6 +986,20 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
         />
       )}
 
+      {/* Gradient editor — floats above/below toolbar when a gradient text element is selected */}
+      {isGradientText && showGradientEditor && gradientSpec && (
+        <GradientEditor
+          spec={gradientSpec}
+          disabled={dis}
+          openBelow={floatTop < 300}
+          onCommit={(s) => {
+            setShowGradientEditor(false);
+            void onGradientTextPatch(gradientSpecToCss(s));
+          }}
+          onClose={() => setShowGradientEditor(false)}
+        />
+      )}
+
     {/* Toolbar */}
     <div
       style={{
@@ -860,12 +1071,28 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
         <>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
             <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>A</span>
-            <ColorSwatch
-              initial={textColorHex}
-              title="Text color"
-              disabled={dis}
-              onCommit={(hex) => void onStylePatch('color', hex)}
-            />
+            {isGradientText && gradientSpec ? (
+              <div
+                title="Gradient text color — click to edit"
+                onClick={() => !dis && setShowGradientEditor(p => !p)}
+                style={{
+                  width: 20, height: 20, borderRadius: '50%',
+                  background: gradientSpecToCss(gradientSpec),
+                  border: `2px solid ${showGradientEditor ? 'rgba(99,102,241,0.8)' : 'rgba(255,255,255,0.3)'}`,
+                  cursor: dis ? 'not-allowed' : 'pointer',
+                  opacity: dis ? 0.4 : 1,
+                  boxShadow: '0 1px 4px rgba(0,0,0,0.5)',
+                  flexShrink: 0,
+                }}
+              />
+            ) : (
+              <ColorSwatch
+                initial={textColorHex}
+                title="Text color"
+                disabled={dis}
+                onCommit={(hex) => void onStylePatch('color', hex)}
+              />
+            )}
           </div>
 
           <Sep />
