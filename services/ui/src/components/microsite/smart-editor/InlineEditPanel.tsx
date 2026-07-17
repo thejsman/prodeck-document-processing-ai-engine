@@ -820,7 +820,9 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
 
   // Treat element as "text" if it's a known text tag OR a leaf element with only text content.
   // Background containers are always excluded from the text classification.
-  const hasChildElements = /<\w/.test(
+  // Only count block-level children as "child elements" — inline tags like
+  // <br>, <span>, <em>, <a>, <strong> don't make a div non-text.
+  const hasChildElements = /<(div|section|article|ul|ol|table|tr|td|th|p|h[1-6]|header|footer|nav|main|aside|figure|figcaption|blockquote|pre|form|fieldset|dl|dt|dd)\b/i.test(
     selected.outerHtml.replace(/^<[^>]+>/, '').replace(/<\/[^>]+>$/, ''),
   );
   // A childless, non-img, non-icon element is only "text" if it actually HAS
@@ -1196,10 +1198,11 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
         </>
       )}
 
-      {/* Background image URL + local upload — bg-containers + generic containers.
+      {/* Background image URL + local upload — explicit bg-containers + empty containers.
+          Suppressed when the element has text content (it's a text block, not a bg layer).
           Nav-logo elements use LOGO controls instead.
           Video containers use the VIDEO control below instead. */}
-      {(isBgContainer || (!isImgLike && !isText && !isIcon && !isNavLogo)) && !isVideoLike && (
+      {(isBgContainer || (!isImgLike && !isText && !isIcon && !isNavLogo && !hasTextContent)) && !isVideoLike && (
         <>
           <Sep />
           <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>BG IMG</span>
