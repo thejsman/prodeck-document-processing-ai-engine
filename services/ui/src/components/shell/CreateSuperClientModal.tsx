@@ -26,8 +26,13 @@ interface Step {
 
 type Phase = 'form' | 'creating' | 'done' | 'error';
 
-function buildSteps(hasUrl: boolean, hasNotes: boolean): Step[] {
-  const steps: Step[] = [
+// A URL kicks off a real background pipeline (crawl -> client-knowledge ->
+// design-system), but that takes minutes — far too long to keep this modal
+// open. Progress for that lives on the destination page instead (chat
+// narration + the Documents panel), so this modal's only job is creating
+// the client profile and getting out of the way.
+function buildSteps(): Step[] {
+  return [
     {
       id: 'profile',
       label: 'Create client profile',
@@ -36,25 +41,6 @@ function buildSteps(hasUrl: boolean, hasNotes: boolean): Step[] {
       status: 'active',
     },
   ];
-  if (hasUrl) {
-    steps.push({
-      id: 'website',
-      label: 'Analyze website',
-      activeLabel: 'Analyzing website…',
-      doneLabel: 'Website analyzed',
-      status: 'pending',
-    });
-  }
-  if (hasUrl || hasNotes) {
-    steps.push({
-      id: 'intel',
-      label: 'Build client intelligence',
-      activeLabel: 'Building client intelligence…',
-      doneLabel: 'Intelligence built',
-      status: 'pending',
-    });
-  }
-  return steps;
 }
 
 // ── Step row component ───────────────────────────────────────────
@@ -150,7 +136,7 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
   const { apiKey } = useAuth();
   const router = useRouter();
   const mountedRef = useRef(true);
-  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const navigateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [displayName, setDisplayName] = useState('');
   const [url, setUrl] = useState('');
@@ -166,7 +152,7 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      timersRef.current.forEach(clearTimeout);
+      if (navigateTimerRef.current) clearTimeout(navigateTimerRef.current);
     };
   }, []);
 
@@ -179,23 +165,8 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [onClose, phase]);
 
-  function addTimer(fn: () => void, ms: number) {
-    const id = setTimeout(fn, ms);
-    timersRef.current.push(id);
-    return id;
-  }
-
   function setStepStatus(id: string, status: StepStatus) {
     setSteps((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)));
-  }
-
-  function activateNextPending() {
-    setSteps((prev) => {
-      const next = [...prev];
-      const idx = next.findIndex((s) => s.status === 'pending');
-      if (idx !== -1) next[idx] = { ...next[idx], status: 'active' };
-      return next;
-    });
   }
 
   async function handleCreate() {
@@ -205,34 +176,13 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
       return;
     }
 
-    const hasUrl = !!url.trim();
-    const hasNotes = !!notes.trim();
-    const initialSteps = buildSteps(hasUrl, hasNotes);
-
     setPendingName(trimmedName);
-    setSteps(initialSteps);
+    setSteps(buildSteps());
     setPhase('creating');
     setApiError('');
 
-    // Simulate step 1 completing quickly (~700 ms)
-    addTimer(() => {
-      if (!mountedRef.current) return;
-      setStepStatus('profile', 'done');
-      activateNextPending();
-    }, 700);
-
-    // If there are 3 steps, activate the third one after a few seconds
-    if (initialSteps.length === 3) {
-      addTimer(() => {
-        if (!mountedRef.current) return;
-        activateNextPending();
-      }, 4000);
-    }
-
     try {
       const result = await createSuperClient(apiKey, trimmedName, url.trim() || undefined, notes.trim() || undefined);
-
-      timersRef.current.forEach(clearTimeout);
 
       if (!mountedRef.current) {
         // User already closed — still call onCreated so sidebar refreshes
@@ -240,19 +190,19 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
         return;
       }
 
-      // All steps → done
-      setSteps((prev) => prev.map((s) => ({ ...s, status: 'done' })));
+      setStepStatus('profile', 'done');
       onCreated(result.name);
       setPhase('done');
 
-      // Auto-navigate after brief "done" moment
-      addTimer(() => {
+      // Brief "done" flash, then get out of the way — any background
+      // enrichment (crawl/client-knowledge/design-system) narrates itself on
+      // the destination page, not here.
+      navigateTimerRef.current = setTimeout(() => {
         if (!mountedRef.current) return;
         onClose();
         router.push(`/super-client/${result.name}`);
-      }, 900);
+      }, 400);
     } catch (err) {
-      timersRef.current.forEach(clearTimeout);
       if (!mountedRef.current) return;
       const msg = (err as Error).message ?? 'Something went wrong';
       // 409 = duplicate name — go back to form with a simple inline error
@@ -551,21 +501,12 @@ export function CreateSuperClientModal({ onClose, onCreated }: Props) {
 
             {/* Footer hint / status */}
             {phase === 'creating' && (
-              <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0, opacity: 0.55 }}>
-                This usually takes 15–30 seconds. You can close this and we'll run it in the background.
-              </p>
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0, opacity: 0.55 }}>This usually takes just a moment.</p>
             )}
 
             {phase === 'done' && (
               <p
-                style={{
-                  fontSize: 13,
-                  color: 'var(--muted)',
-                  margin: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
+                style={{ fontSize: 13, color: 'var(--muted)', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}
               >
                 <Loader size={12} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
                 Opening {pendingName}…

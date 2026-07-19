@@ -2292,6 +2292,17 @@ export interface SuperClientMeta {
   createdAt: string;
 }
 
+// A settled step from the background-job narration timeline. Persisted
+// verbatim so a reload re-renders the exact dot/connector timeline instead
+// of falling back to plain markdown.
+export interface NarrationStepRecord {
+  title: string;
+  doneResponse: string;
+  failedResponse: string;
+  status: 'done' | 'failed';
+  error?: string;
+}
+
 export interface SuperClientHistoryEntry {
   role: 'user' | 'assistant';
   content: string;
@@ -2300,6 +2311,7 @@ export interface SuperClientHistoryEntry {
   // Present when this assistant turn asked a clarifying question — used to render
   // it as a distinct question card on reload.
   pendingClarification?: { proposedIntent?: string; skillSlug?: string; format?: string };
+  narrationSteps?: NarrationStepRecord[];
 }
 
 export interface SuperClientDetail {
@@ -2331,6 +2343,37 @@ export async function createSuperClient(
     throw new Error(`createSuperClient failed (${res.status}): ${text}`);
   }
   return res.json() as Promise<{ name: string; displayName: string; contextMd: string }>;
+}
+
+export interface SuperClientEnrichmentStatus {
+  status: 'none' | 'running' | 'generating_summary' | 'generating_design_system' | 'complete' | 'failed';
+  url?: string;
+  pagesCrawled?: number;
+  factsCount?: number;
+  summaryPath?: string;
+  error?: string;
+  design?: {
+    status: 'skipped' | 'complete' | 'failed';
+    designSystemPath?: string;
+    tokenCount?: number;
+    visionSucceeded?: boolean;
+    error?: string;
+  };
+}
+
+/** Polled by the create-client modal for real background-job progress. */
+export async function getSuperClientEnrichmentStatus(
+  apiKey: string,
+  name: string,
+): Promise<SuperClientEnrichmentStatus> {
+  const res = await fetch(`/api/super-clients/${name}/enrichment-status`, {
+    headers: authHeaders(apiKey),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`getSuperClientEnrichmentStatus failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<SuperClientEnrichmentStatus>;
 }
 
 export async function enrichSuperClientUrl(
@@ -2743,7 +2786,13 @@ export async function deleteSlide(apiKey: string, name: string, id: string): Pro
 export async function appendSuperClientHistory(
   apiKey: string,
   name: string,
-  messages: Array<{ role: 'user' | 'assistant'; content: string; createdAt?: string; editContext?: 'microsite' | 'proposal' | 'document' | 'slide' }>,
+  messages: Array<{
+    role: 'user' | 'assistant';
+    content: string;
+    createdAt?: string;
+    editContext?: 'microsite' | 'proposal' | 'document' | 'slide';
+    narrationSteps?: NarrationStepRecord[];
+  }>,
 ): Promise<void> {
   await fetch(`/api/super-clients/${name}/history/append`, {
     method: 'POST',

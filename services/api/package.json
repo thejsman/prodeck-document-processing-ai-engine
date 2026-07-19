@@ -11,7 +11,8 @@
     "start": "node --env-file=../../deployment/.env dist/index.js",
     "dev": "tsc --watch --preserveWatchOutput & node --env-file=../../deployment/.env --watch-path=./dist dist/index.js",
     "clean": "rm -rf dist",
-    "test": "vitest run"
+    "test": "vitest run",
+    "site-facts:extract": "node --env-file=../../deployment/.env dist/site-facts/cli.js"
   },
   "dependencies": {
     "@ai-engine/agent-design-editor": "workspace:*",

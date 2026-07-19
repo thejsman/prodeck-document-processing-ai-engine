@@ -12,6 +12,14 @@ from .base_provider import LLMProvider
 # large, richly-styled multi-slide decks real headroom.
 MAX_OUTPUT_TOKENS = 64000
 
+# generate_with_image() calls messages.create() directly (non-streaming,
+# unlike generate()/generate_stream()'s bridge-level streaming path), and
+# Anthropic's API refuses non-streaming requests above a max_tokens
+# threshold ("Streaming is required for operations that may take longer
+# than 10 minutes"). Vision analysis responses are small structured JSON —
+# a few hundred tokens — so this stays well clear of that limit.
+VISION_MAX_OUTPUT_TOKENS = 4096
+
 # Claude models with native vision support
 VISION_MODELS = {
     "claude-opus-4-7",
@@ -105,7 +113,7 @@ class AnthropicProvider(LLMProvider):
         try:
             response = self._client.messages.create(
                 model=vision_model,
-                max_tokens=MAX_OUTPUT_TOKENS,
+                max_tokens=VISION_MAX_OUTPUT_TOKENS,
                 messages=[{
                     "role": "user",
                     "content": [
