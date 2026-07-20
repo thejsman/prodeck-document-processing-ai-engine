@@ -2634,6 +2634,27 @@ body {
   padding: 2px 0;
 }
 
+/* Collapsible chat text — clamp long messages (e.g. a custom generation prompt)
+   to a fixed number of lines until the user taps "View more". */
+.chat-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  overflow: hidden;
+}
+.chat-viewmore-btn {
+  align-self: flex-start;
+  margin-top: 3px;
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: #706F6B;
+  cursor: pointer;
+}
+.chat-viewmore-btn:hover { text-decoration: underline; }
+
 /* Markdown prose inside assistant bubble */
 .chat-v2-message--assistant .chat-v2-bubble p { margin: 0 0 8px; }
 .chat-v2-message--assistant .chat-v2-bubble p:last-child { margin-bottom: 0; }
