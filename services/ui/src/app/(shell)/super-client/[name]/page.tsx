@@ -3355,7 +3355,10 @@ export default function SuperClientPage() {
     const proposalTitle = composerProposal.proposal.title;
     const micrositeTitle = proposalTitle.replace(/\bProposal\b/g, 'Microsite').replace(/\bproposal\b/g, 'microsite');
     const proposalMarkdown = composerProposal.markdown;
-    const proposalInstructions = composerInstructions || undefined;
+    const proposalInstructions = composerInstructions.trim() || undefined;
+    // User-visible chat message for this action — includes the custom prompt so
+    // it shows in the chat UI and persists in server history.
+    const userActionContent = `Generate microsite for "${proposalTitle}"${composerPresentationMode !== 'web' ? ` (PDF ${composerPresentationMode === 'pdf-portrait' ? '9:16' : '16:9'})` : ''}${proposalInstructions ? ` — ${proposalInstructions}` : ''}`;
     const proposalImage = composerImage ?? undefined;
     const proposalLogo: { base64: string; mediaType: string } | { url: string } | undefined =
       composerLogo ?? (composerLogoUrl.trim() ? { url: composerLogoUrl.trim() } : undefined);
@@ -3376,9 +3379,16 @@ export default function SuperClientPage() {
     });
     localGenIdsRef.current.add(msGenId);
 
-    // Add artifact message to chat and collapse composer immediately
+    // Add the user's request (with any custom prompt) plus the artifact message
+    // to chat, and collapse the composer immediately.
     setMessages((prev) => [
       ...prev,
+      {
+        id: genId(),
+        role: 'user',
+        content: userActionContent,
+        createdAt: generationStartedAt,
+      },
       {
         id: `gen-msg-${msGenId}`,
         role: 'assistant',
@@ -3386,6 +3396,12 @@ export default function SuperClientPage() {
         generationId: msGenId,
         createdAt: new Date().toISOString(),
       },
+    ]);
+    // Persist the user request right away — if the page is closed or reloaded
+    // mid-generation, the prompt is not lost (the generation capsule itself is
+    // already synced to the server via the generation store).
+    void appendSuperClientHistory(apiKey, name, [
+      { role: 'user', content: userActionContent, createdAt: generationStartedAt },
     ]);
     resetComposer();
 
@@ -3523,12 +3539,8 @@ export default function SuperClientPage() {
                 });
                 loadMicrosites(); // sync with server
                 showToast('Microsite generated and saved');
+                // User request was already persisted at generation start.
                 void appendSuperClientHistory(apiKey, name, [
-                  {
-                    role: 'user',
-                    content: `Generate microsite for "${proposalTitle}"${composerPresentationMode !== 'web' ? ` (PDF ${composerPresentationMode === 'pdf-portrait' ? '9:16' : '16:9'})` : ''}`,
-                    createdAt: generationStartedAt,
-                  },
                   {
                     role: 'assistant',
                     content: `Microsite generated: **${saved.title ?? micrositeTitle}**`,
@@ -3549,12 +3561,8 @@ export default function SuperClientPage() {
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
         generationStore.error(msGenId, (err as Error).message);
+        // User request was already persisted at generation start.
         void appendSuperClientHistory(apiKey, name, [
-          {
-            role: 'user',
-            content: `Generate microsite for "${proposalTitle}"${composerPresentationMode !== 'web' ? ` (PDF ${composerPresentationMode === 'pdf-portrait' ? '9:16' : '16:9'})` : ''}`,
-            createdAt: generationStartedAt,
-          },
           {
             role: 'assistant',
             content: `Microsite generation failed: ${(err as Error).message}`,
