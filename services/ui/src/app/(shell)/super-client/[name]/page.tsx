@@ -437,6 +437,43 @@ function ArtifactCard({
   );
 }
 
+// CollapsibleText — renders chat text clamped to a fixed number of lines (see the
+// `.chat-clamp` rule in globals.css) with a "View more"/"View less" toggle. The
+// toggle only appears when the text actually overflows the clamp (measured after
+// layout, re-measured on resize).
+function CollapsibleText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || expanded) return; // only measure while clamped
+    const measure = () => setOverflowing(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text, expanded]);
+
+  return (
+    <>
+      <div ref={ref} className={expanded ? undefined : 'chat-clamp'}>
+        {text}
+      </div>
+      {overflowing && (
+        <button
+          type="button"
+          className="chat-viewmore-btn"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? 'View less' : 'View more'}
+        </button>
+      )}
+    </>
+  );
+}
+
 // UploadMessageCard — upload progress card rendered in the chat thread (user side).
 // Subscribes directly to uploadStore for XHR progress, and reads live doc status
 // from `docs` (polled by the right panel) to show a rich sequential step visualization.
@@ -4392,7 +4429,9 @@ export default function SuperClientPage() {
                     }
                     return (
                       <div key={msg.id} className="chat-v2-message chat-v2-message--user">
-                        <div className="chat-v2-bubble">{visibleContent}</div>
+                        <div className="chat-v2-bubble">
+                          <CollapsibleText text={visibleContent} />
+                        </div>
                       </div>
                     );
                   }
