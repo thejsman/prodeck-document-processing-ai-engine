@@ -1,6 +1,6 @@
 export interface BridgeMessage {
   source: 'microsite-bridge';
-  type: 'hover' | 'select' | 'leave' | 'track-update' | 'text-commit';
+  type: 'hover' | 'select' | 'leave' | 'track-update' | 'text-commit' | 'text-blur';
   /** Raw HTML tag name: "div", "h1", "img", "svg", "button" */
   tag: string;
   /** Display label: "div.ms-card", "h1", "img", "section#hero" */
@@ -24,6 +24,13 @@ export interface BridgeMessage {
   sectionRect?: { top: number; left: number; width: number; height: number };
   /** The committed plain-text content. Only on 'text-commit'. */
   commitText?: string;
+  /** The CSS path of the element that was being edited. Only on 'text-commit'.
+   *  Captured at enable time so it is immune to selection-change races. */
+  commitPath?: string;
+  /** Session ID echoed from the enable-contenteditable message.
+   *  React discards text-commits whose session ID doesn't match the current one
+   *  (e.g. when Undo/Redo was clicked after blur but before the message arrived). */
+  sessionId?: number;
 }
 
 const REMOVAL_RE = /\b(remove|delete|hide|take\s+out|get\s+rid\s+of|eliminate|clear)\b/i;
@@ -694,12 +701,17 @@ var trackRaf   = null;
 var trackRect  = null;
 
 // ── In-place contenteditable editing ─────────────────────────────────────
-var contentEditableEl       = null;
-var contentEditableOrigText = null;
+var contentEditableEl        = null;
+var contentEditableOrigText  = null;
+// Path and session ID captured from the 'enable-contenteditable' message.
+// Both are baked in at start of edit and echoed back in text-commit so React
+// can use the correct element path and discard stale commits after undo/redo.
+var contentEditablePath      = '';
+var contentEditableSessionId = 0;
 // The normalized (getInteresting) element for the current selection — used as
 // the contenteditable target. Kept separate from selectedEl so the tracking
 // loop's termination check (selectedEl !== raw) is not disturbed.
-var contentEditTargetEl     = null;
+var contentEditTargetEl      = null;
 
 function startTracking(raw) {
   var el = getInteresting(raw);
@@ -787,6 +799,8 @@ window.addEventListener('message', function (e) {
     window.focus();
     contentEditableEl       = contentEditTargetEl;
     contentEditableOrigText = contentEditTargetEl.textContent;
+    contentEditablePath      = e.data.path || '';
+    contentEditableSessionId = e.data.sessionId || 0;
     contentEditTargetEl.setAttribute('contenteditable', 'true');
     contentEditTargetEl.style.outline       = '2px solid rgba(99,102,241,0.8)';
     contentEditTargetEl.style.outlineOffset = '2px';
@@ -795,39 +809,51 @@ window.addEventListener('message', function (e) {
     var r = document.createRange(), s = window.getSelection();
     r.selectNodeContents(contentEditTargetEl); r.collapse(false);
     s.removeAllRanges(); s.addRange(r);
-    // Auto-commit on blur — fires when user clicks a different element or outside.
-    // Captured in a closure so it still works if contentEditableEl is reassigned.
-    (function (el, origText) {
+    // On blur: clean up visual state and send text-blur with the current text.
+    // React schedules a deferred commit guarded by the session counter — clicking
+    // Undo before the timeout fires increments the counter, discarding the commit.
+    // The generation counter in applyMicrositeInstruction provides a second layer
+    // of protection in case the timeout fires before the Undo click handler.
+    (function (el, origText, capturedPath, capturedSessionId) {
       el.addEventListener('blur', function onCEBlur() {
-        if (!el.isContentEditable) return; // already committed by explicit commit msg
+        if (!el.isContentEditable) return;
         var text = el.textContent || '';
         el.removeAttribute('contenteditable');
         el.style.outline = el.style.outlineOffset = el.style.cursor = '';
         if (contentEditableEl === el) { contentEditableEl = null; contentEditableOrigText = null; }
-        // Only send text-commit when text actually changed
-        if (text !== origText) {
-          window.parent.postMessage({ source: 'microsite-bridge', type: 'text-commit', commitText: text }, '*');
-        }
+        window.parent.postMessage({
+          source: 'microsite-bridge',
+          type: 'text-blur',
+          commitText: text !== origText ? text : undefined,
+          commitPath: capturedPath,
+          sessionId: capturedSessionId,
+        }, '*');
       }, { once: true });
-    }(contentEditTargetEl, contentEditTargetEl.textContent));
+    }(contentEditTargetEl, contentEditTargetEl.textContent, e.data.path || '', e.data.sessionId || 0));
   }
   if (e.data.type === 'commit-contenteditable' && contentEditableEl) {
     var committed = contentEditableEl.textContent || '';
+    var commitPath = contentEditablePath;
+    var commitSession = contentEditableSessionId;
     contentEditableEl.removeAttribute('contenteditable');
     contentEditableEl.style.outline       = '';
     contentEditableEl.style.outlineOffset = '';
     contentEditableEl.style.cursor        = '';
-    contentEditableEl = null;
-    window.parent.postMessage({ source: 'microsite-bridge', type: 'text-commit', commitText: committed }, '*');
+    contentEditableEl        = null;
+    contentEditablePath      = '';
+    contentEditableSessionId = 0;
+    window.parent.postMessage({ source: 'microsite-bridge', type: 'text-commit', commitText: committed, commitPath: commitPath, sessionId: commitSession }, '*');
   }
   if (e.data.type === 'cancel-contenteditable' && contentEditableEl) {
-    contentEditableEl.textContent          = contentEditableOrigText;
-    contentEditableEl.removeAttribute('contenteditable');
-    contentEditableEl.style.outline       = '';
-    contentEditableEl.style.outlineOffset = '';
-    contentEditableEl.style.cursor        = '';
-    contentEditableEl       = null;
-    contentEditableOrigText = null;
+    var cancelEl = contentEditableEl;
+    cancelEl.textContent = contentEditableOrigText;
+    cancelEl.removeAttribute('contenteditable');
+    cancelEl.style.outline = cancelEl.style.outlineOffset = cancelEl.style.cursor = '';
+    contentEditableEl        = null;
+    contentEditableOrigText  = null;
+    contentEditablePath      = '';
+    contentEditableSessionId = 0;
+    cancelEl.blur();
   }
 }, false);
 

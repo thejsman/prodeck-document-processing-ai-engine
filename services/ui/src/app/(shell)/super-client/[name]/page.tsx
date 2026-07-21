@@ -872,6 +872,17 @@ export default function SuperClientPage() {
 
   // Tracks whether in-place contenteditable is active in either iframe.
   const [contentEditingActive, setContentEditingActive] = useState(false);
+  // Monotonically-increasing counter identifying the current contenteditable session.
+  // Incremented each time enable-contenteditable is sent AND each time Undo/Redo fires.
+  // The bridge echoes it back in text-commit; if the counter has advanced (because
+  // undo/redo ran after blur queued the message), the stale commit is discarded.
+  const contentEditableSessionRef = useRef(0);
+  // Generation counter for in-flight applyMicrositeInstruction / applySlideInstruction calls.
+  // Incremented on every undo/redo so any server response that was started by a now-stale
+  // text-commit (which arrived before the undo click fired) is silently discarded when
+  // it comes back — preventing the undo from being overwritten by a stale patch.
+  const micrositeInstructionGenRef = useRef(0);
+  const slideInstructionGenRef = useRef(0);
 
   // ── Slide smart-edit mode ─────────────────────────────────────────────────
   const [slideEditModeActive, setSlideEditModeActive] = useState(false);
@@ -1691,10 +1702,31 @@ export default function SuperClientPage() {
         setSelectedElement((prev) => (prev ? { ...prev, rect: msg.rect } : prev));
         setHoveredElement((prev) => (prev ? { ...prev, rect: msg.rect } : prev));
       } else if (msg.type === 'select') { setSelectedElement(msg); setContentEditingActive(false); }
+      else if (msg.type === 'text-blur') {
+        setContentEditingActive(false);
+        // If text changed, schedule a deferred commit guarded by the session counter.
+        // Undo/Redo increment the session counter before the timeout fires, so the
+        // check below discards the commit when the user clicks Undo. The generation
+        // counter in applyMicrositeInstruction provides a second layer: even if the
+        // timeout fires before the Undo click handler, the stale server response is
+        // discarded when it returns.
+        if (msg.commitText !== undefined && msg.commitPath) {
+          const capturedSession = msg.sessionId;
+          const capturedPath = msg.commitPath;
+          const capturedText = msg.commitText;
+          const capturedEl = selectedElementRef.current;
+          setTimeout(() => {
+            if (capturedSession !== contentEditableSessionRef.current) return;
+            const hint = capturedEl?.outerHtml?.slice(0, 400) ?? '';
+            void applyMicrositeInstructionRef.current(`__TEXT_PATCH__:${capturedPath}||${capturedText}||${hint}`, 'Text updated');
+          }, 0);
+        }
+      }
       else if (msg.type === 'text-commit') {
         setContentEditingActive(false);
+        const path = msg.commitPath || selectedElementRef.current?.path;
         const el = selectedElementRef.current;
-        if (el?.path) void applyMicrositeInstructionRef.current(`__TEXT_PATCH__:${el.path}||${msg.commitText ?? ''}||${el.outerHtml?.slice(0, 400) ?? ''}`, 'Text updated');
+        if (path) void applyMicrositeInstructionRef.current(`__TEXT_PATCH__:${path}||${msg.commitText ?? ''}||${el?.outerHtml?.slice(0, 400) ?? ''}`, 'Text updated');
       }
     }
     window.addEventListener('message', onMessage);
@@ -1715,10 +1747,25 @@ export default function SuperClientPage() {
         setSelectedSlideElement((prev) => prev ? { ...prev, rect: msg.rect } : prev);
         setHoveredSlideElement((prev) => prev ? { ...prev, rect: msg.rect } : prev);
       } else if (msg.type === "select") { setSelectedSlideElement(msg); setContentEditingActive(false); }
+      else if (msg.type === "text-blur") {
+        setContentEditingActive(false);
+        if (msg.commitText !== undefined && msg.commitPath) {
+          const capturedSession = msg.sessionId;
+          const capturedPath = msg.commitPath;
+          const capturedText = msg.commitText;
+          const capturedEl = selectedSlideElementRef.current;
+          setTimeout(() => {
+            if (capturedSession !== contentEditableSessionRef.current) return;
+            const hint = capturedEl?.outerHtml?.slice(0, 400) ?? '';
+            void applySlideInstructionRef.current(`__TEXT_PATCH__:${capturedPath}||${capturedText}||${hint}`, 'Text updated');
+          }, 0);
+        }
+      }
       else if (msg.type === "text-commit") {
         setContentEditingActive(false);
+        const path = msg.commitPath || selectedSlideElementRef.current?.path;
         const el = selectedSlideElementRef.current;
-        if (el?.path) void applySlideInstructionRef.current(`__TEXT_PATCH__:${el.path}||${msg.commitText ?? ''}||${el.outerHtml?.slice(0, 400) ?? ''}`, 'Text updated');
+        if (path) void applySlideInstructionRef.current(`__TEXT_PATCH__:${path}||${msg.commitText ?? ''}||${el?.outerHtml?.slice(0, 400) ?? ''}`, 'Text updated');
       }
     }
     window.addEventListener("message", onMessage);
@@ -2364,6 +2411,9 @@ export default function SuperClientPage() {
   // ── InlineEditPanel: shared instruction dispatcher ───────────────────────
   async function applyMicrositeInstruction(instruction: string, banner: string) {
     if (!viewingMicrosite || micrositeEditing) return;
+    // Capture generation at call time. If undo/redo fires before the server responds,
+    // the generation is incremented and we discard the stale response.
+    const myGen = ++micrositeInstructionGenRef.current;
     setMicrositeEditing(true);
     setMicrositeEditBanner('');
     try {
@@ -2385,6 +2435,9 @@ export default function SuperClientPage() {
         instruction,
         currentHtml,
       );
+      // Discard if undo/redo fired while server was processing — prevents the
+      // stale patch from overwriting the reverted state.
+      if (myGen !== micrositeInstructionGenRef.current) return;
       applyEditHtml(finalHtml);
       setViewingMicrosite((prev) =>
         prev
@@ -2518,12 +2571,14 @@ export default function SuperClientPage() {
   // ── Slide InlineEditPanel handlers ───────────────────────────────────────
   async function applySlideInstruction(instruction: string, banner: string) {
     if (!viewingSlide || slideEditing) return;
+    const myGen = ++slideInstructionGenRef.current;
     setSlideEditing(true);
     setSlideEditBanner('');
     try {
       const { html: newHtml } = await editSuperClientSlide(
         apiKey, name ?? '', viewingSlide.id, instruction, slideCurrentHtmlRef.current ?? undefined
       );
+      if (myGen !== slideInstructionGenRef.current) return;
       pushSlideHistory(newHtml);
       setSlideEditBanner(banner);
       setTimeout(() => setSlideEditBanner(''), 4000);
@@ -2594,6 +2649,16 @@ export default function SuperClientPage() {
   // Silently syncs to server in the background so hard-refresh shows undone state.
   function handleMicrositeRevert() {
     if (!viewingMicrosite || micrositeEditing || !canUndo) return;
+    contentEditableSessionRef.current++;
+    micrositeInstructionGenRef.current++; // discard any in-flight server response
+    if (contentEditingActive) {
+      getActiveIframe()?.contentWindow?.postMessage({ source: 'microsite-host', type: 'cancel-contenteditable' }, '*');
+      setContentEditingActive(false);
+    }
+    // Clear selection so the new iframe slot starts fresh — prevents cursor issues
+    // caused by the auto-enable useEffect not re-firing when path is unchanged.
+    setSelectedElement(null);
+    setHoveredElement(null);
     const prevIndex = editHistoryIndex - 1;
     const prevHtml = editHistory[prevIndex];
     setEditHistoryIndex(prevIndex);
@@ -2622,6 +2687,10 @@ export default function SuperClientPage() {
   // Instant client-side redo.
   function handleMicrositeRedo() {
     if (!viewingMicrosite || micrositeEditing || !canRedo) return;
+    contentEditableSessionRef.current++;
+    micrositeInstructionGenRef.current++;
+    setSelectedElement(null);
+    setHoveredElement(null);
     const nextIndex = editHistoryIndex + 1;
     const nextHtml = editHistory[nextIndex];
     setEditHistoryIndex(nextIndex);
@@ -2760,6 +2829,14 @@ export default function SuperClientPage() {
 
   function handleSlideRevert() {
     if (!viewingSlide || slideEditing || !canSlideUndo) return;
+    contentEditableSessionRef.current++;
+    slideInstructionGenRef.current++;
+    if (contentEditingActive) {
+      slideIframeRef.current?.contentWindow?.postMessage({ source: 'microsite-host', type: 'cancel-contenteditable' }, '*');
+      setContentEditingActive(false);
+    }
+    setSelectedSlideElement(null);
+    setHoveredSlideElement(null);
     const prevIndex = slideEditHistoryIndex - 1;
     const prevHtml = slideEditHistory[prevIndex];
     setSlideEditHistoryIndex(prevIndex);
@@ -2770,6 +2847,10 @@ export default function SuperClientPage() {
 
   function handleSlideRedo() {
     if (!viewingSlide || slideEditing || !canSlideRedo) return;
+    contentEditableSessionRef.current++;
+    slideInstructionGenRef.current++;
+    setSelectedSlideElement(null);
+    setHoveredSlideElement(null);
     const nextIndex = slideEditHistoryIndex + 1;
     const nextHtml = slideEditHistory[nextIndex];
     setSlideEditHistoryIndex(nextIndex);
@@ -6415,6 +6496,7 @@ export default function SuperClientPage() {
                     {/* Undo */}
                     <button
                       onClick={() => handleMicrositeRevert()}
+                      onMouseDown={(e) => e.preventDefault()}
                       disabled={micrositeEditing || !canUndo}
                       title={
                         canUndo
@@ -6830,7 +6912,8 @@ export default function SuperClientPage() {
                     isContentEditing={contentEditingActive}
                     onEnableContentEditable={() => {
                       setContentEditingActive(true);
-                      getActiveIframe()?.contentWindow?.postMessage({ source: 'microsite-host', type: 'enable-contenteditable' }, '*');
+                      const sid = ++contentEditableSessionRef.current;
+                      getActiveIframe()?.contentWindow?.postMessage({ source: 'microsite-host', type: 'enable-contenteditable', path: selectedElement?.path ?? '', sessionId: sid }, '*');
                     }}
                     onCommitContentEditable={() => {
                       getActiveIframe()?.contentWindow?.postMessage({ source: 'microsite-host', type: 'commit-contenteditable' }, '*');
@@ -7465,6 +7548,7 @@ export default function SuperClientPage() {
                     )}
                     <button
                       onClick={handleSlideRevert}
+                      onMouseDown={(e) => e.preventDefault()}
                       disabled={slideEditing || !canSlideUndo}
                       title={canSlideUndo ? `Undo — Ctrl+Z` : "Nothing to undo"}
                       style={{
@@ -7682,7 +7766,8 @@ export default function SuperClientPage() {
                     isContentEditing={contentEditingActive}
                     onEnableContentEditable={() => {
                       setContentEditingActive(true);
-                      slideIframeRef.current?.contentWindow?.postMessage({ source: 'microsite-host', type: 'enable-contenteditable' }, '*');
+                      const sid = ++contentEditableSessionRef.current;
+                      slideIframeRef.current?.contentWindow?.postMessage({ source: 'microsite-host', type: 'enable-contenteditable', path: selectedSlideElement?.path ?? '', sessionId: sid }, '*');
                     }}
                     onCommitContentEditable={() => {
                       slideIframeRef.current?.contentWindow?.postMessage({ source: 'microsite-host', type: 'commit-contenteditable' }, '*');

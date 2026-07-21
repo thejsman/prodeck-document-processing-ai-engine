@@ -1175,10 +1175,6 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
         </>
       )}
 
-      {/* Text content — leaf text elements: in-place contenteditable editing */}
-      {/* Leaf text elements: contenteditable activates automatically (useEffect above)
-          and commits on blur — no inline buttons needed. */}
-
       {/* Background image URL + local upload — explicit bg-containers + empty containers.
           Suppressed when the element has text content (it's a text block, not a bg layer).
           Nav-logo elements use LOGO controls instead.
