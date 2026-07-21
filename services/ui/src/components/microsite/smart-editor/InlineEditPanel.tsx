@@ -234,6 +234,10 @@ interface Props {
   onRemoveSection: () => Promise<void>;
   onRemoveSectionContainer: () => Promise<void>;
   onClose: () => void;
+  onEnableContentEditable?: () => void;
+  onCommitContentEditable?: () => void;
+  onCancelContentEditable?: () => void;
+  isContentEditing?: boolean;
 }
 
 // ── Element type helpers ────────────────────────────────────────────────────
@@ -772,7 +776,7 @@ function isNavLogoEl(path: string, tag: string, outerHtml: string): boolean {
   return tag === 'img' || tag === 'span' || tag === 'svg';
 }
 
-export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, containerW = 0, onStylePatch, onGradientTextPatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onSvgReplace, onLogoReplace, onVideoReplace, onRemoveSection, onRemoveSectionContainer, onClose }: Props) {
+export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, containerW = 0, onStylePatch, onGradientTextPatch, onTextPatch, onImageReplace, onBgImagePatch, onIconReplace, onSvgReplace, onLogoReplace, onVideoReplace, onRemoveSection, onRemoveSectionContainer, onClose, onEnableContentEditable, onCommitContentEditable, onCancelContentEditable, isContentEditing = false }: Props) {
   const tag      = selected.tag?.toLowerCase() ?? '';
   const isImg    = isImgEl(tag);
   // A container (div/section) elevated from an <img> click via elevateToContainer:
@@ -885,6 +889,14 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
     setLocalIconUrl('');
     setLocalVideoUrl(parseIframeSrc(selected.outerHtml));
   }, [selected.path, selected.outerHtml, selected.text]);
+
+  // Auto-enable contenteditable whenever a leaf text element becomes selected —
+  // no separate "Edit text" button click required.
+  useEffect(() => {
+    if (isLeaf && !isImgLike) onEnableContentEditable?.();
+    // Only fire on element change, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected.path]);
 
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [showGradientEditor, setShowGradientEditor] = useState(false);
@@ -1163,40 +1175,9 @@ export function InlineEditPanel({ selected, micrositeEditing, containerH = 0, co
         </>
       )}
 
-      {/* Text content — leaf text elements */}
-      {isLeaf && !isImgLike && (
-        <>
-          <Sep />
-          <input
-            type="text" placeholder="Edit text…"
-            value={localText} disabled={dis}
-            onChange={(e) => setLocalText(e.target.value)}
-            onBlur={(e) => { if (e.target.value !== selected.text) void onTextPatch(e.target.value); }}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void onTextPatch(localText); } }}
-            style={{
-              height: 26, padding: '0 8px', fontSize: 11, borderRadius: 4,
-              border: '1px solid rgba(255,255,255,0.12)',
-              background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.75)',
-              outline: 'none', flex: '1 1 100px', minWidth: 80, maxWidth: 200, opacity: dis ? 0.4 : 1,
-            }}
-          />
-          <button
-            disabled={dis}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => void onTextPatch(localText)}
-            title="Apply text (Enter)"
-            style={{
-              height: 26, width: 26, borderRadius: 4, border: 'none', flexShrink: 0,
-              background: dis ? 'rgba(255,255,255,0.04)' : 'rgba(99,102,241,0.75)',
-              color: '#fff', cursor: dis ? 'not-allowed' : 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 13, opacity: dis ? 0.4 : 1,
-            }}
-          >
-            ✓
-          </button>
-        </>
-      )}
+      {/* Text content — leaf text elements: in-place contenteditable editing */}
+      {/* Leaf text elements: contenteditable activates automatically (useEffect above)
+          and commits on blur — no inline buttons needed. */}
 
       {/* Background image URL + local upload — explicit bg-containers + empty containers.
           Suppressed when the element has text content (it's a text block, not a bg layer).

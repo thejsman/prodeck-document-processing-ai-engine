@@ -857,6 +857,9 @@ export default function SuperClientPage() {
   };
   const [hoveredElement, setHoveredElement] = useState<BridgeMessage | null>(null);
   const [selectedElement, setSelectedElement] = useState<BridgeMessage | null>(null);
+  // Ref mirrors selectedElement so stale useEffect closures can read the live value.
+  const selectedElementRef = useRef<BridgeMessage | null>(null);
+  selectedElementRef.current = selectedElement;
 
   // Tell the iframe bridge to clear its internal selectedEl + cancel RAF loop,
   // then clear parent state. Prevents the tracking loop from re-opening the panel.
@@ -864,11 +867,18 @@ export default function SuperClientPage() {
     getActiveIframe()?.contentWindow?.postMessage({ source: 'microsite-host', type: 'deselect' }, '*');
     setSelectedElement(null);
     setHoveredElement(null);
+    setContentEditingActive(false);
   };
+
+  // Tracks whether in-place contenteditable is active in either iframe.
+  const [contentEditingActive, setContentEditingActive] = useState(false);
 
   // ── Slide smart-edit mode ─────────────────────────────────────────────────
   const [slideEditModeActive, setSlideEditModeActive] = useState(false);
   const [selectedSlideElement, setSelectedSlideElement] = useState<BridgeMessage | null>(null);
+  // Ref mirrors selectedSlideElement so stale useEffect closures can read the live value.
+  const selectedSlideElementRef = useRef<BridgeMessage | null>(null);
+  selectedSlideElementRef.current = selectedSlideElement;
   const [hoveredSlideElement, setHoveredSlideElement] = useState<BridgeMessage | null>(null);
 
   const clearSlideSelection = () => {
@@ -878,6 +888,7 @@ export default function SuperClientPage() {
     );
     setSelectedSlideElement(null);
     setHoveredSlideElement(null);
+    setContentEditingActive(false);
   };
 
   // ── History helpers ───────────────────────────────────────────────────────
@@ -1661,6 +1672,14 @@ export default function SuperClientPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewingSlide?.id]);
 
+  // Callback refs — always point to the latest version of the patch dispatchers so
+  // that stale useEffect closures (keyed on editModeActive / slideEditModeActive) can
+  // still call the current render's functions and get the correct history index.
+  const applyMicrositeInstructionRef = useRef(applyMicrositeInstruction);
+  applyMicrositeInstructionRef.current = applyMicrositeInstruction;
+  const applySlideInstructionRef = useRef(applySlideInstruction);
+  applySlideInstructionRef.current = applySlideInstruction;
+
   useEffect(() => {
     if (!editModeActive) return;
     function onMessage(e: MessageEvent) {
@@ -1671,7 +1690,12 @@ export default function SuperClientPage() {
       else if (msg.type === 'track-update' && msg.rect) {
         setSelectedElement((prev) => (prev ? { ...prev, rect: msg.rect } : prev));
         setHoveredElement((prev) => (prev ? { ...prev, rect: msg.rect } : prev));
-      } else if (msg.type === 'select') setSelectedElement(msg);
+      } else if (msg.type === 'select') { setSelectedElement(msg); setContentEditingActive(false); }
+      else if (msg.type === 'text-commit') {
+        setContentEditingActive(false);
+        const el = selectedElementRef.current;
+        if (el?.path) void applyMicrositeInstructionRef.current(`__TEXT_PATCH__:${el.path}||${msg.commitText ?? ''}||${el.outerHtml?.slice(0, 400) ?? ''}`, 'Text updated');
+      }
     }
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
@@ -1690,7 +1714,12 @@ export default function SuperClientPage() {
       else if (msg.type === "track-update" && msg.rect) {
         setSelectedSlideElement((prev) => prev ? { ...prev, rect: msg.rect } : prev);
         setHoveredSlideElement((prev) => prev ? { ...prev, rect: msg.rect } : prev);
-      } else if (msg.type === "select") setSelectedSlideElement(msg);
+      } else if (msg.type === "select") { setSelectedSlideElement(msg); setContentEditingActive(false); }
+      else if (msg.type === "text-commit") {
+        setContentEditingActive(false);
+        const el = selectedSlideElementRef.current;
+        if (el?.path) void applySlideInstructionRef.current(`__TEXT_PATCH__:${el.path}||${msg.commitText ?? ''}||${el.outerHtml?.slice(0, 400) ?? ''}`, 'Text updated');
+      }
     }
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -6798,6 +6827,18 @@ export default function SuperClientPage() {
                     onRemoveSection={handleRemoveSection}
                     onRemoveSectionContainer={handleRemoveSectionContainer}
                     onClose={() => clearBridgeSelection()}
+                    isContentEditing={contentEditingActive}
+                    onEnableContentEditable={() => {
+                      setContentEditingActive(true);
+                      getActiveIframe()?.contentWindow?.postMessage({ source: 'microsite-host', type: 'enable-contenteditable' }, '*');
+                    }}
+                    onCommitContentEditable={() => {
+                      getActiveIframe()?.contentWindow?.postMessage({ source: 'microsite-host', type: 'commit-contenteditable' }, '*');
+                    }}
+                    onCancelContentEditable={() => {
+                      setContentEditingActive(false);
+                      getActiveIframe()?.contentWindow?.postMessage({ source: 'microsite-host', type: 'cancel-contenteditable' }, '*');
+                    }}
                   />
                 )}
                 {/* Overlay blocks iframe from swallowing mouse events during resize */}
@@ -7638,6 +7679,18 @@ export default function SuperClientPage() {
                     onRemoveSection={handleSlideRemoveSection}
                     onRemoveSectionContainer={handleSlideRemoveSectionContainer}
                     onClose={() => clearSlideSelection()}
+                    isContentEditing={contentEditingActive}
+                    onEnableContentEditable={() => {
+                      setContentEditingActive(true);
+                      slideIframeRef.current?.contentWindow?.postMessage({ source: 'microsite-host', type: 'enable-contenteditable' }, '*');
+                    }}
+                    onCommitContentEditable={() => {
+                      slideIframeRef.current?.contentWindow?.postMessage({ source: 'microsite-host', type: 'commit-contenteditable' }, '*');
+                    }}
+                    onCancelContentEditable={() => {
+                      setContentEditingActive(false);
+                      slideIframeRef.current?.contentWindow?.postMessage({ source: 'microsite-host', type: 'cancel-contenteditable' }, '*');
+                    }}
                   />
                 )}
                 {slideEditing && (

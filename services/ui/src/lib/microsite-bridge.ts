@@ -1,6 +1,6 @@
 export interface BridgeMessage {
   source: 'microsite-bridge';
-  type: 'hover' | 'select' | 'leave' | 'track-update';
+  type: 'hover' | 'select' | 'leave' | 'track-update' | 'text-commit';
   /** Raw HTML tag name: "div", "h1", "img", "svg", "button" */
   tag: string;
   /** Display label: "div.ms-card", "h1", "img", "section#hero" */
@@ -22,6 +22,8 @@ export interface BridgeMessage {
    *  Used to determine whether the selected element fills the section (and thus
    *  whether the "Remove Section" button should appear). Only on 'select'. */
   sectionRect?: { top: number; left: number; width: number; height: number };
+  /** The committed plain-text content. Only on 'text-commit'. */
+  commitText?: string;
 }
 
 const REMOVAL_RE = /\b(remove|delete|hide|take\s+out|get\s+rid\s+of|eliminate|clear)\b/i;
@@ -691,6 +693,14 @@ var selectedEl = null;
 var trackRaf   = null;
 var trackRect  = null;
 
+// ── In-place contenteditable editing ─────────────────────────────────────
+var contentEditableEl       = null;
+var contentEditableOrigText = null;
+// The normalized (getInteresting) element for the current selection — used as
+// the contenteditable target. Kept separate from selectedEl so the tracking
+// loop's termination check (selectedEl !== raw) is not disturbed.
+var contentEditTargetEl     = null;
+
 function startTracking(raw) {
   var el = getInteresting(raw);
   if (!el) return;
@@ -739,12 +749,16 @@ document.addEventListener('mouseleave', function () {
 }, false);
 
 document.addEventListener('click', function (e) {
+  // While contenteditable is active, let the user click inside the element
+  // to reposition their cursor — do not re-fire select.
+  if (contentEditableEl) return;
   // In edit mode every click is a selection — prevent ALL default browser actions
   // so that buttons don't submit forms, anchors don't navigate or scroll, and
   // any inline onclick handlers that would cause location changes are neutralised.
   e.preventDefault();
   e.stopPropagation();
-  selectedEl = e.target;
+  selectedEl          = e.target;
+  contentEditTargetEl = getInteresting(e.target);
   sendMsg('select', e.target);
   startTracking(e.target);
 }, true);
@@ -760,11 +774,60 @@ window.addEventListener('resize', function () {
 
 // Host can send { source: 'microsite-host', type: 'deselect' } to clear
 // the internal selection and stop the RAF tracking loop.
+// It can also send enable/commit/cancel-contenteditable to drive in-place editing.
 window.addEventListener('message', function (e) {
-  if (e.data && e.data.source === 'microsite-host' && e.data.type === 'deselect') {
-    selectedEl = null;
+  if (!e.data || e.data.source !== 'microsite-host') return;
+  if (e.data.type === 'deselect') {
+    selectedEl          = null;
+    contentEditTargetEl = null;
     lastHoverEl = null;
     if (trackRaf) { cancelAnimationFrame(trackRaf); trackRaf = null; }
+  }
+  if (e.data.type === 'enable-contenteditable' && contentEditTargetEl) {
+    window.focus();
+    contentEditableEl       = contentEditTargetEl;
+    contentEditableOrigText = contentEditTargetEl.textContent;
+    contentEditTargetEl.setAttribute('contenteditable', 'true');
+    contentEditTargetEl.style.outline       = '2px solid rgba(99,102,241,0.8)';
+    contentEditTargetEl.style.outlineOffset = '2px';
+    contentEditTargetEl.style.cursor        = 'text';
+    contentEditTargetEl.focus();
+    var r = document.createRange(), s = window.getSelection();
+    r.selectNodeContents(contentEditTargetEl); r.collapse(false);
+    s.removeAllRanges(); s.addRange(r);
+    // Auto-commit on blur — fires when user clicks a different element or outside.
+    // Captured in a closure so it still works if contentEditableEl is reassigned.
+    (function (el, origText) {
+      el.addEventListener('blur', function onCEBlur() {
+        if (!el.isContentEditable) return; // already committed by explicit commit msg
+        var text = el.textContent || '';
+        el.removeAttribute('contenteditable');
+        el.style.outline = el.style.outlineOffset = el.style.cursor = '';
+        if (contentEditableEl === el) { contentEditableEl = null; contentEditableOrigText = null; }
+        // Only send text-commit when text actually changed
+        if (text !== origText) {
+          window.parent.postMessage({ source: 'microsite-bridge', type: 'text-commit', commitText: text }, '*');
+        }
+      }, { once: true });
+    }(contentEditTargetEl, contentEditTargetEl.textContent));
+  }
+  if (e.data.type === 'commit-contenteditable' && contentEditableEl) {
+    var committed = contentEditableEl.textContent || '';
+    contentEditableEl.removeAttribute('contenteditable');
+    contentEditableEl.style.outline       = '';
+    contentEditableEl.style.outlineOffset = '';
+    contentEditableEl.style.cursor        = '';
+    contentEditableEl = null;
+    window.parent.postMessage({ source: 'microsite-bridge', type: 'text-commit', commitText: committed }, '*');
+  }
+  if (e.data.type === 'cancel-contenteditable' && contentEditableEl) {
+    contentEditableEl.textContent          = contentEditableOrigText;
+    contentEditableEl.removeAttribute('contenteditable');
+    contentEditableEl.style.outline       = '';
+    contentEditableEl.style.outlineOffset = '';
+    contentEditableEl.style.cursor        = '';
+    contentEditableEl       = null;
+    contentEditableOrigText = null;
   }
 }, false);
 
