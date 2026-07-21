@@ -874,9 +874,12 @@ export default function SuperClientPage() {
   const [contentEditingActive, setContentEditingActive] = useState(false);
   // Monotonically-increasing counter identifying the current contenteditable session.
   // Incremented each time enable-contenteditable is sent AND each time Undo/Redo fires.
-  // The bridge echoes it back in text-commit; if the counter has advanced (because
-  // undo/redo ran after blur queued the message), the stale commit is discarded.
   const contentEditableSessionRef = useRef(0);
+  // Counter incremented ONLY by Undo/Redo — never by onEnableContentEditable.
+  // Captured into enable-contenteditable messages and echoed back by the bridge in
+  // text-blur as undoCancelId. If it has advanced at commit time, Undo/Redo fired
+  // after blur — discard the stale deferred commit.
+  const undoRedoStampRef = useRef(0);
   // Generation counter for in-flight applyMicrositeInstruction / applySlideInstruction calls.
   // Incremented on every undo/redo so any server response that was started by a now-stale
   // text-commit (which arrived before the undo click fired) is silently discarded when
@@ -1704,19 +1707,17 @@ export default function SuperClientPage() {
       } else if (msg.type === 'select') { setSelectedElement(msg); setContentEditingActive(false); }
       else if (msg.type === 'text-blur') {
         setContentEditingActive(false);
-        // If text changed, schedule a deferred commit guarded by the session counter.
-        // Undo/Redo increment the session counter before the timeout fires, so the
-        // check below discards the commit when the user clicks Undo. The generation
-        // counter in applyMicrositeInstruction provides a second layer: even if the
-        // timeout fires before the Undo click handler, the stale server response is
-        // discarded when it returns.
+        // If text changed, schedule a deferred commit guarded by the undoCancelId.
+        // The bridge echoes undoCancelId = undoRedoStampRef.current at enable time.
+        // Only Undo/Redo increments undoRedoStampRef, so a mismatch here means
+        // Undo/Redo fired between blur and this setTimeout — discard the commit.
         if (msg.commitText !== undefined && msg.commitPath) {
-          const capturedSession = msg.sessionId;
+          const capturedUndoCancelId = msg.undoCancelId;
           const capturedPath = msg.commitPath;
           const capturedText = msg.commitText;
           const capturedEl = selectedElementRef.current;
           setTimeout(() => {
-            if (capturedSession !== contentEditableSessionRef.current) return;
+            if (capturedUndoCancelId !== undefined && capturedUndoCancelId !== undoRedoStampRef.current) return;
             const hint = capturedEl?.outerHtml?.slice(0, 400) ?? '';
             void applyMicrositeInstructionRef.current(`__TEXT_PATCH__:${capturedPath}||${capturedText}||${hint}`, 'Text updated');
           }, 0);
@@ -1750,12 +1751,12 @@ export default function SuperClientPage() {
       else if (msg.type === "text-blur") {
         setContentEditingActive(false);
         if (msg.commitText !== undefined && msg.commitPath) {
-          const capturedSession = msg.sessionId;
+          const capturedUndoCancelId = msg.undoCancelId;
           const capturedPath = msg.commitPath;
           const capturedText = msg.commitText;
           const capturedEl = selectedSlideElementRef.current;
           setTimeout(() => {
-            if (capturedSession !== contentEditableSessionRef.current) return;
+            if (capturedUndoCancelId !== undefined && capturedUndoCancelId !== undoRedoStampRef.current) return;
             const hint = capturedEl?.outerHtml?.slice(0, 400) ?? '';
             void applySlideInstructionRef.current(`__TEXT_PATCH__:${capturedPath}||${capturedText}||${hint}`, 'Text updated');
           }, 0);
@@ -2130,7 +2131,13 @@ export default function SuperClientPage() {
   function applyEditHtml(html: string) {
     const y = Math.round(getActiveIframe()?.contentWindow?.scrollY ?? 0);
     let srcDoc = computeSrcDoc(html);
-    const script = `<script id="__scroll-restore">(function(){var y=${y};function r(){if(y>0){document.documentElement.style.scrollBehavior='auto';document.body&&(document.body.style.scrollBehavior='auto');window.scrollTo(0,y);}}r();requestAnimationFrame(function(){window.parent.postMessage({source:'microsite-swap-ready'},'*');if(y>0){var n=0;function t(){r();if(++n<5)setTimeout(t,80);}setTimeout(t,30);}});})();<\/script>`;
+    // Nonce ensures the srcDoc string is always unique so React always updates the
+    // iframe's srcdoc attribute, forcing a full reload even when the HTML is identical.
+    // Without this, a back slot whose srcdoc was already set to the same prevHtml
+    // (e.g. after undo-redo-undo cycles) would not reload, its DOM remains dirty
+    // from a previous contenteditable edit, and microsite-swap-ready never fires.
+    const nonce = Date.now();
+    const script = `<script id="__scroll-restore">(function(){var y=${y};function r(){if(y>0){document.documentElement.style.scrollBehavior='auto';document.body&&(document.body.style.scrollBehavior='auto');window.scrollTo(0,y);}}r();requestAnimationFrame(function(){window.parent.postMessage({source:'microsite-swap-ready',nonce:${nonce}},'*');if(y>0){var n=0;function t(){r();if(++n<5)setTimeout(t,80);}setTimeout(t,30);}});})();<\/script>`;
     const bodyClose = srcDoc.lastIndexOf('</body>');
     srcDoc = bodyClose !== -1 ? srcDoc.slice(0, bodyClose) + script + srcDoc.slice(bodyClose) : srcDoc + script;
     // Mark swap pending; cancel any previous safety timer
@@ -2650,6 +2657,7 @@ export default function SuperClientPage() {
   function handleMicrositeRevert() {
     if (!viewingMicrosite || micrositeEditing || !canUndo) return;
     contentEditableSessionRef.current++;
+    undoRedoStampRef.current++;
     micrositeInstructionGenRef.current++; // discard any in-flight server response
     if (contentEditingActive) {
       getActiveIframe()?.contentWindow?.postMessage({ source: 'microsite-host', type: 'cancel-contenteditable' }, '*');
@@ -2688,6 +2696,7 @@ export default function SuperClientPage() {
   function handleMicrositeRedo() {
     if (!viewingMicrosite || micrositeEditing || !canRedo) return;
     contentEditableSessionRef.current++;
+    undoRedoStampRef.current++;
     micrositeInstructionGenRef.current++;
     setSelectedElement(null);
     setHoveredElement(null);
@@ -2830,6 +2839,7 @@ export default function SuperClientPage() {
   function handleSlideRevert() {
     if (!viewingSlide || slideEditing || !canSlideUndo) return;
     contentEditableSessionRef.current++;
+    undoRedoStampRef.current++;
     slideInstructionGenRef.current++;
     if (contentEditingActive) {
       slideIframeRef.current?.contentWindow?.postMessage({ source: 'microsite-host', type: 'cancel-contenteditable' }, '*');
@@ -2848,6 +2858,7 @@ export default function SuperClientPage() {
   function handleSlideRedo() {
     if (!viewingSlide || slideEditing || !canSlideRedo) return;
     contentEditableSessionRef.current++;
+    undoRedoStampRef.current++;
     slideInstructionGenRef.current++;
     setSelectedSlideElement(null);
     setHoveredSlideElement(null);
@@ -6913,7 +6924,7 @@ export default function SuperClientPage() {
                     onEnableContentEditable={() => {
                       setContentEditingActive(true);
                       const sid = ++contentEditableSessionRef.current;
-                      getActiveIframe()?.contentWindow?.postMessage({ source: 'microsite-host', type: 'enable-contenteditable', path: selectedElement?.path ?? '', sessionId: sid }, '*');
+                      getActiveIframe()?.contentWindow?.postMessage({ source: 'microsite-host', type: 'enable-contenteditable', path: selectedElement?.path ?? '', sessionId: sid, undoCancelId: undoRedoStampRef.current }, '*');
                     }}
                     onCommitContentEditable={() => {
                       getActiveIframe()?.contentWindow?.postMessage({ source: 'microsite-host', type: 'commit-contenteditable' }, '*');
@@ -7767,7 +7778,7 @@ export default function SuperClientPage() {
                     onEnableContentEditable={() => {
                       setContentEditingActive(true);
                       const sid = ++contentEditableSessionRef.current;
-                      slideIframeRef.current?.contentWindow?.postMessage({ source: 'microsite-host', type: 'enable-contenteditable', path: selectedSlideElement?.path ?? '', sessionId: sid }, '*');
+                      slideIframeRef.current?.contentWindow?.postMessage({ source: 'microsite-host', type: 'enable-contenteditable', path: selectedSlideElement?.path ?? '', sessionId: sid, undoCancelId: undoRedoStampRef.current }, '*');
                     }}
                     onCommitContentEditable={() => {
                       slideIframeRef.current?.contentWindow?.postMessage({ source: 'microsite-host', type: 'commit-contenteditable' }, '*');

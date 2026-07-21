@@ -27,10 +27,13 @@ export interface BridgeMessage {
   /** The CSS path of the element that was being edited. Only on 'text-commit'.
    *  Captured at enable time so it is immune to selection-change races. */
   commitPath?: string;
-  /** Session ID echoed from the enable-contenteditable message.
-   *  React discards text-commits whose session ID doesn't match the current one
-   *  (e.g. when Undo/Redo was clicked after blur but before the message arrived). */
+  /** Session ID echoed from the enable-contenteditable message. */
   sessionId?: number;
+  /** Undo/Redo stamp echoed from the enable-contenteditable message.
+   *  Captured from undoRedoStampRef when enable-contenteditable was sent.
+   *  Only Undo/Redo increments this counter, so a mismatch at commit time
+   *  means Undo/Redo fired — discard the deferred text commit. */
+  undoCancelId?: number;
 }
 
 const REMOVAL_RE = /\b(remove|delete|hide|take\s+out|get\s+rid\s+of|eliminate|clear)\b/i;
@@ -809,12 +812,10 @@ window.addEventListener('message', function (e) {
     var r = document.createRange(), s = window.getSelection();
     r.selectNodeContents(contentEditTargetEl); r.collapse(false);
     s.removeAllRanges(); s.addRange(r);
-    // On blur: clean up visual state and send text-blur with the current text.
-    // React schedules a deferred commit guarded by the session counter — clicking
-    // Undo before the timeout fires increments the counter, discarding the commit.
-    // The generation counter in applyMicrositeInstruction provides a second layer
-    // of protection in case the timeout fires before the Undo click handler.
-    (function (el, origText, capturedPath, capturedSessionId) {
+    // On blur: send text-blur with current text AND the undoCancelId captured at
+    // enable time. React checks undoCancelId against undoRedoStampRef at commit time —
+    // only Undo/Redo increments that stamp, so a mismatch means discard the commit.
+    (function (el, origText, capturedPath, capturedSessionId, capturedUndoCancelId) {
       el.addEventListener('blur', function onCEBlur() {
         if (!el.isContentEditable) return;
         var text = el.textContent || '';
@@ -827,9 +828,10 @@ window.addEventListener('message', function (e) {
           commitText: text !== origText ? text : undefined,
           commitPath: capturedPath,
           sessionId: capturedSessionId,
+          undoCancelId: capturedUndoCancelId,
         }, '*');
       }, { once: true });
-    }(contentEditTargetEl, contentEditTargetEl.textContent, e.data.path || '', e.data.sessionId || 0));
+    }(contentEditTargetEl, contentEditTargetEl.textContent, e.data.path || '', e.data.sessionId || 0, e.data.undoCancelId || 0));
   }
   if (e.data.type === 'commit-contenteditable' && contentEditableEl) {
     var committed = contentEditableEl.textContent || '';
