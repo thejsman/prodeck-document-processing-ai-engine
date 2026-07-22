@@ -1180,13 +1180,15 @@ export async function handleGenerateDocument(
     return { success: false, message: 'Missing userMessage parameter for document generation.' };
   }
 
-  // Resolve client context: context.md from super-client dir
+  // Resolve client context: client-knowledge.md from super-client dir
+  // (context.md was removed — client profile now lives in client-knowledge.md,
+  // built from creation notes and/or a site crawl; see super-client-routes.ts)
   const superClientDir = path.join(workdir, 'super-clients', namespace);
   let clientProfile = '';
   try {
-    clientProfile = await readFile(path.join(superClientDir, 'context.md'), 'utf-8');
+    clientProfile = await readFile(path.join(superClientDir, 'client-knowledge.md'), 'utf-8');
   } catch {
-    // no context.md — proceed without it
+    // no client-knowledge.md — proceed without it
   }
 
   // Resolve client memory (knowledge entries from ingested docs)

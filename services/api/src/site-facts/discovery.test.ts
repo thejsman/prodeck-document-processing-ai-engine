@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   fetchDiscoveryUrls,
   isCrawlablePage,
+  isLowValuePage,
   isPathAllowed,
   isSameDomain,
   isSitemapIndex,
@@ -95,6 +96,25 @@ describe('isCrawlablePage', () => {
 
   it('accepts paths with no extension-looking segment', () => {
     expect(isCrawlablePage('https://example.com/products/v1.2/overview')).toBe(true);
+  });
+});
+
+describe('isLowValuePage', () => {
+  it('flags taxonomy, pagination, author, and legal boilerplate paths', () => {
+    expect(isLowValuePage('https://example.com/tag/widgets')).toBe(true);
+    expect(isLowValuePage('https://example.com/category/news')).toBe(true);
+    expect(isLowValuePage('https://example.com/blog/page/3')).toBe(true);
+    expect(isLowValuePage('https://example.com/author/jane')).toBe(true);
+    expect(isLowValuePage('https://example.com/privacy-policy')).toBe(true);
+    expect(isLowValuePage('https://example.com/terms-of-service')).toBe(true);
+    expect(isLowValuePage('https://example.com/cookie-policy')).toBe(true);
+    expect(isLowValuePage('https://example.com/feed')).toBe(true);
+  });
+
+  it('does not flag ordinary content pages', () => {
+    expect(isLowValuePage('https://example.com/about-us')).toBe(false);
+    expect(isLowValuePage('https://example.com/services/consulting')).toBe(false);
+    expect(isLowValuePage('https://example.com/blog/how-we-work')).toBe(false);
   });
 });
 

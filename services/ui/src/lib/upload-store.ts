@@ -5,7 +5,7 @@ if (typeof localStorage !== 'undefined') {
   localStorage.removeItem('prodeck-uploads-v1');
 }
 
-export type UploadStatus = 'uploading' | 'done' | 'failed';
+export type UploadStatus = 'uploading' | 'done' | 'failed' | 'duplicate';
 
 export interface UploadEntry {
   id: string;
@@ -15,6 +15,9 @@ export interface UploadEntry {
   status: UploadStatus;
   pct: number;       // 0–100
   error?: string;
+  // Set only when status === 'duplicate' — the fileName of the pre-existing
+  // upload this content matches.
+  duplicateOfFileName?: string;
 }
 
 type Listener = (entries: UploadEntry[]) => void;
@@ -74,6 +77,13 @@ export const uploadStore = {
     const e = store.get(id);
     if (!e) return;
     store.set(id, { ...e, status: 'failed', error });
+    broadcast();
+  },
+
+  duplicate(id: string, duplicateOfFileName: string): void {
+    const e = store.get(id);
+    if (!e) return;
+    store.set(id, { ...e, status: 'duplicate', pct: 100, duplicateOfFileName });
     broadcast();
   },
 

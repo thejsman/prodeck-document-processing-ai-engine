@@ -153,8 +153,8 @@ const AFFIRMATION_TOKENS = new Set<string>([
  * bare; "create a proposal for a $50k website redesign" is not.
  *
  * Used by the super-client chat readiness gate: a bare request against a
- * client with NO stored context (context.md / memory / ingested docs) is
- * declined with guidance instead of hallucinating a generic artifact.
+ * client with NO stored context (client knowledge / memory / ingested docs)
+ * is declined with guidance instead of hallucinating a generic artifact.
  */
 export function isBareGenerationRequest(message: string, extraPhrases?: string[]): boolean {
   // Multi-word extra phrases (skill triggers like "marketing brief") must be

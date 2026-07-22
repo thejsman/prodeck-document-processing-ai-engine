@@ -13,7 +13,7 @@
 // HTML, and hand each rendered page to the deterministic DOM extractor.
 
 import puppeteer from 'puppeteer';
-import { fetchDiscoveryUrls, isCrawlablePage, isPathAllowed, isSameDomain, normalizeUrl } from './discovery.js';
+import { fetchDiscoveryUrls, isCrawlablePage, isLowValuePage, isPathAllowed, isSameDomain, normalizeUrl } from './discovery.js';
 import { extractContactFromHrefs, extractContactInfo, resolveLinks, runBrowserExtraction } from './dom-extraction.js';
 import type { CrawlOptions, RawPageExtraction, SiteFactsLogger } from './types.js';
 import { DEFAULT_MAX_DEPTH, DEFAULT_MAX_PAGES } from './types.js';
@@ -22,6 +22,11 @@ const PAGE_TIMEOUT_MS = 20_000;
 
 export interface CrawlSiteOptions extends CrawlOptions {
   log?: SiteFactsLogger;
+  // Fired synchronously the moment each page finishes rendering, in addition
+  // to that page landing in the array this function eventually returns. Lets
+  // a caller (pipeline.ts) start fact-extracting a page immediately instead
+  // of waiting for the whole crawl to finish before extraction begins.
+  onPage?: (page: RawPageExtraction) => void;
 }
 
 export async function crawlSite(startUrl: string, opts: CrawlSiteOptions = {}): Promise<RawPageExtraction[]> {
@@ -40,7 +45,7 @@ export async function crawlSite(startUrl: string, opts: CrawlSiteOptions = {}): 
       const normalized = normalizeUrl(raw);
       if (!isSameDomain(normalized, origin) || seen.has(normalized)) continue;
       if (!isPathAllowed(new URL(normalized).pathname, disallow)) continue;
-      if (!isCrawlablePage(normalized)) continue;
+      if (!isCrawlablePage(normalized) || isLowValuePage(normalized)) continue;
       seen.add(normalized);
       queue.push({ url: normalized, depth: 1 });
     } catch {
@@ -88,7 +93,7 @@ export async function crawlSite(startUrl: string, opts: CrawlSiteOptions = {}): 
         const hrefContact = extractContactFromHrefs(extraction.raw_links);
         const textContact = extractContactInfo(extraction.body_text);
 
-        pages.push({
+        const page_: RawPageExtraction = {
           url,
           canonical_url: extraction.canonical_url,
           title: extraction.title,
@@ -108,7 +113,9 @@ export async function crawlSite(startUrl: string, opts: CrawlSiteOptions = {}): 
           http_status: httpStatus,
           redirect_chain: redirectChain,
           render_timestamp: new Date().toISOString(),
-        });
+        };
+        pages.push(page_);
+        opts.onPage?.(page_);
 
         if (depth < maxDepth) {
           for (const link of links) {
@@ -121,7 +128,7 @@ export async function crawlSite(startUrl: string, opts: CrawlSiteOptions = {}): 
             }
             if (seen.has(normalized)) continue;
             if (!isPathAllowed(new URL(normalized).pathname, disallow)) continue;
-            if (!isCrawlablePage(normalized)) continue;
+            if (!isCrawlablePage(normalized) || isLowValuePage(normalized)) continue;
             seen.add(normalized);
             queue.push({ url: normalized, depth: depth + 1 });
           }

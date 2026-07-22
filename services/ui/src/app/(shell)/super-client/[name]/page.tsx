@@ -171,6 +171,11 @@ const GENERATION_STEPS: Record<string, string[]> = {
   ],
 };
 const STEP_INTERVAL_MS = 3200;
+// How long a confirmed generation's card stays in its "generating" phase
+// (showing the real steps already accumulated from the progress heartbeat)
+// before flipping to complete — without this, attaching and completing in
+// the same tick skips straight to the finished card with no visible process.
+const GENERATION_CARD_REVEAL_MS = 1200;
 
 // ArtifactCard — artifact capsule rendered in the chat message list
 function ArtifactCard({
@@ -315,7 +320,7 @@ function ArtifactCard({
               whiteSpace: "nowrap",
             }}
           >
-            {gen.clientSlug} · {isMicrosite ? "Microsite" : "Proposal"}
+            {gen.clientSlug} · {isMicrosite ? "Microsite" : isDocument ? "Document" : isSlide ? "Presentation" : "Proposal"}
           </div>
         </div>
       </div>
@@ -459,8 +464,9 @@ function UploadMessageCard({ uploadId, docs }: { uploadId: string; docs: SuperCl
 
   const isUploading = entry.status === 'uploading';
   const isFailed = entry.status === 'failed';
+  const isDuplicate = entry.status === 'duplicate';
   const doc = !isUploading ? docs.find((d) => d.fileName === (entry.storedFileName ?? entry.fileName)) : undefined;
-  const isDone = !isUploading && !isFailed && !!doc;
+  const isDone = !isUploading && !isFailed && !isDuplicate && !!doc;
 
   // ── Done: collapsed pill ────────────────────────────────────────
   if (isDone) {
@@ -469,6 +475,17 @@ function UploadMessageCard({ uploadId, docs }: { uploadId: string; docs: SuperCl
         <FileText size={14} strokeWidth={1.5} style={{ flexShrink: 0, color: 'var(--primary)' }} />
         <span className="chat-file-upload__name chat-file-upload__name--inline">{entry.fileName}</span>
         <CheckCircle size={14} strokeWidth={2} className="chat-file-upload__check-icon" />
+      </div>
+    );
+  }
+
+  // ── Duplicate: already uploaded, nothing was written ─────────────
+  if (isDuplicate) {
+    return (
+      <div className="chat-file-upload chat-file-upload--done" title={`Matches existing upload: ${entry.duplicateOfFileName ?? ''}`}>
+        <FileText size={14} strokeWidth={1.5} style={{ flexShrink: 0, color: 'var(--muted)' }} />
+        <span className="chat-file-upload__name chat-file-upload__name--inline">{entry.fileName}</span>
+        <span style={{ fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}>already uploaded</span>
       </div>
     );
   }
@@ -506,7 +523,10 @@ function UploadMessageCard({ uploadId, docs }: { uploadId: string; docs: SuperCl
           <span className="chat-file-upload__step-icon">
             <span className="chat-file-upload__step-spinner" />
           </span>
-          <span>Uploading{pct > 0 && pct < 100 ? ` ${pct}%` : '…'}</span>
+          {/* At 100% the raw upload is done but a sync request (composer
+              attach-and-send) may still be awaiting server-side indexing —
+              relabel so it doesn't look stuck rather than actively working. */}
+          <span>{pct >= 100 ? 'Processing…' : pct > 0 ? `Uploading ${pct}%` : 'Uploading…'}</span>
         </div>
       </div>
     </div>
@@ -559,7 +579,6 @@ export default function SuperClientPage() {
   }, [expandSidebar]);
 
   const [meta, setMeta] = useState<SuperClientMeta | null>(null);
-  const [contextMd, setContextMd] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
@@ -953,7 +972,17 @@ export default function SuperClientPage() {
   const [composerStage, setComposerStage] = useState<null | 'select-proposal' | 'configure' | 'clarify'>(null);
   // Active clarifying question — rendered in the composer (like the proposal
   // selector) instead of inline; while set, the text input is hidden.
-  const [activeQuestion, setActiveQuestion] = useState<{ text: string; options: string[] } | null>(null);
+  const [activeQuestion, setActiveQuestion] = useState<{
+    text: string;
+    options: string[];
+    details?: {
+      mode?: 'select';
+      intro: string;
+      items?: Array<{ id?: string; fileName: string; reason: string; preChecked?: boolean }>;
+    };
+  } | null>(null);
+  // Checked state for the memory-selection checklist card — id -> checked.
+  const [checkedMemoryIds, setCheckedMemoryIds] = useState<Set<string>>(new Set());
   // When set, the active clarify question is a local profile-field question
   // (e.g. Project Type missing after ingestion) — the answer is saved straight
   // to client memory instead of being sent to the chat backend.
@@ -1020,10 +1049,10 @@ export default function SuperClientPage() {
     try {
       const result = await enrichSuperClientUrl(apiKey, name, urlInput.trim());
       setMeta(result.meta);
-      setContextMd(result.contextMd);
+      loadDocs();
       setUrlEditMode(false);
       setUrlInput('');
-      showToast('Client context updated from website');
+      showToast('Client knowledge updated from website');
     } catch (err) {
       setEnrichError(err instanceof Error ? err.message : 'Failed to fetch context');
     } finally {
@@ -1034,6 +1063,23 @@ export default function SuperClientPage() {
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // The composer textarea grows its inline height on input (see onInput on the
+  // <textarea> below). That inline style survives a controlled-value reset
+  // (e.g. setInput('') on send), so a multi-line message left the box stuck
+  // expanded. Collapse it back to the default single-line height whenever the
+  // active field empties. (Must sit above the loading/error early returns
+  // below, alongside the other unconditional hooks — placing it after them
+  // made this hook's call count vary between renders and crashed the page
+  // with "Rendered more hooks than during the previous render".)
+  useEffect(() => {
+    const micrositeActive = !!(viewingMicrosite && micrositeStripVisible);
+    const slideActive = !!(viewingSlide && slideStripVisible);
+    const activeValue = micrositeActive ? micrositeEditInput : slideActive ? slideEditInput : input;
+    if (activeValue === '' && textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+  }, [input, micrositeEditInput, slideEditInput, viewingMicrosite, micrositeStripVisible, viewingSlide, slideStripVisible]);
 
   // Until the user actively sends something in this session, every chat
   // scroll is instant — opening the page must show the thread already resting
@@ -1062,9 +1108,8 @@ export default function SuperClientPage() {
       // blocking the whole page with "Network error".
       getSuperClientGenerations(apiKey, name).catch(() => [] as Awaited<ReturnType<typeof getSuperClientGenerations>>),
     ])
-      .then(([{ meta: m, contextMd: ctx, history }, serverGens]) => {
+      .then(([{ meta: m, history }, serverGens]) => {
         setMeta(m);
-        setContextMd(ctx);
         // Hydrate store with server-persisted generations before building messages
         generationStore.hydrateFromServer(serverGens.map((g) => ({ ...g, createdAt: g.createdAt ?? '' })));
         const historyMsgs: Message[] = history.map((h: SuperClientHistoryEntry) => ({
@@ -1275,6 +1320,13 @@ export default function SuperClientPage() {
   const [narrationSteps, setNarrationSteps] = useState<NarrationStep[]>([]);
 
   useEffect(() => {
+    // The initial history load (above) does a full `setMessages(allMsgs)`
+    // replace once it resolves. `docs` is polled by an independent effect that
+    // often resolves first, so injecting the narration message before history
+    // finishes loading means that replace silently wipes it back out on any
+    // remount/navigation. Waiting for history to settle guarantees this effect's
+    // prepend always runs after the replace, never before it.
+    if (loading) return;
     const knowledgeDoc = docs.find((d) => d.fileName === 'client-knowledge.md');
     const designDoc = docs.find((d) => d.fileName === 'design-system.md');
     if (!knowledgeDoc && !designDoc) return; // no URL was given, or not loaded yet
@@ -1359,7 +1411,7 @@ export default function SuperClientPage() {
       }
       return steps;
     });
-  }, [docs, meta]);
+  }, [docs, meta, loading]);
 
   // The active step's text types in via the standard typewriter (which
   // restarts per target change — exactly right here since each step types
@@ -1794,9 +1846,17 @@ export default function SuperClientPage() {
     setUploadPct(0);
     try {
       const added = await uploadSuperClientDocument(apiKey, name, file, setUploadPct);
+      const duplicates = added.filter((f) => f.status === 'duplicate');
+      for (const dup of duplicates) {
+        showToast(`${file.name} is already uploaded (matches ${dup.duplicateOfFileName ?? dup.fileName}) — skipped`, 'error');
+      }
+      // Duplicates are a synthetic response entry (nothing new written
+      // server-side) — merging one in would overwrite the real existing
+      // entry's status, so only merge genuinely new/changed files.
+      const genuinelyNew = added.filter((f) => f.status !== 'duplicate');
       setDocs((prev) => {
         const next = [...prev];
-        for (const f of added) {
+        for (const f of genuinelyNew) {
           const idx = next.findIndex((d) => d.fileName === f.fileName);
           if (idx !== -1) next[idx] = f;
           else next.push(f);
@@ -1812,10 +1872,13 @@ export default function SuperClientPage() {
   }
 
   // Upload a document from the chat composer — shows a progress card in the chat thread
-  async function handleFileUploadFromComposer(file: File) {
-    if (!name) return;
+  // Creates the chat card up front (status 'uploading' from 0%) without
+  // starting the actual network request — lets sendMessage show every
+  // attached file's card immediately, all at once, even though they upload
+  // one at a time behind the scenes.
+  function stageComposerUploadCard(file: File): string {
     const uploadId = genId();
-    uploadStore.start({ id: uploadId, clientSlug: name, fileName: file.name });
+    uploadStore.start({ id: uploadId, clientSlug: name ?? '', fileName: file.name });
     setMessages((prev) => [
       ...prev,
       {
@@ -1826,23 +1889,47 @@ export default function SuperClientPage() {
         createdAt: new Date().toISOString(),
       },
     ]);
+    return uploadId;
+  }
+
+  async function handleFileUploadFromComposer(
+    file: File,
+    opts?: { sync?: boolean },
+    existingUploadId?: string,
+  ): Promise<string | undefined> {
+    if (!name) return undefined;
+    const uploadId = existingUploadId ?? stageComposerUploadCard(file);
     scrollToBottom();
     try {
-      const added = await uploadSuperClientDocument(apiKey, name, file, (pct) => uploadStore.progress(uploadId, pct));
-      // Pass the server-assigned filename so the card can match against docs[]
-      uploadStore.done(uploadId, added[0]?.fileName);
-      setDocs((prev) => {
-        const next = [...prev];
-        for (const f of added) {
-          const idx = next.findIndex((d) => d.fileName === f.fileName);
-          if (idx !== -1) next[idx] = f;
-          else next.push(f);
-        }
-        return next;
-      });
+      const added = await uploadSuperClientDocument(apiKey, name, file, (pct) => uploadStore.progress(uploadId, pct), opts);
+      const first = added[0];
+      if (first?.status === 'duplicate') {
+        // Content-identical to an existing upload — nothing new was written
+        // server-side, so there's nothing to merge into docs[]; the existing
+        // entry there already reflects it. Just tell the user in chat.
+        uploadStore.duplicate(uploadId, first.duplicateOfFileName ?? first.fileName);
+        // Still a real, already-indexed memory entry — valid to report as
+        // "attached" too, so callers can flag it to the LLM like any other
+        // freshly-attached file.
+        return first.duplicateOfFileName ?? first.fileName;
+      } else {
+        // Pass the server-assigned filename so the card can match against docs[]
+        uploadStore.done(uploadId, first?.fileName);
+        setDocs((prev) => {
+          const next = [...prev];
+          for (const f of added) {
+            const idx = next.findIndex((d) => d.fileName === f.fileName);
+            if (idx !== -1) next[idx] = f;
+            else next.push(f);
+          }
+          return next;
+        });
+        return first?.fileName;
+      }
     } catch (err) {
       uploadStore.fail(uploadId, (err as Error).message ?? 'Upload failed');
       console.error('Composer upload failed', err);
+      return undefined;
     }
   }
 
@@ -3087,6 +3174,7 @@ export default function SuperClientPage() {
   function resetComposer() {
     setComposerStage(null);
     setActiveQuestion(null);
+    setCheckedMemoryIds(new Set());
     setPendingProfileField(null);
     setComposerProposal(null);
     setComposerInstructions('');
@@ -3680,18 +3768,62 @@ export default function SuperClientPage() {
     }
   }
 
-  async function sendMessage(overrideText?: string) {
+  async function sendMessage(overrideText?: string, confirmedMemoryIds?: string[]) {
     const text = (overrideText ?? input).trim();
     if (streaming) return;
     if (!text && composerStagedDocs.length === 0) return;
 
+    // Clear the composer immediately on Send, not after the upload loop
+    // below finishes — otherwise the typed text sits visible in the box for
+    // the entire (possibly long, real-document) upload+extraction wait,
+    // reading as "did this not go through" rather than "in progress".
+    setInput('');
+
+    // Post the user's typed message immediately too — with the composer now
+    // clearing instantly, waiting until after the upload loop below (which
+    // can take a while for real documents) to show it would make it
+    // invisible everywhere for that whole stretch: not in the box anymore,
+    // not yet in the chat either. Which branch further down actually acts
+    // on the turn is still decided only once uploads finish; the bubble
+    // itself doesn't need to wait for that.
+    let earlyUserMsg: Message | null = null;
+    if (text) {
+      earlyUserMsg = {
+        id: genId(),
+        role: 'user',
+        content: text,
+        createdAt: new Date().toISOString(),
+        ...(proposalEditActive ? { editContext: 'proposal' as const } : {}),
+      };
+      setMessages((prev) => [...prev, earlyUserMsg!]);
+    }
+
     // Documents staged in the composer are never uploaded on attach — only now,
-    // as the first thing that happens on Send. No processing runs afterward;
-    // they're simply added as documents.
+    // as the first thing that happens on Send.
+    //
+    // Uploaded with sync:true — the server awaits full content extraction +
+    // memory indexing before responding, instead of its default fire-and-
+    // forget background conversion, so the memory checklist that fires right
+    // after actually sees the file(s) just attached. Sequential, not
+    // Promise.all: concurrent uploads for the same client race on the same
+    // files.json / memory index.json (unsynchronized read-modify-write) —
+    // sequential keeps zero added concurrency instead of a lock.
+    const attachedFileNames: string[] = [];
     if (composerStagedDocs.length > 0) {
       const staged = composerStagedDocs;
       setComposerStagedDocs([]);
-      await Promise.all(staged.map((d) => handleFileUploadFromComposer(d.file)));
+      // Show every attached file's card immediately, all at once — the
+      // actual uploads still run one at a time right after (sequential to
+      // avoid racing files.json / memory index.json writes for the same
+      // client), so without this a second/third file's card wouldn't
+      // appear at all until the previous file's full upload + extraction
+      // finished, which can take a while for real documents.
+      const uploadIds = staged.map((d) => stageComposerUploadCard(d.file));
+      scrollToBottom();
+      for (let i = 0; i < staged.length; i++) {
+        const fileName = await handleFileUploadFromComposer(staged[i].file, { sync: true }, uploadIds[i]);
+        if (fileName) attachedFileNames.push(fileName);
+      }
     }
     if (!text) return;
 
@@ -3707,10 +3839,11 @@ export default function SuperClientPage() {
       const field = pendingProfileField;
       setPendingProfileField(null);
       resetComposer();
-      setInput('');
-      const answerTs = new Date().toISOString();
+      // Bubble already posted early (earlyUserMsg), before the upload loop —
+      // guaranteed non-null here since this branch only runs past the
+      // `if (!text) return` guard above.
+      const answerTs = earlyUserMsg!.createdAt;
       const confirmTs = new Date(Date.now() + 1).toISOString();
-      setMessages((prev) => [...prev, { id: genId(), role: 'user', content: text, createdAt: answerTs }]);
       try {
         await updateClientStableField(apiKey, name, field, text);
         setMemoryKey((k) => k + 1);
@@ -3742,10 +3875,9 @@ export default function SuperClientPage() {
           : proposals.length === 1
             ? 'Pick a proposal below to generate its microsite.'
             : 'Pick a proposal below to generate its microsite.';
-      const intentNow = new Date().toISOString();
+      // Bubble already posted early (earlyUserMsg), before the upload loop.
+      const intentNow = earlyUserMsg!.createdAt;
       const intentAssistantTs = new Date(Date.now() + 1).toISOString();
-      setMessages((prev) => [...prev, { id: genId(), role: 'user', content: text, createdAt: intentNow }]);
-      setInput('');
       // Extract any context the user included alongside the trigger word and pre-fill instructions
       const extracted = text
         .replace(/\b(generate|create|make|build|design|turn|convert|into)\b/gi, '')
@@ -3788,6 +3920,24 @@ export default function SuperClientPage() {
 
     const clientLabel = meta?.displayName ?? name;
     let planningContent = "";
+
+    // A generation-intent turn's early "Creating a proposal…" ack streams in
+    // via chunk events, but the (possibly long) blocking generation call
+    // that follows sends no further chunks until the real result lands in
+    // `done` — so once the ack text finishes, it just sits there static
+    // with a blinking cursor for that whole stretch, reading as stuck.
+    // Suppress chunk display for these turns so the "Thinking…" animated
+    // indicator below (shown for any empty, still-streaming message) keeps
+    // running instead, right up until the real result replaces it outright.
+    // Also covers resuming from the memory checklist's Generate button —
+    // that turn's text is the fixed placeholder "Yes, generate", which
+    // never matches the intent regexes above despite still being a
+    // generation turn on the backend.
+    const suppressAckChunks =
+      SLIDE_INTENT_RE.test(text) ||
+      PROPOSAL_INTENT_RE.test(text) ||
+      DOCUMENT_INTENT_RE.test(text) ||
+      (confirmedMemoryIds?.length ?? 0) > 0;
 
     if (SLIDE_INTENT_RE.test(text)) {
       const countMatch = text.match(/\b(\d+)[\s\-]*(page|slide|screen)s?\b/i);
@@ -3832,14 +3982,8 @@ export default function SuperClientPage() {
       localGenIdsRef.current.add(documentGenId);
     }
 
+    // Bubble already posted early (earlyUserMsg), before the upload loop.
     const now = new Date().toISOString();
-    const userMsg: Message = {
-      id: genId(),
-      role: 'user',
-      content: text,
-      createdAt: now,
-      ...(proposalEditActive ? { editContext: "proposal" as const } : {}),
-    };
     const assistantMsgId = genId();
     // This message grows via live SSE chunks (its own reveal) — exclude it from
     // the post-hoc typewriter pass so the finished text doesn't retype from empty.
@@ -3862,8 +4006,7 @@ export default function SuperClientPage() {
       ...(proposalEditActive ? { editContext: "proposal" as const } : {}),
     };
 
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
-    setInput('');
+    setMessages((prev) => [...prev, assistantMsg]);
     setStreaming(true);
 
     abortRef.current = new AbortController();
@@ -3875,8 +4018,21 @@ export default function SuperClientPage() {
         text,
         (evt: SuperClientChatEvent) => {
           if (evt.type === "planning" && evt.artifactType) {
-            // Server-driven generation card — authoritative over the optimistic
-            // regex path (covers e.g. resume-after-clarify where no regex fired).
+            // "planning" fires once intent is classified as a generate
+            // request — BEFORE the model has actually decided whether to
+            // produce the artifact or decline (that decision happens inside
+            // the same opaque blocking generation call, e.g. the MATERIAL
+            // CHECK RULE). Create/track the store entry here so progress
+            // steps below have somewhere to accumulate, but do NOT attach it
+            // to the message yet — attaching is what makes the capsule
+            // render inline, and attaching this early showed a "Drafting a
+            // proposal…" card even when the model was about to decline with
+            // a plain clarifying question, falsely implying generation had
+            // started. The proposalSaved/documentSaved/slideSaved branches
+            // below already handle attaching (and creating, if this block
+            // never ran) once an artifact is actually confirmed at `done` —
+            // this just stops the earlier, unconfirmed attach from also
+            // happening.
             const t = evt.artifactType;
             let gid = t === "slide" ? slideGenId : t === "proposal" ? proposalGenId : documentGenId;
             if (!gid) {
@@ -3893,13 +4049,6 @@ export default function SuperClientPage() {
               else if (t === "proposal") proposalGenId = gid;
               else documentGenId = gid;
             }
-            // Attach the card to the streaming assistant message so it renders
-            // live during generation (previously slide/document cards only
-            // attached retroactively on done).
-            const attach = gid;
-            setMessages((prev) =>
-              prev.map((m) => (m.id === assistantMsgId ? { ...m, generationId: attach } : m)),
-            );
           }
           if (evt.type === "progress" && evt.message) {
             // Mirror the microsite mapping: server progress → card step.
@@ -3913,7 +4062,7 @@ export default function SuperClientPage() {
               }
             }
           }
-          if (evt.type === "chunk" && evt.text) {
+          if (evt.type === "chunk" && evt.text && !suppressAckChunks) {
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantMsgId
@@ -3928,7 +4077,14 @@ export default function SuperClientPage() {
               // selector) instead of appearing inline — drop the placeholder
               // bubble and surface the question + options in the composer.
               setMessages((prev) => prev.filter((m) => m.id !== assistantMsgId));
-              setActiveQuestion({ text: evt.text, options: evt.clarifyOptions ?? [] });
+              setActiveQuestion({ text: evt.text, options: evt.clarifyOptions ?? [], details: evt.clarifyDetails });
+              setCheckedMemoryIds(
+                new Set(
+                  (evt.clarifyDetails?.items ?? [])
+                    .filter((i) => i.preChecked && i.id)
+                    .map((i) => i.id!),
+                ),
+              );
               setComposerStage('clarify');
               return;
             }
@@ -3982,15 +4138,27 @@ export default function SuperClientPage() {
                   abort: () => {},
                 });
                 localGenIdsRef.current.add(effectiveGenId);
-                setMessages((prev) =>
-                  prev.map((m) => (m.id === assistantMsgId ? { ...m, generationId: effectiveGenId! } : m)),
-                );
               }
-              generationStore.complete(
-                effectiveGenId,
-                { fileName: evt.proposalSaved.fileName },
-                evt.proposalSaved.title,
+              // Always attach, even when effectiveGenId already existed from
+              // the "planning" event — that event tracks the id for step
+              // bookkeeping but deliberately does NOT attach it to the
+              // message itself (see the planning handler above), so this is
+              // the only place a confirmed generation ever gets attached.
+              setMessages((prev) =>
+                prev.map((m) => (m.id === assistantMsgId ? { ...m, generationId: effectiveGenId! } : m)),
               );
+              // Brief delay before marking complete — the card only renders
+              // its "generating" steps (real ones, already accumulated from
+              // the progress heartbeat during the wait) while phase is still
+              // 'generating'; completing in the same tick as attaching would
+              // skip straight to the finished card with no visible process.
+              setTimeout(() => {
+                generationStore.complete(
+                  effectiveGenId!,
+                  { fileName: evt.proposalSaved!.fileName },
+                  evt.proposalSaved!.title,
+                );
+              }, GENERATION_CARD_REVEAL_MS);
               // Optimistic update so the artifacts tab is populated immediately
               setProposals((prev) => {
                 if (
@@ -4067,25 +4235,32 @@ export default function SuperClientPage() {
                   abort: () => {},
                 });
                 localGenIdsRef.current.add(effectiveDocGenId);
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantMsgId
-                      ? { ...m, generationId: effectiveDocGenId! }
-                      : m,
-                  ),
-                );
               }
-              generationStore.addStep(effectiveDocGenId, "Saving document…");
-              generationStore.complete(
-                effectiveDocGenId,
-                {
-                  documentId: evt.documentSaved.id,
-                  documentType: evt.documentSaved.documentType,
-                  preferredFormat: evt.documentSaved.preferredFormat,
-                  downloadUrl: evt.documentSaved.downloadUrl,
-                },
-                evt.documentSaved.title,
+              // Always attach, even when effectiveDocGenId already existed
+              // from the "planning" event — see the matching comment on the
+              // proposal branch above.
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsgId
+                    ? { ...m, generationId: effectiveDocGenId! }
+                    : m,
+                ),
               );
+              generationStore.addStep(effectiveDocGenId, "Saving document…");
+              // Brief delay before completing — see the matching comment on
+              // the proposal branch above.
+              setTimeout(() => {
+                generationStore.complete(
+                  effectiveDocGenId!,
+                  {
+                    documentId: evt.documentSaved!.id,
+                    documentType: evt.documentSaved!.documentType,
+                    preferredFormat: evt.documentSaved!.preferredFormat,
+                    downloadUrl: evt.documentSaved!.downloadUrl,
+                  },
+                  evt.documentSaved!.title,
+                );
+              }, GENERATION_CARD_REVEAL_MS);
               setGeneratedDocs((prev) =>
                 prev.some((d) => d.id === evt.documentSaved!.id)
                   ? prev
@@ -4118,20 +4293,27 @@ export default function SuperClientPage() {
                   abort: () => {},
                 });
                 localGenIdsRef.current.add(effectiveSlideGenId);
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantMsgId
-                      ? { ...m, generationId: effectiveSlideGenId! }
-                      : m,
-                  ),
-                );
               }
-              generationStore.addStep(effectiveSlideGenId, "Saving presentation…");
-              generationStore.complete(
-                effectiveSlideGenId,
-                { slideId: evt.slideSaved.id },
-                evt.slideSaved.title,
+              // Always attach, even when effectiveSlideGenId already existed
+              // from the "planning" event — see the matching comment on the
+              // proposal branch above.
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsgId
+                    ? { ...m, generationId: effectiveSlideGenId! }
+                    : m,
+                ),
               );
+              generationStore.addStep(effectiveSlideGenId, "Saving presentation…");
+              // Brief delay before completing — see the matching comment on
+              // the proposal branch above.
+              setTimeout(() => {
+                generationStore.complete(
+                  effectiveSlideGenId!,
+                  { slideId: evt.slideSaved!.id },
+                  evt.slideSaved!.title,
+                );
+              }, GENERATION_CARD_REVEAL_MS);
               setSavedSlides((prev) =>
                 prev.some((s) => s.id === evt.slideSaved!.id)
                   ? prev
@@ -4200,6 +4382,8 @@ export default function SuperClientPage() {
         abortRef.current.signal,
         viewingProposal ? viewingProposal.fileName : undefined,
         viewingDocument ? viewingDocument.id : undefined,
+        confirmedMemoryIds,
+        attachedFileNames,
       );
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
@@ -5007,21 +5191,28 @@ export default function SuperClientPage() {
                   position: 'relative',
                   borderRadius: 10,
                   padding: '12px 12px 10px',
-                  background: 'var(--panel-soft)',
+                  background: 'var(--panel)',
+                  border: '1px solid var(--border)',
                 }}
               >
-                {/* X — top right; closing returns the text composer */}
+                {/* X — top right; closing returns the text composer. Fixed
+                    40x40 hit target well beyond the visible 16px glyph,
+                    without changing the glyph's visual size. */}
                 <button
                   onClick={resetComposer}
                   style={{
                     position: 'absolute',
-                    top: 10,
-                    right: 10,
+                    top: 0,
+                    right: 0,
+                    width: 40,
+                    height: 40,
                     background: 'none',
                     border: 'none',
                     cursor: 'pointer',
                     color: 'var(--muted)',
                     display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                     padding: 0,
                     opacity: 0.6,
                   }}
@@ -5047,22 +5238,152 @@ export default function SuperClientPage() {
                   <HelpCircle size={13} strokeWidth={2} />
                   <span>Quick question</span>
                 </div>
-                <div
-                  className="sc-q-stagger"
-                  style={{
-                    marginBottom: activeQuestion.options.length ? 11 : 0,
-                    fontSize: 14,
-                    color: 'var(--text)',
-                    lineHeight: 1.5,
-                    paddingRight: 20,
-                    animationDelay: '0.11s',
-                  }}
-                >
-                  {activeQuestion.text}
-                </div>
+                {activeQuestion.details?.mode === 'select' ? (
+                  <div
+                    className="sc-q-stagger"
+                    style={{ marginBottom: 12, paddingRight: 20, animationDelay: '0.11s' }}
+                  >
+                    <div style={{ fontSize: 14, color: 'var(--text)', lineHeight: 1.5, marginBottom: 10 }}>
+                      {activeQuestion.details.intro}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {(activeQuestion.details.items ?? []).map((item, i) => {
+                        const checked = !!item.id && checkedMemoryIds.has(item.id);
+                        return (
+                          <div
+                            key={i}
+                            onClick={() => {
+                              if (!item.id) return;
+                              const id = item.id;
+                              setCheckedMemoryIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(id)) next.delete(id);
+                                else next.add(id);
+                                return next;
+                              });
+                            }}
+                            style={{
+                              display: 'flex',
+                              gap: 8,
+                              padding: '6px 9px',
+                              borderRadius: 8,
+                              background: checked ? 'var(--success-soft, rgba(34,197,94,0.1))' : 'var(--panel)',
+                              border: '1px solid var(--border)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            <div
+                              style={{
+                                flexShrink: 0,
+                                marginTop: 2,
+                                width: 14,
+                                height: 14,
+                                borderRadius: 3,
+                                border: '1px solid var(--border)',
+                                background: checked ? 'var(--success, #16a34a)' : 'transparent',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              {checked && <Check size={10} strokeWidth={3} color="#fff" />}
+                            </div>
+                            <FileText size={13} style={{ flexShrink: 0, marginTop: 1, color: 'var(--muted)' }} />
+                            <div style={{ minWidth: 0 }}>
+                              <div
+                                style={{
+                                  fontSize: 12.5,
+                                  fontWeight: 600,
+                                  color: 'var(--text)',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                                title={item.fileName}
+                              >
+                                {item.fileName}
+                              </div>
+                              <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.4 }}>
+                                {item.reason}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    className="sc-q-stagger"
+                    style={{
+                      marginBottom: activeQuestion.options.length ? 11 : 0,
+                      fontSize: 14,
+                      color: 'var(--text)',
+                      lineHeight: 1.5,
+                      paddingRight: 20,
+                      animationDelay: '0.11s',
+                      whiteSpace: 'pre-wrap',
+                    }}
+                  >
+                    {activeQuestion.text}
+                  </div>
+                )}
+                {activeQuestion.details?.mode === 'select' && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
+                    <button
+                      className="sc-q-stagger"
+                      disabled={streaming}
+                      onClick={resetComposer}
+                      style={{
+                        border: '1px solid var(--border)',
+                        background: 'var(--panel)',
+                        color: 'var(--text)',
+                        borderRadius: 999,
+                        padding: '6px 13px',
+                        fontSize: 13,
+                        fontWeight: 500,
+                        cursor: streaming ? 'default' : 'pointer',
+                        opacity: streaming ? 0.5 : 1,
+                        transition: 'background 0.15s, border-color 0.15s',
+                        animationDelay: '0.17s',
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="sc-q-stagger"
+                      disabled={streaming || checkedMemoryIds.size === 0}
+                      onClick={() => {
+                        const ids = Array.from(checkedMemoryIds);
+                        if (ids.length === 0) return;
+                        const msg = 'Yes, generate';
+                        resetComposer();
+                        void sendMessage(msg, ids);
+                      }}
+                      style={{
+                        border: '1px solid var(--primary)',
+                        background: checkedMemoryIds.size === 0 ? 'var(--panel)' : 'var(--primary)',
+                        color: checkedMemoryIds.size === 0 ? 'var(--muted)' : '#fff',
+                        borderRadius: 999,
+                        padding: '6px 13px',
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: streaming || checkedMemoryIds.size === 0 ? 'default' : 'pointer',
+                        opacity: streaming ? 0.5 : 1,
+                        transition: 'background 0.15s, border-color 0.15s',
+                        animationDelay: '0.22s',
+                      }}
+                    >
+                      {checkedMemoryIds.size > 0 ? `Generate (${checkedMemoryIds.size})` : 'Generate'}
+                    </button>
+                  </div>
+                )}
                 {activeQuestion.options.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {activeQuestion.options.map((opt, i) => (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
+                    {/* Reversed so the first (typically affirmative, e.g.
+                        "Yes, generate") option lands at the right extreme —
+                        the primary-action-on-the-right convention. */}
+                    {[...activeQuestion.options].reverse().map((opt, i) => (
                       <button
                         key={i}
                         className="sc-q-stagger"
@@ -7975,7 +8296,7 @@ export default function SuperClientPage() {
                           onChange={(e) => setUrlInput(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && urlInput.trim() && !enriching) {
-                              if (contextMd.trim()) {
+                              if (docs.some((d) => d.fileName === 'client-knowledge.md' && d.status === 'extracted')) {
                                 setEnrichConfirmPending(true);
                               } else {
                                 void handleEnrichUrl();
@@ -8015,7 +8336,7 @@ export default function SuperClientPage() {
                           <button
                             disabled={enriching || !urlInput.trim()}
                             onClick={() => {
-                              if (contextMd.trim()) {
+                              if (docs.some((d) => d.fileName === 'client-knowledge.md' && d.status === 'extracted')) {
                                 setEnrichConfirmPending(true);
                               } else {
                                 void handleEnrichUrl();
@@ -8123,8 +8444,8 @@ export default function SuperClientPage() {
 
                   {enrichConfirmPending && (
                     <ConfirmDialog
-                      title="Replace client context?"
-                      message="This will overwrite the existing client context with new content fetched from the website. This cannot be undone."
+                      title="Replace client knowledge?"
+                      message="This will overwrite the existing Client Knowledge document with new content fetched from the website. This cannot be undone."
                       confirmLabel="Replace"
                       onConfirm={async () => {
                         setEnrichConfirmPending(false);

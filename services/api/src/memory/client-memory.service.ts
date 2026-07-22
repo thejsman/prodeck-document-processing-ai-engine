@@ -24,7 +24,7 @@ export class ClientMemoryService {
   // ---------------------------------------------------------------------------
 
   private memoryPath(clientSlug: string): string {
-    return path.join(this.workdir, 'clients', clientSlug, 'memory.json');
+    return path.join(this.workdir, 'clients', clientSlug, 'chatmemory.json');
   }
 
   async get(clientSlug: string): Promise<ClientMemory | null> {

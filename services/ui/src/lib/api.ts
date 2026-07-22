@@ -2316,7 +2316,6 @@ export interface SuperClientHistoryEntry {
 
 export interface SuperClientDetail {
   meta: SuperClientMeta;
-  contextMd: string;
   history: SuperClientHistoryEntry[];
 }
 
@@ -2332,7 +2331,7 @@ export async function createSuperClient(
   displayName: string,
   url?: string,
   notes?: string,
-): Promise<{ name: string; displayName: string; contextMd: string }> {
+): Promise<{ name: string; displayName: string }> {
   const res = await fetch('/api/super-clients', {
     method: 'POST',
     headers: authHeaders(apiKey),
@@ -2342,7 +2341,7 @@ export async function createSuperClient(
     const text = await res.text().catch(() => '');
     throw new Error(`createSuperClient failed (${res.status}): ${text}`);
   }
-  return res.json() as Promise<{ name: string; displayName: string; contextMd: string }>;
+  return res.json() as Promise<{ name: string; displayName: string }>;
 }
 
 export interface SuperClientEnrichmentStatus {
@@ -2380,7 +2379,7 @@ export async function enrichSuperClientUrl(
   apiKey: string,
   name: string,
   url: string,
-): Promise<{ meta: SuperClientMeta; contextMd: string }> {
+): Promise<{ meta: SuperClientMeta; clientKnowledgeMd: string }> {
   const res = await fetch(`/api/super-clients/${name}/enrich-url`, {
     method: 'POST',
     headers: authHeaders(apiKey),
@@ -2390,7 +2389,7 @@ export async function enrichSuperClientUrl(
     const text = await res.text().catch(() => '');
     throw new Error(`enrichSuperClientUrl failed (${res.status}): ${text}`);
   }
-  return res.json() as Promise<{ meta: SuperClientMeta; contextMd: string }>;
+  return res.json() as Promise<{ meta: SuperClientMeta; clientKnowledgeMd: string }>;
 }
 
 export async function getSuperClient(apiKey: string, name: string): Promise<SuperClientDetail> {
@@ -2460,8 +2459,11 @@ export interface SuperClientFile {
   originalName?: string;
   size: number;
   uploadedAt: string;
-  status: 'processing' | 'extracted' | 'failed';
+  status: 'processing' | 'extracted' | 'failed' | 'duplicate';
   error?: string;
+  // Set only when status === 'duplicate' — the fileName of the pre-existing
+  // upload this content matches.
+  duplicateOfFileName?: string;
 }
 
 export async function listSuperClientDocuments(apiKey: string, name: string): Promise<SuperClientFile[]> {
@@ -2476,10 +2478,15 @@ export async function uploadSuperClientDocument(
   name: string,
   file: File,
   onProgress?: (pct: number) => void,
+  // sync: server awaits full content extraction + memory indexing before
+  // responding, instead of its default fire-and-forget background
+  // conversion — for the composer's "attach and send" path, which needs the
+  // file genuinely indexed before the chat request fires.
+  opts?: { sync?: boolean },
 ): Promise<SuperClientFile[]> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `/api/super-clients/${name}/documents/upload`);
+    xhr.open('POST', `/api/super-clients/${name}/documents/upload${opts?.sync ? '?sync=1' : ''}`);
     if (apiKey) xhr.setRequestHeader('Authorization', `Bearer ${apiKey}`);
     if (onProgress) {
       xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
@@ -2740,6 +2747,14 @@ export interface SuperClientChatEvent {
   // clarify (question) enrichment — renders as a distinct question card with chips
   isClarify?: boolean;
   clarifyOptions?: string[];
+  // present only for the memory-selection checklist question — lets the
+  // card render a real checklist instead of parsing it back out of the
+  // plain-text fallback in `text`.
+  clarifyDetails?: {
+    mode?: 'select';
+    intro: string;
+    items?: Array<{ id?: string; fileName: string; reason: string; preChecked?: boolean }>;
+  };
   // microsite intent — the UI opens the proposal selector in the composer
   isMicrosite?: boolean;
   hasProposals?: boolean;
@@ -2809,6 +2824,14 @@ export async function streamSuperClientChat(
   signal?: AbortSignal,
   activeProposalId?: string,
   activeDocumentId?: string,
+  // Explicit ids from the memory-selection checklist's Generate button —
+  // unambiguous regardless of message wording/length, unlike the short-
+  // reply-text heuristic the backend otherwise falls back to.
+  confirmedMemoryIds?: string[],
+  // Server-assigned filename(s) of file(s) uploaded in this same send
+  // action — lets the backend flag which selected memory items were
+  // attached directly alongside this message, not just older stored context.
+  attachedFileNames?: string[],
 ): Promise<void> {
   const res = await fetch(`/api/super-clients/${name}/chat`, {
     method: 'POST',
@@ -2817,6 +2840,8 @@ export async function streamSuperClientChat(
       message,
       ...(activeProposalId ? { activeProposalId } : {}),
       ...(activeDocumentId ? { activeDocumentId } : {}),
+      ...(confirmedMemoryIds?.length ? { confirmedMemoryIds } : {}),
+      ...(attachedFileNames?.length ? { attachedFileNames } : {}),
     }),
     signal,
   });

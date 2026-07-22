@@ -12,21 +12,38 @@ import { dedupeFacts, extractFactsForPage } from './fact-extraction.service.js';
 import { classifySite } from './site-classification.service.js';
 import { siteOutputDir, writeSiteFacts } from './store.js';
 import { normalizeUrl } from './discovery.js';
-import type { CrawlOptions, Fact, SiteFactsLogger, SiteManifest } from './types.js';
+import type { CrawlOptions, Fact, RawPageExtraction, SiteFactsLogger, SiteManifest } from './types.js';
 
-const FACT_EXTRACTION_CONCURRENCY = 3;
+const FACT_EXTRACTION_CONCURRENCY = 5;
 
-async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let cursor = 0;
-  async function worker(): Promise<void> {
-    while (cursor < items.length) {
-      const index = cursor++;
-      results[index] = await fn(items[index]);
-    }
+// Minimal async producer/consumer queue. Lets fact-extraction start on page 1
+// the moment it's crawled, instead of waiting for the entire site to finish
+// crawling before extraction begins — crawling is single-page-at-a-time
+// (one headless browser tab, network-idle wait per page) so on a 15-page
+// crawl that dead time was previously added on top of extraction time rather
+// than overlapping with it.
+const QUEUE_DONE = Symbol('queue-done');
+class AsyncQueue<T> {
+  private items: T[] = [];
+  private waiters: Array<(value: T | typeof QUEUE_DONE) => void> = [];
+  private closed = false;
+
+  push(item: T): void {
+    const waiter = this.waiters.shift();
+    if (waiter) waiter(item);
+    else this.items.push(item);
   }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
-  return results;
+
+  close(): void {
+    this.closed = true;
+    while (this.waiters.length > 0) this.waiters.shift()!(QUEUE_DONE);
+  }
+
+  next(): Promise<T | typeof QUEUE_DONE> {
+    if (this.items.length > 0) return Promise.resolve(this.items.shift() as T);
+    if (this.closed) return Promise.resolve(QUEUE_DONE);
+    return new Promise((resolve) => this.waiters.push(resolve));
+  }
 }
 
 export interface ExtractSiteFactsOptions extends CrawlOptions {
@@ -45,16 +62,32 @@ export interface ExtractSiteFactsResult {
 export async function extractSiteFacts(rawUrl: string, opts: ExtractSiteFactsOptions): Promise<ExtractSiteFactsResult> {
   const siteUrl = normalizeUrl(rawUrl.trim().startsWith('http') ? rawUrl.trim() : `https://${rawUrl.trim()}`);
 
-  const pages = await crawlSite(siteUrl, { maxPages: opts.maxPages, maxDepth: opts.maxDepth, log: opts.log });
+  const queue = new AsyncQueue<RawPageExtraction>();
+  const perPageFacts: Fact[][] = [];
 
-  const perPageFacts = await mapWithConcurrency(pages, FACT_EXTRACTION_CONCURRENCY, async (page) => {
-    try {
-      return await extractFactsForPage(page, siteUrl, opts.generateFn);
-    } catch (err) {
-      opts.log?.warn({ err, url: page.url }, '[site-facts] fact extraction failed for page — skipping');
-      return [] as Fact[];
+  const crawlPromise = crawlSite(siteUrl, {
+    maxPages: opts.maxPages,
+    maxDepth: opts.maxDepth,
+    log: opts.log,
+    onPage: (page) => queue.push(page),
+  }).finally(() => queue.close());
+
+  async function extractionWorker(): Promise<void> {
+    for (;;) {
+      const page = await queue.next();
+      if (page === QUEUE_DONE) return;
+      try {
+        perPageFacts.push(await extractFactsForPage(page, siteUrl, opts.generateFn));
+      } catch (err) {
+        opts.log?.warn({ err, url: page.url }, '[site-facts] fact extraction failed for page — skipping');
+      }
     }
-  });
+  }
+
+  const [pages] = await Promise.all([
+    crawlPromise,
+    ...Array.from({ length: FACT_EXTRACTION_CONCURRENCY }, () => extractionWorker()),
+  ]);
 
   const facts = dedupeFacts(perPageFacts.flat());
   const siteCategory = await classifySite(siteUrl, pages, opts.generateFn);

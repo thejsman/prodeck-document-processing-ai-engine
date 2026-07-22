@@ -120,10 +120,11 @@ const statements = await getFactStatements('/workdir/example.com', { category: '
 ## Integration with super-client creation
 
 `POST /super-clients` (`super-client-routes.ts`) no longer asks the LLM to
-guess at a company from a bare URL string. `context.md` is now grounded only
-in user-supplied notes; if a `url` is given, `extractSiteFacts` runs in the
-background (not blocking the creation response, since a multi-page crawl
-can take much longer than a single LLM call) and writes facts under
-`workdir/super-clients/{name}/site-facts/{hostname}/`. Turning that fact
-base into narrative context for chat/proposal generation is intentionally
-out of scope for this pass — see "What this pipeline does not do" above.
+guess at a company from a bare URL string. If a `url` is given, `extractSiteFacts`
+runs in the background (not blocking the creation response, since a multi-page
+crawl can take much longer than a single LLM call) and writes facts under
+`workdir/super-clients/{name}/site-facts/{hostname}/`. Once facts are ready,
+`generateSummaryDoc` turns them into `client-knowledge.md` (merged with
+creation notes if given) — this is also the file `POST .../enrich-url`
+(re)generates on demand. There is no separate `context.md` — it was removed;
+creation notes and URL-derived knowledge both land in `client-knowledge.md`.

@@ -139,6 +139,30 @@ export function isCrawlablePage(url: string): boolean {
   return !NON_PAGE_EXTENSIONS.has(ext);
 }
 
+// Paths that are structurally unlikely to carry client-profile-worthy
+// content (taxonomy listings, pagination, boilerplate legal pages, feeds).
+// Skipping these keeps the page-count cap spent on real content pages
+// instead of burning crawl/extraction budget on filler.
+const LOW_VALUE_PATH_PATTERNS: RegExp[] = [
+  /\/tag(\/|$)/,
+  /\/tags(\/|$)/,
+  /\/category(\/|$)/,
+  /\/categories(\/|$)/,
+  /\/page\/\d+(\/|$)/,
+  /\/author(\/|$)/,
+  /\/privacy(-policy)?(\/|$)/,
+  /\/terms(-(of-)?(service|use))?(\/|$)/,
+  /\/cookie(s|-policy)?(\/|$)/,
+  /\/feed(\/|$)/,
+  /\/wp-json(\/|$)/,
+];
+
+/** A crawlable but low-value page (taxonomy/pagination/legal boilerplate) — see LOW_VALUE_PATH_PATTERNS. */
+export function isLowValuePage(url: string): boolean {
+  const pathname = new URL(url).pathname.toLowerCase();
+  return LOW_VALUE_PATH_PATTERNS.some((re) => re.test(pathname));
+}
+
 export interface DiscoveryResult {
   seedUrls: string[];
   disallow: string[];

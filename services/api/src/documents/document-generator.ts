@@ -21,7 +21,7 @@ export interface GenerateDocumentInput {
   clientName: string
   clientSlug: string
   userMessage: string
-  clientProfile: string               // context.md content
+  clientProfile: string               // client-knowledge.md content
   knowledgeEntries: ClientKnowledgeEntry[]
   chatHistory?: Array<{ role: 'user' | 'assistant'; content: string }>
   skill?: LoadedSkill

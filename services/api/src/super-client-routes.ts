@@ -1,11 +1,17 @@
 import { mkdir, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest, FastifyReply, FastifyBaseLogger } from 'fastify';
 import { llmGenerateFn, withLlmTemperature } from './agent-routes.js';
 import { fetchPexelsImageUrl } from './image-routes.js';
 import { ClientMemoryService } from './memory/client-memory.service.js';
 import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
+import { DocumentMemoryService } from './memory/document-memory.service.js';
+import { convertUploadToMemoryDoc } from './memory/document-converter.js';
+import { syncChatMemory } from './memory/chat-memory-sync.js';
+import { syncClientKnowledge } from './memory/client-knowledge-sync.js';
+import { selectRelevantMemory, getMemoryDocsByIds, type RelevanceDecision } from './memory/memory-relevance.js';
 import {
   readOrgContextSettings,
   resolveVoiceBlock,
@@ -162,8 +168,17 @@ interface ScFile {
   originalName?: string;
   size: number;
   uploadedAt: string;
-  status: 'processing' | 'extracted' | 'failed';
+  status: 'processing' | 'extracted' | 'failed' | 'duplicate';
   error?: string;
+  // SHA-256 of the raw file content — lets a re-upload of the exact same
+  // file (even under a different name) be detected and skipped instead of
+  // silently creating a second copy in memory.
+  contentHash?: string;
+  // Set only when status === 'duplicate' — a synthetic response entry (never
+  // written to files.json) referencing the fileName of the pre-existing
+  // upload this content matches, so the composer can tell the user what's
+  // already there instead of uploading it again.
+  duplicateOfFileName?: string;
 }
 
 interface ScProposal {
@@ -259,17 +274,73 @@ function lastAssistantPending(history: HistoryEntry[]): PendingClarification | u
   return undefined;
 }
 
+/**
+ * User-facing label for a memory-relevance entry shown in the confirmation
+ * question. Only 'upload' entries have a fileName the user actually
+ * recognizes (they named/chose the file) — 'chat' and 'site-crawl' entries
+ * are internal artifact names (e.g. "chat.md", "client-knowledge.md") that
+ * don't correspond to anything the user created, so they get a plain
+ * description instead of a fake-looking filename.
+ */
+function memoryEntryLabel(entry: { fileName: string; type: string }): string {
+  switch (entry.type) {
+    case 'chat':
+      return 'Conversation history';
+    case 'site-crawl':
+      return 'Website research';
+    default:
+      return entry.fileName;
+  }
+}
+
+/**
+ * Determines whether the user's message ALREADY explicitly says which stored
+ * files to use — e.g. "use only the yacht proposal, the RFP was uploaded by
+ * mistake" — so the memory-selection checklist can be skipped instead of
+ * asking again for something the user just told us. Deliberately narrow: not
+ * the broad "judge whether each document is relevant" call that was removed
+ * earlier (that open-ended judgment is exactly what produced a wrong verdict
+ * on unrelated stored content). This is a constrained extraction — does the
+ * message name specific files, and which — with a safe failure mode: an
+ * empty or low-confidence result just falls back to showing the checklist,
+ * it never silently guesses a selection the user didn't actually state.
+ */
+async function resolveExplicitFileSelection(
+  entries: RelevanceDecision[],
+  userMessage: string,
+  generateFn: (prompt: string) => Promise<string>,
+): Promise<string[]> {
+  if (entries.length === 0) return [];
+
+  const listBlock = entries
+    .map((e) => `- id: ${e.id} | file: ${memoryEntryLabel(e)} | description: ${e.reason}`)
+    .join('\n');
+  const prompt = `A user is chatting about a client and has stored files available. Determine whether their message EXPLICITLY and UNAMBIGUOUSLY specifies which of these files to use for what they're asking right now.
+
+USER MESSAGE: ${userMessage}
+
+FILES:
+${listBlock}
+
+If the message clearly names, or unambiguously refers to, one or more specific files (e.g. "use only the yacht proposal", "the RFP was uploaded by mistake, don't use it", "just the transcript") — return the ids of exactly the files the user wants used. If the message does not reference any specific file, or a reference is too vague to confidently match one file over another, return an empty array — never guess.
+
+Return ONLY a JSON array of ids, e.g. ["id1"] or [].`;
+
+  try {
+    const raw = await generateFn(prompt);
+    const stripped = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+    const parsed = JSON.parse(stripped) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const validIds = new Set(entries.map((e) => e.id));
+    return parsed.filter((id): id is string => typeof id === 'string' && validIds.has(id));
+  } catch {
+    return [];
+  }
+}
+
 /** Remove em/en dashes from chat-visible text — replace with a spaced hyphen. */
 function stripDashes(s: string): string {
   return s.replace(/\s*[—–]\s*/g, ' - ');
-}
-
-async function readContext(dir: string): Promise<string> {
-  try {
-    return await readFile(path.join(dir, 'context.md'), 'utf-8');
-  } catch {
-    return '';
-  }
 }
 
 async function readScFiles(dir: string): Promise<ScFile[]> {
@@ -479,6 +550,7 @@ async function updateDocumentContent(
 
 async function updateProposal(dir: string, fileName: string, title: string, content: string): Promise<ScProposal> {
   const proposalsDir = path.join(dir, 'proposals');
+  await mkdir(proposalsDir, { recursive: true });
   await writeFile(path.join(proposalsDir, fileName), content, 'utf-8');
 
   const updatedAt = new Date().toISOString();
@@ -826,6 +898,16 @@ Return ONLY valid JSON (empty arrays if nothing notable):
     }
 
     log.info({ clientSlug, knowledgeAdded, stakeholdersAdded, skipped }, '[SuperClient] Memory distillation complete');
+
+    if (knowledgeAdded > 0) {
+      const updated = await memService.get(clientSlug);
+      if (updated) {
+        await syncChatMemory(workdir, clientSlug, updated, log).catch((err) => {
+          log.warn({ err }, '[SuperClient] chat memory sync failed — memory.json unaffected');
+        });
+      }
+    }
+
     return { knowledgeAdded, stakeholdersAdded, skipped };
   } catch (err) {
     log.warn({ err }, '[SuperClient] Memory distillation failed — chat unaffected');
@@ -836,11 +918,11 @@ Return ONLY valid JSON (empty arrays if nothing notable):
 async function seedClientMemory(
   name: string,
   displayName: string,
-  contextMd: string,
+  sourceMd: string,
   workdir: string,
   log: FastifyBaseLogger,
 ): Promise<void> {
-  if (!contextMd.trim()) return;
+  if (!sourceMd.trim()) return;
   const memService = new ClientMemoryService(workdir);
   try {
     const extractPrompt = `You are a client intelligence extractor.
@@ -863,7 +945,7 @@ Categories (use the most specific one that fits):
 - context      : Background about the company, people, or situation
 
 CONTENT:
-${contextMd.slice(0, 12000)}
+${sourceMd.slice(0, 12000)}
 
 Return ONLY valid JSON (null for fields not found):
 {
@@ -909,7 +991,71 @@ Return ONLY valid JSON (null for fields not found):
       }
     }
   } catch (err) {
-    log.warn({ err }, '[SuperClient] Failed to seed memory from contextMd');
+    log.warn({ err }, '[SuperClient] Failed to seed memory from source text');
+  }
+}
+
+/**
+ * Turns team-supplied creation notes into a client-knowledge.md document —
+ * no external research, no invented facts, just the notes formatted into
+ * clean markdown. Used both when there's no site crawl to merge with, and
+ * as the fallback when a crawl runs but yields nothing usable. Falls back to
+ * the raw notes verbatim if the LLM call fails, so notes are never lost.
+ */
+async function generateClientKnowledgeFromNotes(
+  displayName: string,
+  notes: string,
+  generateFn: (prompt: string) => Promise<string>,
+): Promise<string> {
+  const prompt = `You are writing a client knowledge reference document from a team's own notes about a client. Work ONLY from the notes below — no external research, no invented facts.
+
+Client: ${displayName}
+
+Notes:
+${notes}
+
+Write a clean, well-structured markdown document using ## section headers appropriate to the content (e.g. Overview, Key Facts, Goals, Stakeholders) — only include sections the notes actually support. Return ONLY the markdown, no preamble, no code fences.`;
+
+  try {
+    const raw = await generateFn(prompt);
+    return raw.trim().replace(/^```(?:markdown|md)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  } catch {
+    return `# ${displayName} — Client Knowledge\n\n${notes}`;
+  }
+}
+
+/**
+ * Fallback when a real crawl can't be performed (the site blocked automated
+ * access, or the crawl produced no usable facts) and there are no notes to
+ * fall back on either. Asks the model directly what it knows about the URL —
+ * this is NOT a live fetch of the page, so it can only surface whatever the
+ * model already knows from training data, and it may know nothing about a
+ * small/unindexed business or be stale. The disclaimer at the top of the
+ * returned doc is deliberate: unlike the crawl-based summary (fact-cited,
+ * verified against the live page), this content is unverified and should be
+ * treated as a starting point to confirm with the client, not ground truth.
+ */
+async function generateClientKnowledgeFromModelKnowledge(
+  url: string,
+  displayName: string,
+  generateFn: (prompt: string) => Promise<string>,
+): Promise<string | null> {
+  const prompt = `You are a client intelligence researcher. The site at the URL below could not be crawled directly (it may block automated access). Based ONLY on what you already know about this company from your training data, write what you can about it. If you do not have any real knowledge of this specific company, say so plainly instead of guessing or inventing details.
+
+Focus on (only where you have real knowledge): what the company does, industry and target market, notable services/products, tone and positioning, location.
+
+Website URL: ${url}
+Company name: ${displayName}
+
+Output clean, well-structured markdown without preamble.`;
+
+  try {
+    const raw = await generateFn(prompt);
+    const cleaned = raw.trim().replace(/^```(?:markdown|md)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+    if (!cleaned) return null;
+    return `> ⚠️ This site could not be crawled directly. The information below comes from the model's general knowledge, not a live fetch of the page — verify it with the client before relying on it.\n\n${cleaned}`;
+  } catch {
+    return null;
   }
 }
 
@@ -978,21 +1124,16 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       await memService.createEmpty(displayName);
     }
 
-    // context.md is grounded in user-supplied notes only — we no longer ask the LLM to
-    // guess at a company's identity from a bare URL string with no page content behind it.
-    // If a URL was given, a real crawl + fact extraction runs in the background (see below);
-    // turning that fact base into narrative context is a separate, later concern.
-    const contextMd = notes ?? '';
+    if (notes) {
+      await seedClientMemory(name, displayName, notes, workdir, app.log);
+    }
 
-    await writeFile(path.join(dir, 'context.md'), contextMd);
-
-    await seedClientMemory(name, displayName, contextMd, workdir, app.log);
-
-    if (url) {
-      // Fire-and-forget: a multi-page headless-browser crawl can take much longer than
-      // client creation should block for. Facts land under dir/site-facts/ once ready.
-      // status.json makes the background job observable — without it, "still crawling"
-      // and "silently failed" are indistinguishable from the UI and the filesystem.
+    if (url || notes) {
+      // Fire-and-forget: a multi-page headless-browser crawl (or even just an
+      // LLM call for notes-only clients) can take longer than client creation
+      // should block for. status.json makes the background job observable —
+      // without it, "still working" and "silently failed" are indistinguishable
+      // from the UI and the filesystem.
       const siteFactsDir = path.join(dir, 'site-facts');
       const statusPath = path.join(siteFactsDir, 'status.json');
       const writeStatus = (status: Record<string, unknown>) =>
@@ -1001,52 +1142,139 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         });
 
       await mkdir(siteFactsDir, { recursive: true });
-      await writeStatus({ status: 'running', url, startedAt: new Date().toISOString() });
+      await writeStatus({ status: 'running', ...(url ? { url } : {}), startedAt: new Date().toISOString() });
 
-      void extractSiteFacts(url, { workdir: siteFactsDir, generateFn: llmGenerateFn, log: app.log })
-        .then(async (result) => {
-          app.log.info({ name, url, ...result }, '[SuperClient] site-facts extraction complete');
-
-          // Generate the narrative summary doc FROM the fact base (never the
-          // other way around) and save it as a standalone client-knowledge
-          // file. Nothing else consumes it automatically — context.md and
-          // client memory are deliberately left untouched.
-          let summaryPath: string | undefined;
-          if (result.factsCount > 0) {
-            await writeStatus({ status: 'generating_summary', url, startedAt: new Date().toISOString() });
-            const [manifest, facts] = await Promise.all([readManifest(result.outputDir), readFacts(result.outputDir)]);
-            const doc = await generateSummaryDoc({ siteName: displayName, manifest, facts, generateFn: llmGenerateFn });
-            summaryPath = path.join(dir, 'client-knowledge.md');
-            await writeFile(summaryPath, doc);
-          }
-
-          const factsFields = {
-            url,
-            pagesCrawled: result.pagesCrawled,
-            factsCount: result.factsCount,
-            outputDir: result.outputDir,
-            ...(summaryPath ? { summaryPath } : {}),
-          };
-
-          // Facts + summary are the only things this chain ever does now.
-          // Design-tokens and image-context are independent, on-demand
-          // modules (see POST .../design-system and .../image-context below)
-          // — triggered only when a user actually wants a microsite inspired
-          // by this client, not unconditionally for every URL.
-          await writeStatus({ status: 'complete', ...factsFields, finishedAt: new Date().toISOString() });
-        })
-        .catch(async (err) => {
-          app.log.warn({ err, name, url }, '[SuperClient] site-facts extraction failed');
-          await writeStatus({
-            status: 'failed',
-            url,
-            error: err instanceof Error ? err.message : String(err),
-            finishedAt: new Date().toISOString(),
-          });
+      const saveClientKnowledge = async (doc: string) => {
+        const summaryPath = path.join(dir, 'client-knowledge.md');
+        await writeFile(summaryPath, doc);
+        await syncClientKnowledge(workdir, name, doc).catch((err) => {
+          app.log.warn({ err, name }, '[SuperClient] client-knowledge memory sync failed');
         });
+        return summaryPath;
+      };
+
+      if (url) {
+        void extractSiteFacts(url, { workdir: siteFactsDir, generateFn: llmGenerateFn, log: app.log })
+          .then(async (result) => {
+            app.log.info({ name, url, ...result }, '[SuperClient] site-facts extraction complete');
+
+            // Generate the narrative summary doc FROM the fact base (never the
+            // other way around), then append creation notes as a distinct
+            // section — the crawl-derived body keeps its [F#] citations intact,
+            // notes are first-party input and don't need citing. Nothing else
+            // consumes client-knowledge.md automatically — structured client
+            // memory (chatmemory.json) is deliberately left untouched.
+            let summaryPath: string | undefined;
+            if (result.factsCount > 0) {
+              await writeStatus({ status: 'generating_summary', url, startedAt: new Date().toISOString() });
+              const [manifest, facts] = await Promise.all([readManifest(result.outputDir), readFacts(result.outputDir)]);
+              let doc = await generateSummaryDoc({ siteName: displayName, manifest, facts, generateFn: llmGenerateFn });
+              if (notes) doc = `${doc}\n\n## Client-Provided Notes\n\n${notes}\n`;
+              summaryPath = await saveClientKnowledge(doc);
+            } else if (notes) {
+              // Crawl found nothing usable — notes still produce a doc rather
+              // than being silently dropped.
+              const doc = await generateClientKnowledgeFromNotes(displayName, notes, llmGenerateFn);
+              summaryPath = await saveClientKnowledge(doc);
+            } else {
+              // Crawl finished but produced nothing usable (0 facts) and there
+              // are no notes to fall back on — most commonly the site blocked
+              // the crawler (bot-detection challenge page, robots.txt disallow,
+              // or a JS-only shell that never rendered real content). Fall back
+              // to asking the model directly what it already knows about the
+              // company (clearly disclaimed as unverified, see
+              // generateClientKnowledgeFromModelKnowledge) rather than leaving
+              // client-knowledge.md unwritten — without ANY doc, virtualDocEntry
+              // reads a 'complete' status with a missing file as "the user
+              // deleted it" and omits the doc entirely, leaving the UI's
+              // narration stuck showing "Crawling..." forever with no
+              // terminal state to settle on.
+              app.log.warn(
+                { name, url, pagesCrawled: result.pagesCrawled },
+                '[SuperClient] site-facts crawl produced no usable facts — falling back to model knowledge',
+              );
+              const doc = await generateClientKnowledgeFromModelKnowledge(url, displayName, llmGenerateFn);
+              if (doc) {
+                summaryPath = await saveClientKnowledge(doc);
+              } else {
+                await writeStatus({
+                  status: 'failed',
+                  url,
+                  pagesCrawled: result.pagesCrawled,
+                  factsCount: result.factsCount,
+                  outputDir: result.outputDir,
+                  error:
+                    result.pagesCrawled <= 1
+                      ? 'The site could not be crawled — it may be blocking automated access (bot-detection challenge) or the page never rendered real content.'
+                      : 'The site was crawled but no usable facts could be extracted from its pages.',
+                  finishedAt: new Date().toISOString(),
+                });
+                return;
+              }
+            }
+
+            const factsFields = {
+              url,
+              pagesCrawled: result.pagesCrawled,
+              factsCount: result.factsCount,
+              outputDir: result.outputDir,
+              ...(summaryPath ? { summaryPath } : {}),
+            };
+
+            // Facts + summary are the only things this chain ever does now.
+            // Design-tokens and image-context are independent, on-demand
+            // modules (see POST .../design-system and .../image-context below)
+            // — triggered only when a user actually wants a microsite inspired
+            // by this client, not unconditionally for every URL.
+            await writeStatus({ status: 'complete', ...factsFields, finishedAt: new Date().toISOString() });
+          })
+          .catch(async (err) => {
+            app.log.warn({ err, name, url }, '[SuperClient] site-facts extraction failed');
+            let summaryPath: string | undefined;
+            if (notes) {
+              // The crawl itself failed outright — notes still produce a doc.
+              const doc = await generateClientKnowledgeFromNotes(displayName, notes, llmGenerateFn);
+              summaryPath = await saveClientKnowledge(doc);
+            } else {
+              // No notes either — fall back to the model's own (disclaimed,
+              // unverified) knowledge of the company rather than leaving
+              // client-knowledge.md unwritten. Status still records 'failed'
+              // (the crawl itself really did error out), but virtualDocEntry
+              // checks real file existence before consulting that status, so
+              // a successfully produced fallback doc still surfaces as a
+              // normal, usable document in the UI.
+              const doc = await generateClientKnowledgeFromModelKnowledge(url, displayName, llmGenerateFn);
+              if (doc) summaryPath = await saveClientKnowledge(doc);
+            }
+            await writeStatus({
+              status: 'failed',
+              url,
+              ...(summaryPath ? { summaryPath } : {}),
+              error: err instanceof Error ? err.message : String(err),
+              finishedAt: new Date().toISOString(),
+            });
+          });
+      } else {
+        // No URL — client-knowledge.md is generated straight from notes.
+        void (async () => {
+          try {
+            await writeStatus({ status: 'generating_summary', startedAt: new Date().toISOString() });
+            const doc = await generateClientKnowledgeFromNotes(displayName, notes!, llmGenerateFn);
+            const summaryPath = await saveClientKnowledge(doc);
+            await writeStatus({ status: 'complete', summaryPath, finishedAt: new Date().toISOString() });
+          } catch (err) {
+            app.log.warn({ err, name }, '[SuperClient] notes-only client-knowledge generation failed');
+            await writeStatus({
+              status: 'failed',
+              error: err instanceof Error ? err.message : String(err),
+              finishedAt: new Date().toISOString(),
+            });
+          }
+        })();
+      }
     }
 
-    return reply.code(201).send({ name, displayName, contextMd });
+    return reply.code(201).send({ name, displayName });
   });
 
   // POST /super-clients/:name/design-system  — on-demand, independent of client creation
@@ -1121,8 +1349,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const dir = path.join(superClientsRoot, name);
 
     try {
-      const [meta, contextMd, history] = await Promise.all([readMeta(dir), readContext(dir), readHistory(dir)]);
-      return reply.send({ meta, contextMd, history });
+      const [meta, history] = await Promise.all([readMeta(dir), readHistory(dir)]);
+      return reply.send({ meta, history });
     } catch {
       return reply.code(404).send({ error: `Super client "${name}" not found` });
     }
@@ -1164,16 +1392,34 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
   // routes in this codebase). Non-streaming calls (context gen, distillation) use llmGenerateFn.
   app.post('/super-clients/:name/chat', async (req: FastifyRequest, reply: FastifyReply) => {
     const { name } = req.params as { name: string };
-    const body = req.body as { message?: string; activeProposalId?: string; activeDocumentId?: string } | undefined;
+    const body = req.body as
+      | {
+          message?: string;
+          activeProposalId?: string;
+          activeDocumentId?: string;
+          confirmedMemoryIds?: unknown;
+          attachedFileNames?: unknown;
+        }
+      | undefined;
 
     const message = body?.message?.trim();
     const activeProposalId = body?.activeProposalId?.trim() || undefined;
     const activeDocumentId = body?.activeDocumentId?.trim() || undefined;
+    // Explicit, structured confirmation from the memory checklist card's
+    // Generate button — bypasses the short-reply-text heuristic entirely,
+    // since the exact set the user checked is unambiguous here regardless
+    // of message wording/length.
+    const confirmedMemoryIds = Array.isArray(body?.confirmedMemoryIds)
+      ? body.confirmedMemoryIds.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+      : [];
+    // Server-assigned filename(s) of any file(s) the composer uploaded in
+    // this same send action, synchronously, right before this request.
+    const attachedFileNames = Array.isArray(body?.attachedFileNames)
+      ? body.attachedFileNames.filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+      : [];
     if (!message) {
       return reply.code(400).send({ error: 'Missing required field: message' });
     }
-
-    const detectedFormat = parseRequestedFormat(message);
 
     const dir = path.join(superClientsRoot, name);
 
@@ -1207,15 +1453,88 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     };
 
     try {
-      const [contextMd, history, memResult, scFiles, authorVoiceBlock, designKit, orgSettings] = await Promise.all([
-        readContext(dir),
-        readHistory(dir),
-        new ClientMemoryService(workdir).prepopulate(name),
-        readScFiles(dir),
-        resolveVoiceBlock(workdir, superClientWorkdir(workdir, name)),
-        resolveDesignKit(workdir, superClientWorkdir(workdir, name)),
-        readOrgContextSettings(workdir),
-      ]);
+      const [history, memResult, scFiles, authorVoiceBlock, designKit, orgSettings, relevantMemorySelection, memoryIndex] =
+        await Promise.all([
+          readHistory(dir),
+          new ClientMemoryService(workdir).prepopulate(name),
+          readScFiles(dir),
+          resolveVoiceBlock(workdir, superClientWorkdir(workdir, name)),
+          resolveDesignKit(workdir, superClientWorkdir(workdir, name)),
+          readOrgContextSettings(workdir),
+          selectRelevantMemory(workdir, name),
+          new DocumentMemoryService(workdir).readIndex(name),
+        ]);
+
+      // Captured once, right after history is available, so both the memory
+      // override below and the intent gate's own resume logic read the same
+      // pending marker without re-scanning history twice.
+      const priorPendingClarification = lastAssistantPending(history);
+
+      // A pending marker merely existing does NOT mean this message answers
+      // it — the user may have ignored the question entirely and pasted a
+      // brand-new, full request instead (which reads as "confirmed, with
+      // detail" to the intent classifier just as readily as an actual "yes"
+      // would). An explicit confirmedMemoryIds (the checklist's Generate
+      // button) always counts as answered, unambiguously; otherwise require
+      // the reply to also look like a short, direct answer ("yes", "go
+      // ahead", …) — a resend of the original request must still trigger a
+      // fresh question, not silently reuse a stale one.
+      const isDirectReply = message.length <= 50;
+      const isConfirmedMemoryReply =
+        !!priorPendingClarification?.includedMemoryIds && (confirmedMemoryIds.length > 0 || isDirectReply);
+      // A short reply answering the earlier ambiguity-clarify question (e.g.
+      // clicking "Create a proposal") carries none of the user's real content
+      // either — same problem as the memory-checklist confirm above, one hop
+      // earlier in the flow. Scoped to priorPendingClarification actually
+      // existing (we asked a clarifying question last turn), so an unrelated
+      // short message on a fresh turn is never mistaken for a resume.
+      const isResumedAmbiguityClarify =
+        !!priorPendingClarification && !priorPendingClarification.includedMemoryIds && isDirectReply;
+
+      // On a resumed/confirmed turn (the memory checklist's Generate button,
+      // OR a button click answering the earlier ambiguity question),
+      // `message` is a short fixed label — it carries none of the user's
+      // actual instruction or any pasted material (transcript, RFP text,
+      // etc.). Substitute the original triggering message for every
+      // downstream read of message CONTENT. Never substitute it for history
+      // persistence, isDirectReply, or the intent-gate call — those are keyed
+      // to what the user actually typed/clicked this turn, and
+      // classifyChatIntent already resolves resumes correctly via the
+      // pending marker's skillSlug/proposedIntent without needing the raw
+      // text.
+      // First pass — naive, length-only heuristic. Used below only for the
+      // matchedDocumentSkill hint and the classifyChatIntent call itself
+      // (both soft signals); corrected once `decision` is known, see the
+      // isGenuineResume check right after the classifyChatIntent call.
+      let effectiveMessage =
+        (isConfirmedMemoryReply || isResumedAmbiguityClarify) && priorPendingClarification?.originalMessage
+          ? priorPendingClarification.originalMessage
+          : message;
+      let detectedFormat = parseRequestedFormat(effectiveMessage);
+      // Same substitution, for the file(s) attached alongside the original
+      // triggering message — a resumed turn's own request carries no fresh
+      // attachments of its own.
+      let effectiveAttachedFileNames =
+        (isConfirmedMemoryReply || isResumedAmbiguityClarify) && priorPendingClarification?.attachedFileNames?.length
+          ? priorPendingClarification.attachedFileNames
+          : attachedFileNames;
+
+      // A confirmed reply carries no topical content of its own, so reuse
+      // exactly what the user selected/approved on the checklist instead of
+      // whatever the fresh (unfiltered) list would otherwise return.
+      // confirmedMemoryIds (explicit, from the Generate button) wins over
+      // the pending marker's default set when both are present. Mutable —
+      // the explicit-file-selection check below (right before the checklist
+      // would otherwise fire) can also override this on a FRESH turn when
+      // the user's own message already names which files to use.
+      let relevantMemoryDocs = isConfirmedMemoryReply
+        ? await getMemoryDocsByIds(
+            workdir,
+            name,
+            confirmedMemoryIds.length > 0 ? confirmedMemoryIds : priorPendingClarification!.includedMemoryIds!,
+          )
+        : relevantMemorySelection.included;
+      const memoryRelevanceDecisions = relevantMemorySelection.decisions;
 
       const extractedFiles = scFiles.filter((f) => f.status === 'extracted');
 
@@ -1246,7 +1565,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       let matchedSkillInstructionsMd: string | undefined;
       let matchedSkillSections: Awaited<ReturnType<typeof loadSkill>>['sections'] | undefined;
       try {
-        matchedDocumentSkill = await findBestDocumentSkill(workdir, message);
+        matchedDocumentSkill = await findBestDocumentSkill(workdir, effectiveMessage);
         if (matchedDocumentSkill) {
           const loaded = await loadSkill(workdir, matchedDocumentSkill.slug);
           matchedSkillInstructionsMd = loaded?.instructionsMd;
@@ -1281,9 +1600,36 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           })),
           hasProposals: proposalsList.length > 0,
           matchedSkillSlug: matchedDocumentSkill?.slug,
-          pendingClarification: lastAssistantPending(history),
+          pendingClarification: priorPendingClarification,
+          attachedFileNames: effectiveAttachedFileNames,
           generateFn: llmGenerateFn,
         });
+
+        // The naive isConfirmedMemoryReply/isResumedAmbiguityClarify check
+        // above (short-message-length only) cannot distinguish a genuine
+        // resume from a short but entirely new, unrelated request — e.g.
+        // "create a blog post" is short and satisfies isResumedAmbiguityClarify
+        // just as readily whether or not a stale, unrelated clarify question
+        // from a completely different earlier request (e.g. a prior
+        // proposal's file conflict) is still sitting unanswered. Now that
+        // the classifier's own independent (raw-message) decision is known,
+        // tighten the substitution: trust it as a genuine resume only if the
+        // decision actually continues the SAME proposed intent as the
+        // pending marker (an explicit confirmedMemoryIds click is always
+        // genuine regardless, per the comment above). Otherwise this is a
+        // fresh request and the stale originalMessage/attachedFileNames must
+        // not leak into it — this exact collision once generated
+        // proposal-shaped content for a "create a blog post" request, from a
+        // stale unrelated pending clarification two turns back.
+        const isGenuineResume =
+          (isConfirmedMemoryReply &&
+            (confirmedMemoryIds.length > 0 || decision.intent === priorPendingClarification?.proposedIntent)) ||
+          (isResumedAmbiguityClarify && decision.intent === priorPendingClarification?.proposedIntent);
+        if (!isGenuineResume && priorPendingClarification) {
+          effectiveMessage = message;
+          detectedFormat = parseRequestedFormat(effectiveMessage);
+          effectiveAttachedFileNames = attachedFileNames;
+        }
 
         // Terminal intents — respond and stop before any generation.
         if (decision.intent === 'off_topic') {
@@ -1306,6 +1652,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
                 proposedIntent: decision.proposedIntent,
                 ...(pendingSkillSlug ? { skillSlug: pendingSkillSlug } : {}),
                 ...(decision.format ? { format: decision.format } : {}),
+                // Preserve the actual triggering text (which may be pasted
+                // material — notes, a transcript, an RFP) so a later resume
+                // (button click, or the memory checklist after it) doesn't
+                // lose it in favor of a short "Create a proposal" label.
+                originalMessage: message,
+                ...(attachedFileNames.length ? { attachedFileNames } : {}),
               }
             : undefined;
           // A question renders as a distinct card, not streamed text — emit it as a
@@ -1334,9 +1686,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
         // ── Context-readiness gate ─────────────────────────────────────────
         // A generation request against a client with NO stored context
-        // (context.md, ingested docs, memory) would leave the LLM with only
-        // the display name — it hallucinates a generic artifact. Decline bare
-        // requests with guidance (mirrors the microsite "need a proposal
+        // (ingested docs, client knowledge, memory) would leave the LLM with
+        // only the display name — it hallucinates a generic artifact. Decline
+        // bare requests with guidance (mirrors the microsite "need a proposal
         // first" gate). A request that carries its own project details
         // bypasses the gate: the message itself is the context.
         const GATED_INTENTS: ReadonlySet<string> = new Set([
@@ -1345,16 +1697,33 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           'generate_presentation',
         ]);
         if (GATED_INTENTS.has(decision.intent)) {
-          // Same emptiness conditions the prompt builder uses below — when all
-          // three are empty, every fact-bearing prompt section would be skipped.
+          // Checks the memory-folder INDEX (every doc that exists), not
+          // relevantMemoryDocs (which is relevance-filtered against this
+          // specific message and could legitimately come back empty for a
+          // generic bare request even when real content exists).
+          //
+          // Also checks the conversation itself: a prior turn may have
+          // pasted substantial material (working notes, a transcript) that
+          // was never uploaded as a file or distilled into memory — it only
+          // exists as chat history. That happens whenever a clarify/answer
+          // exchange sits between the paste and the eventual short "create
+          // X" — effectiveMessage only recovers ONE prior turn (the one
+          // immediately behind a clarify pending marker), so a longer
+          // back-and-forth would otherwise still read as context-free here
+          // even though the actual generation prompt below already includes
+          // the last 20 turns of history regardless.
+          const hasSubstantiveHistoryContent = history.some(
+            (h) => h.role === 'user' && h.content.trim().length > 200,
+          );
           const hasStoredContext =
-            contextMd.trim().length > 0 ||
             extractedFiles.length > 0 ||
+            memoryIndex.length > 0 ||
+            hasSubstantiveHistoryContent ||
             (memResult.found &&
               (Object.keys(memResult.stableFields).length > 0 ||
                 memResult.knowledge.length > 0 ||
                 memResult.stakeholders.length > 0));
-          if (!hasStoredContext && isBareGenerationRequest(message, matchedDocumentSkill?.triggers)) {
+          if (!hasStoredContext && isBareGenerationRequest(effectiveMessage, matchedDocumentSkill?.triggers)) {
             const artifactLabel =
               decision.intent === 'generate_proposal'
                 ? 'proposal'
@@ -1441,7 +1810,18 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // deck's HTML inside the provider's output-token ceiling, so an
       // unclamped large count is a leading cause of truncated generation.
       const { requested: requestedSlideCount, resolved: resolvedSlideCount, wasCapped: slideCountWasCapped } =
-        resolveSlideCount(message);
+        resolveSlideCount(effectiveMessage);
+
+      // Applied in BOTH prompt branches below (see the "NEVER ask the user to
+      // re-upload..." anchor line in each) — makes "the chosen material
+      // doesn't hold up → decline and ask" an explicit, encouraged outcome
+      // rather than an implicit side effect of "no tag found in the reply."
+      // The mechanism for a decline to render as a plain conversational
+      // reply already exists (no <proposal>/<document>/<slides> tag in the
+      // response falls through to a normal answer) — this only tells the
+      // model that choosing it here is correct, not a failure.
+      const MATERIAL_CHECK_RULE =
+        `MATERIAL CHECK RULE — apply this before anything else below: Weigh the selected files (Relevant Memory), client memory, and the user's request against each other. If they do not hold up together — the material is about a different, unrelated business or engagement; it is missing what the request actually needs; or it contradicts the request — do NOT force an artifact out of it. Respond in plain conversational text instead (no <proposal>, <document>, or <slides> tag), name the specific problem, and ask how to proceed. This is a correct, encouraged outcome, not a failure — a clear decline beats a confident artifact built on the wrong material. Example: a selected file is a proposal for an unrelated company — flag the mismatch and ask whether to exclude it rather than weaving it into this client's proposal.`;
 
       // Build combined prompt — llmGenerateFn takes a single string and routes through
       // the Python LLM bridge which respects LLM_PROVIDER / provider-specific model config.
@@ -1466,7 +1846,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
                 ]
               : []),
             ``,
-            `NEVER ask the user to re-upload files listed in the Ingested Documents section — their content is already extracted into memory below.`,
+            `NEVER ask the user to re-upload previously uploaded files — their content, once processed, appears in the Relevant Memory section below.`,
+            ``,
+            MATERIAL_CHECK_RULE,
             ``,
             `SLIDES GENERATION RULE — this is the ONLY output format for this request:`,
             `Output ONE complete standalone HTML document wrapped in <slides>...</slides>. Do NOT use <proposal> or <document> tags. Do NOT output markdown.`,
@@ -1501,7 +1883,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             ``,
             `For proposals and formal documents: Write at a professional C-suite level. Use strong opening statements, evidence-based arguments, and compelling calls to action. Structure content with clear headings and purposeful body text — no filler, no generic statements. Draw exclusively from the client memory and ingested documents below; never invent facts not present in the context.`,
             ``,
-            `NEVER ask the user to re-upload files listed in the Ingested Documents section — their content is already extracted into memory below.`,
+            `NEVER ask the user to re-upload previously uploaded files — their content, once processed, appears in the Relevant Memory section below.`,
+            ``,
+            MATERIAL_CHECK_RULE,
             ``,
             `DOCUMENT GENERATION RULE: When the user asks you to write, create, generate, or draft any document that is NOT a proposal — such as a strategy document, blog post, marketing brief, executive report, press release, competitive analysis, case study, go-to-market plan, one-pager, compliance checklist, or any other standalone document — you MUST:`,
             `1. Write the full document in rich markdown — use # for the title, ## for section headings, **bold** for key terms, and appropriate structure driven by the content type.`,
@@ -1515,6 +1899,17 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             `3. Outside the tag, write ONE short, plain-language sentence telling the user what the document covers — its topic and main takeaway. Do not describe formatting or structure. Keep it simple and friendly.`,
             `Do NOT put any explanation or preamble inside the tag — only the markdown document body.`,
             `IMPORTANT: Use <document> for text-based documents (blogs, strategy docs, reports, briefs).`,
+            ``,
+            `PROPOSAL GENERATION RULE: When the user asks you to write, create, generate, or draft a proposal (and no proposal is currently open for editing), you MUST:`,
+            `1. Act as a professional proposal writer. Decide the structure, sections, and length yourself, based on what this specific engagement and client actually need — do not force a fixed template or a predetermined set of sections.`,
+            `2. Ground every claim strictly in the client memory, relevant memory, ingested documents, and conversation below — including anything the user pasted directly into this message (e.g. a meeting transcript). Never invent a fact that is not supported by that material; if something needed isn't present, note that plainly rather than guessing.`,
+            `3. Write the full proposal in rich markdown — headings, **bold** for key terms — at a professional C-suite level, with strong opening statements, evidence-based arguments, and compelling calls to action.`,
+            `4. Wrap the ENTIRE proposal markdown inside a single XML tag like this:`,
+            `<proposal title="Descriptive Proposal Title">`,
+            `[full markdown content here]`,
+            `</proposal>`,
+            `5. Outside the tag, write ONE short, plain-language sentence describing what the proposal covers — its focus and value, not its formatting.`,
+            `Do NOT put any explanation or preamble inside the tag — only the markdown proposal body.`,
           ];
 
       // If the user has a proposal open, load it and inject into the prompt with two-mode editing rule
@@ -1586,23 +1981,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }
       }
 
-      if (extractedFiles.length > 0) {
-        promptParts.push(
-          `\n## Ingested Documents\nThe following files have been uploaded and their full content is extracted into memory below:\n` +
-            extractedFiles.map((f) => `- ${f.fileName}`).join('\n'),
-        );
-      }
-
-      if (contextMd.trim()) {
-        promptParts.push(`\n## Client Intelligence\n\n${contextMd.trim()}`);
-      }
-
       // Org-level Author Voice — STYLE ONLY (no client facts). Injected when the
       // org has learned a voice from past proposals and the toggle is on.
       if (orgSettings.applyAuthorVoice && authorVoiceBlock) {
         promptParts.push(`\n${authorVoiceBlock}`);
 
-        const toneOverride = detectToneOverride(message, history);
+        const toneOverride = detectToneOverride(effectiveMessage, history);
         if (toneOverride) {
           promptParts.push(
             `\n⚡ USER TONE OVERRIDE ACTIVE: The user has requested "${toneOverride}". This takes absolute priority over every tone, voice, and style directive in the Author Voice block above. Ignore those style directives entirely and apply the user's requested style instead. You may still use structural patterns (section order, headings) from the Author Voice if they don't conflict with the user's request.`,
@@ -1667,13 +2051,32 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             );
           }
         }
-        if (memResult.knowledge.length > 0) {
-          memParts.push('\n### Knowledge');
-          for (const k of memResult.knowledge.slice(0, 60)) {
-            memParts.push(`- [${k.category}] ${k.content}`);
-          }
-        }
         promptParts.push(memParts.join('\n'));
+      }
+
+      if (relevantMemoryDocs.length > 0) {
+        const memoryBlock = relevantMemoryDocs
+          .map((d) => `### ${d.entry.fileName} (${d.entry.type})\n${d.markdown.trim()}`)
+          .join('\n\n');
+        promptParts.push(
+          `\n## Relevant Memory\nSelected as relevant to the current message, from ingested documents, prior chat knowledge, and site knowledge:\n\n${memoryBlock}`,
+        );
+      }
+
+      // Flags which of the items above were attached directly alongside the
+      // current instruction (vs. older stored context) — a signal for the
+      // MATERIAL CHECK RULE, not a gate: attached files still go through the
+      // same checklist as everything else and can still be deselected.
+      if (effectiveAttachedFileNames.length > 0) {
+        const attachedSet = new Set(effectiveAttachedFileNames);
+        const attachedLabels = relevantMemoryDocs
+          .filter((d) => d.entry.sourceId && attachedSet.has(d.entry.sourceId))
+          .map((d) => d.entry.fileName);
+        if (attachedLabels.length > 0) {
+          promptParts.push(
+            `\n## Files Attached With This Message\nThe user attached the following file(s) directly alongside their current message/instruction (see "Relevant Memory" above for full content) — weigh them as the primary subject of this request, not incidental background, when applying the MATERIAL CHECK RULE:\n${attachedLabels.map((f) => `- ${f}`).join('\n')}`,
+          );
+        }
       }
 
       // For non-presentation document requests, inject the matched skill's persona
@@ -1727,7 +2130,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         );
       }
 
-      promptParts.push(`\nUser: ${message}`);
+      promptParts.push(`\nUser: ${effectiveMessage}`);
 
       const combinedPrompt = promptParts.join('\n');
 
@@ -1765,6 +2168,78 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           : artifactType === 'proposal'
             ? 'proposal'
             : (ackSkill?.displayName ?? matchedDocumentSkill?.displayName ?? 'document').toLowerCase();
+
+      // ── Memory selection checklist ────────────────────────────────────────
+      // Before generating, show every stored item as a plain, pre-checked
+      // checklist and let the user pick what actually goes in — no automatic
+      // relevant/not-relevant judgment. That layer used to run one LLM call
+      // ranking every entry, but a single bad distilled fact (e.g. a
+      // chat-derived note wrongly linking this client to an unrelated one)
+      // could poison the verdict and silently pull irrelevant content into a
+      // generation with no way to catch it beforehand. Skipped when this
+      // message actually IS a reply to our own checklist
+      // (isConfirmedMemoryReply) — a stale, unanswered question followed by
+      // a brand-new full request must still ask, not silently reuse it — OR
+      // when the message ITSELF already explicitly says which files to use
+      // (resolveExplicitFileSelection below), so a clear instruction like
+      // "use only the yacht proposal, the RFP was uploaded by mistake"
+      // (e.g. following a MATERIAL CHECK RULE decline, which never sets a
+      // pending marker) doesn't get met with the same question again.
+      if (isGenerationTurn && memoryRelevanceDecisions.length > 0 && !isConfirmedMemoryReply) {
+        const explicitIds = await resolveExplicitFileSelection(memoryRelevanceDecisions, message, llmGenerateFn);
+        if (explicitIds.length > 0) {
+          relevantMemoryDocs = await getMemoryDocsByIds(workdir, name, explicitIds);
+        } else {
+          // A single stored item has nothing to actually choose between —
+          // phrase it as a yes/no confirmation instead of a selection
+          // prompt, even though the UI card stays the same (one pre-checked
+          // row, Cancel / Generate).
+          const introLine =
+            memoryRelevanceDecisions.length === 1
+              ? `Use ${memoryEntryLabel(memoryRelevanceDecisions[0])} to create this ${artifactLabel} for ${meta.displayName}?`
+              : `Select what to include when creating this ${artifactLabel} for ${meta.displayName}:`;
+          // Plain-text fallback for history / non-overlay rendering — the SSE
+          // event also carries the same data structured (clarifyDetails) so
+          // the live card can render it as an actual checklist.
+          const questionText = [
+            introLine,
+            ...memoryRelevanceDecisions.map((d) => `${memoryEntryLabel(d)} — ${d.reason}`),
+          ].join('\n');
+          // Carry ONLY a deterministically-matched skill into the pending
+          // marker (never the LLM's guess), matching the ambiguity-clarify
+          // path above.
+          const pendingSkillSlug = matchedDocumentSkill?.slug;
+          const pending: PendingClarification = {
+            proposedIntent: decision!.intent,
+            ...(pendingSkillSlug ? { skillSlug: pendingSkillSlug } : {}),
+            ...(decision!.format ? { format: decision!.format } : {}),
+            includedMemoryIds: memoryRelevanceDecisions.map((d) => d.id),
+            // Carry effectiveMessage, not raw message — if this checklist is
+            // itself being shown after the user answered an earlier
+            // ambiguity-clarify question, `message` here is that short
+            // button-click reply, not the real triggering text.
+            originalMessage: effectiveMessage,
+            ...(effectiveAttachedFileNames.length ? { attachedFileNames: effectiveAttachedFileNames } : {}),
+          };
+          await persistTurn(questionText, pending);
+          send({
+            type: 'done',
+            text: questionText,
+            isClarify: true,
+            clarifyDetails: {
+              mode: 'select',
+              intro: introLine,
+              items: memoryRelevanceDecisions.map((d) => ({
+                id: d.id,
+                fileName: memoryEntryLabel(d),
+                reason: d.reason,
+                preChecked: true,
+              })),
+            },
+          });
+          return;
+        }
+      }
 
       // ── Acknowledgment + planning announcement ───────────────────────────
       // Acknowledge in chat BEFORE generating — naming the skill in use — so the
@@ -1826,13 +2301,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           'Preparing document…',
         ],
       };
-      // Proposal generation itself has been removed (being rebuilt from scratch) —
-      // the ack + planning card above still shows, but there is no LLM call and
-      // nothing to save. The turn settles immediately with just the ack text.
-      const skipGeneration = isGenerationTurn && artifactType === 'proposal';
-
       let hbTimer: ReturnType<typeof setInterval> | null = null;
-      if (isGenerationTurn && artifactType && !skipGeneration) {
+      if (isGenerationTurn && artifactType) {
         const steps = [...HEARTBEAT_STEPS[artifactType]];
         if (ackSkill) steps.splice(2, 0, `Applying the ${ackSkill.displayName} structure…`);
         send({ type: 'progress', message: steps[0] });
@@ -1849,21 +2319,17 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // (extraction/memory/edit calls keep the default temperature 0). All other
       // turns are unchanged.
       let fullResponse: string;
-      if (skipGeneration) {
-        fullResponse = '';
-      } else {
-        try {
-          fullResponse = isMicrositeGeneration
-            ? await withLlmTemperature(0.7, () => llmGenerateFn(combinedPrompt))
-            : await llmGenerateFn(combinedPrompt);
-        } finally {
-          if (hbTimer) clearInterval(hbTimer);
-        }
+      try {
+        fullResponse = isMicrositeGeneration
+          ? await withLlmTemperature(0.7, () => llmGenerateFn(combinedPrompt))
+          : await llmGenerateFn(combinedPrompt);
+      } finally {
+        if (hbTimer) clearInterval(hbTimer);
       }
 
-      if (isGenerationTurn && !skipGeneration) {
+      if (isGenerationTurn) {
         send({ type: 'progress', message: `Saving ${artifactLabel}…` });
-      } else if (!isGenerationTurn) {
+      } else {
         // Conversational / edit turns: fake-stream the full reply word by word
         // as before. Generation turns stream only the stripped confirmation
         // AFTER parsing, so raw <slides>/<proposal> markup never floods the chat.
@@ -1881,6 +2347,16 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       let documentUpdated: import('./skills/skill.types.js').GeneratedDocumentMeta | undefined;
       let slideSaved: SavedSlide | undefined;
       let displayResponse = fullResponse;
+      // Defensive: on a free-form conversational reply (no tag to bound it —
+      // e.g. a MATERIAL CHECK RULE decline), the model can occasionally run
+      // past its own turn and hallucinate a fake continuation mimicking the
+      // prompt's own "User: ..." convention. Strip from the first such line
+      // onward. Safe even when a tag IS found below — every tag branch
+      // recomputes displayResponse fresh from fullResponse, overwriting this.
+      const hallucinatedContinuation = displayResponse.match(/\n+User:\s/);
+      if (hallucinatedContinuation?.index !== undefined) {
+        displayResponse = displayResponse.slice(0, hallucinatedContinuation.index).trimEnd();
+      }
       // Set when a Tier-3 save/update throws so the generation-turn guard below
       // can surface a retry message instead of a fake confirmation.
       let artifactSaveFailed = false;
@@ -1938,16 +2414,16 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         const documentMatch = !proposalMatch && !slidesTagMatch ? extractDocumentTag(fullResponse) : null;
 
         if (proposalMatch) {
-          // Fresh proposal creation from chat has been removed — that generation
-          // pipeline is being rebuilt from scratch. Editing an already-open
-          // proposal (activeProposalId set) is untouched and still works.
-          if (activeProposalId && activeProposalContent !== undefined) {
-            try {
+          try {
+            if (activeProposalId && activeProposalContent !== undefined) {
               proposalUpdated = await updateProposal(dir, activeProposalId, proposalMatch.title, proposalMatch.content);
-            } catch (err) {
-              artifactSaveFailed = true;
-              app.log.warn({ err }, '[SuperClient] Failed to update proposal');
+            } else {
+              const fileName = `${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}-${slugify(proposalMatch.title) || 'proposal'}.md`;
+              proposalSaved = await updateProposal(dir, fileName, proposalMatch.title, proposalMatch.content);
             }
+          } catch (err) {
+            artifactSaveFailed = true;
+            app.log.warn({ err }, '[SuperClient] Failed to save/update proposal');
           }
           displayResponse = stripProposalTag(fullResponse);
         } else if (documentMatch) {
@@ -2015,12 +2491,27 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       // Generation turns: the raw response was never fake-streamed (only the ack
       // was). Stream the stripped confirmation now, then keep the ack at the top
-      // of the persisted/final text so the turn reads as one coherent message.
+      // of the persisted/final text so the turn reads as one coherent message —
+      // but ONLY when an artifact actually came out of this turn. The intent
+      // gate's classification is a prediction, not a guarantee: the model can
+      // still look at the full context (e.g. a message with no real project
+      // content) and decide to answer conversationally instead of generating.
+      // In that case the "Creating a proposal…" ack would be a lie stitched
+      // onto a decline, so it must not survive into the persisted/final text.
       if (isGenerationTurn) {
+        // Defensive: the model can see its own prior "Creating a ... give me
+        // a moment…" ack lines in recent conversation history and sometimes
+        // echoes the same opener back as its own outer sentence — which would
+        // otherwise duplicate the ack we already prepend below.
+        if (artifactProduced && ackText && displayResponse.trim().startsWith(ackText.trim())) {
+          displayResponse = displayResponse.trim().slice(ackText.trim().length).trim();
+        }
         if (displayResponse.trim()) {
           await streamAssistant(displayResponse.trim());
         }
-        displayResponse = [ackText, displayResponse.trim()].filter(Boolean).join('\n\n');
+        displayResponse = artifactProduced
+          ? [ackText, displayResponse.trim()].filter(Boolean).join('\n\n')
+          : displayResponse.trim();
       }
 
       // Persist turn to history.
@@ -2125,6 +2616,12 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
   app.post('/super-clients/:name/documents/upload', async (req: FastifyRequest, reply: FastifyReply) => {
     const { name } = req.params as { name: string };
     const dir = path.join(superClientsRoot, name);
+    // Composer "attach and send" sets this and awaits the response before
+    // firing the chat request, so the just-attached file is actually
+    // indexed by the time the memory checklist runs (see sendMessage in
+    // page.tsx). The Context-tab uploader never sets it and keeps today's
+    // fast fire-and-forget behavior.
+    const isSync = (req.query as { sync?: string }).sync === '1';
 
     try {
       await readMeta(dir);
@@ -2158,6 +2655,26 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         return reply.code(400).send({ error: `File "${rawName}" exceeds the 50 MB limit` });
       }
 
+      // Byte-identical re-upload (even under a different filename) is a
+      // no-op: skip writing it, skip indexing it, and tell the caller which
+      // existing upload it matches instead of silently creating a duplicate
+      // memory entry (exactly the kind of duplicate that once polluted a
+      // relevance checklist with two copies of the same RFP).
+      const contentHash = createHash('sha256').update(buffer).digest('hex');
+      const existingFiles = await readScFiles(dir);
+      const duplicate = existingFiles.find((f) => f.contentHash === contentHash);
+      if (duplicate) {
+        added.push({
+          fileName: duplicate.fileName,
+          originalName: rawName,
+          size: buffer.length,
+          uploadedAt: new Date().toISOString(),
+          status: 'duplicate',
+          duplicateOfFileName: duplicate.fileName,
+        });
+        continue;
+      }
+
       const sanitizedExt = path.extname(sanitizedName);
       const sanitizedBase = sanitizedName.slice(0, sanitizedName.length - sanitizedExt.length);
       const safeName = `${sanitizedBase}-${Date.now()}${sanitizedExt}`;
@@ -2175,7 +2692,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         originalName: rawName,
         size: buffer.length,
         uploadedAt: new Date().toISOString(),
-        status: 'extracted',
+        status: 'processing',
+        contentHash,
       };
       const existing = await readScFiles(dir);
       const idx = existing.findIndex((f) => f.fileName === safeName);
@@ -2183,6 +2701,37 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       else existing.push(entry);
       await writeScFiles(dir, existing);
       added.push(entry);
+
+      // Converts the raw upload into a relevance-scannable memory note (see
+      // services/api/src/memory/document-converter.ts). Fire-and-forget by
+      // default, mirroring the site-facts / distillChatTurn background-job
+      // pattern — the upload response must not block on an LLM round-trip.
+      // `isSync` opts into awaiting it instead (see the query-flag comment
+      // above); `entry` is already pushed into `added` by reference, so
+      // mutating `entry.status` before the response serializes reflects the
+      // true final state without a second read.
+      const memoryId = `doc-${safeName.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      const indexUpload = async (): Promise<ScFile['status']> => {
+        try {
+          const { description, markdown } = await convertUploadToMemoryDoc(rawName, destPath, llmGenerateFn);
+          await new DocumentMemoryService(workdir).upsertFile(name, {
+            id: memoryId,
+            type: 'upload',
+            fileName: rawName,
+            description,
+            markdown,
+            sourceId: safeName,
+          });
+          await updateScFile(dir, safeName, 'extracted');
+          return 'extracted';
+        } catch (err) {
+          app.log.warn({ err, name, fileName: safeName }, '[SuperClient] upload memory conversion failed');
+          await updateScFile(dir, safeName, 'failed', err instanceof Error ? err.message : String(err));
+          return 'failed';
+        }
+      };
+      if (isSync) entry.status = await indexUpload();
+      else void indexUpload();
     }
 
     if (added.length === 0) {
@@ -2219,6 +2768,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     await rm(filePath, { force: true });
     const files = (await readScFiles(dir)).filter((f) => f.fileName !== fileName);
     await writeScFiles(dir, files);
+    await new DocumentMemoryService(workdir).removeBySourceId(name, fileName).catch((err) => {
+      app.log.warn({ err, name, fileName }, '[SuperClient] failed to remove memory doc for deleted upload');
+    });
 
     return reply.send({ ok: true });
   });
@@ -5262,21 +5814,6 @@ ${sectionHtml}`;
     return reply.send({ ok: true });
   });
 
-  // PATCH /super-clients/:name/context  — update context.md manually
-  app.patch('/super-clients/:name/context', async (req: FastifyRequest, reply: FastifyReply) => {
-    const { name } = req.params as { name: string };
-    const body = req.body as { contextMd?: string } | undefined;
-
-    const dir = path.join(superClientsRoot, name);
-    try {
-      await readMeta(dir);
-      await writeFile(path.join(dir, 'context.md'), body?.contextMd ?? '');
-      return reply.send({ ok: true });
-    } catch {
-      return reply.code(404).send({ error: `Super client "${name}" not found` });
-    }
-  });
-
   // ── Slide routes ─────────────────────────────────────────────────────────────
 
   // GET /super-clients/:name/slides  — list saved presentations
@@ -6123,7 +6660,7 @@ html, body { margin: 0 !important; padding: 0 !important; }
     }
   });
 
-  // POST /super-clients/:name/enrich-url  — (re)generate context from a website URL
+  // POST /super-clients/:name/enrich-url  — (re)generate client-knowledge.md from a website URL
   app.post('/super-clients/:name/enrich-url', async (req: FastifyRequest, reply: FastifyReply) => {
     const { name } = req.params as { name: string };
     const body = req.body as { url?: string } | undefined;
@@ -6152,17 +6689,36 @@ html, body { margin: 0 !important; padding: 0 !important; }
       `Website URL: ${url}`,
     ];
 
-    let contextMd: string;
+    let clientKnowledgeMd: string;
     try {
-      contextMd = await llmGenerateFn(parts.join('\n'));
+      clientKnowledgeMd = await llmGenerateFn(parts.join('\n'));
     } catch (err) {
-      app.log.warn({ err }, '[SuperClient] URL enrichment context generation failed');
-      return reply.code(500).send({ error: 'Context generation failed' });
+      app.log.warn({ err }, '[SuperClient] URL enrichment failed');
+      return reply.code(500).send({ error: 'Client knowledge generation failed' });
     }
 
-    await writeFile(path.join(dir, 'context.md'), contextMd);
-    await seedClientMemory(name, meta.displayName, contextMd, workdir, app.log);
+    await writeFile(path.join(dir, 'client-knowledge.md'), clientKnowledgeMd);
+    await syncClientKnowledge(workdir, name, clientKnowledgeMd).catch((err) => {
+      app.log.warn({ err, name }, '[SuperClient] client-knowledge memory sync failed');
+    });
+    await seedClientMemory(name, meta.displayName, clientKnowledgeMd, workdir, app.log);
 
-    return reply.send({ meta, contextMd });
+    // buildVirtualDocs only surfaces client-knowledge.md in the Documents list
+    // when site-facts/status.json exists — ensure it does, without clobbering
+    // an in-flight crawl's own status if one happens to be running.
+    const siteFactsDir = path.join(dir, 'site-facts');
+    const statusPath = path.join(siteFactsDir, 'status.json');
+    await mkdir(siteFactsDir, { recursive: true });
+    const existingStatus = await readJsonStatus<{ status?: string } & Record<string, unknown>>(statusPath);
+    if (!existingStatus || (existingStatus.status !== 'running' && existingStatus.status !== 'generating_summary')) {
+      await writeFile(
+        statusPath,
+        JSON.stringify({ ...existingStatus, status: 'complete', finishedAt: new Date().toISOString() }, null, 2),
+      ).catch((err) => {
+        app.log.warn({ err, name }, '[SuperClient] failed to write site-facts status after URL enrichment');
+      });
+    }
+
+    return reply.send({ meta, clientKnowledgeMd });
   });
 }
