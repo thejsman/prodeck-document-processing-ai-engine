@@ -108,6 +108,14 @@ export interface IntentGateInput {
    * in-scope.
    */
   attachedFileNames?: string[];
+  /**
+   * Set when the user currently has a proposal/document open in the artifact
+   * viewer. Without this, the classifier has no way to distinguish "edit the
+   * thing I have open" from "make me something new" — both look identical in
+   * the raw message. Presence of an open artifact must never by itself imply
+   * edit intent; only the classifier's read of the message should.
+   */
+  activeArtifact?: { type: 'proposal' | 'document' };
   generateFn: GenerateFn;
 }
 
@@ -267,7 +275,7 @@ function resume(pending: PendingClarification): IntentDecision {
 // ---------------------------------------------------------------------------
 
 function buildClassifierPrompt(input: IntentGateInput): string {
-  const { message, history, clientName, skills, hasProposals, pendingClarification, attachedFileNames } = input;
+  const { message, history, clientName, skills, hasProposals, pendingClarification, attachedFileNames, activeArtifact } = input;
 
   const skillCatalog = skills.length
     ? skills.map((s) => `- ${s.slug}: ${s.displayName} — ${s.description}`).join('\n')
@@ -280,6 +288,9 @@ function buildClassifierPrompt(input: IntentGateInput): string {
     : '';
   const attachedBlock = attachedFileNames?.length
     ? `\nCONTEXT — the user just attached ${attachedFileNames.length} file(s) directly with this exact message: ${attachedFileNames.join(', ')}. A question about what these files are/contain, or asking to explain/summarize them, IS about "${clientName}" and must NOT be off_topic — classify it "answer" (or a generate_* intent if they're clearly asking to produce an artifact from the file).\n`
+    : '';
+  const activeArtifactBlock = activeArtifact
+    ? `\nCONTEXT — the user currently has a ${activeArtifact.type} open in the editor. If their message asks to modify, edit, revise, shorten, rewrite, reword, or otherwise change THAT open ${activeArtifact.type}, classify it "answer" — edits to an open item are handled separately, outside this classifier, never as a generate_* intent. Only return a generate_* intent here if the user is clearly asking to create a NEW, separate artifact (a different topic or purpose than what's currently open) — mentioning the open item's subject in passing does not change this.\n`
     : '';
 
   return `You are the intent router for an assistant that works EXCLUSIVELY on behalf of the client "${clientName}". You have NO knowledge or ability outside this client's proposals, documents, presentations, microsites, and information about the client. Any general question, world fact, other company, coding help, math, or chit-chat is OUT OF SCOPE and must be classified "off_topic" — never answer it.
@@ -322,7 +333,7 @@ Available document skills (slug: name - description):
 ${skillCatalog}
 
 There ${hasProposals ? 'ARE existing proposals' : 'are NO existing proposals yet'} for this client.
-${pendingBlock}${attachedBlock}
+${pendingBlock}${attachedBlock}${activeArtifactBlock}
 Recent conversation:
 ${recent}
 

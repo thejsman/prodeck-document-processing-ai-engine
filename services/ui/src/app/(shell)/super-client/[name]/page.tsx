@@ -4018,21 +4018,19 @@ export default function SuperClientPage() {
         text,
         (evt: SuperClientChatEvent) => {
           if (evt.type === "planning" && evt.artifactType) {
-            // "planning" fires once intent is classified as a generate
-            // request — BEFORE the model has actually decided whether to
-            // produce the artifact or decline (that decision happens inside
-            // the same opaque blocking generation call, e.g. the MATERIAL
-            // CHECK RULE). Create/track the store entry here so progress
-            // steps below have somewhere to accumulate, but do NOT attach it
-            // to the message yet — attaching is what makes the capsule
-            // render inline, and attaching this early showed a "Drafting a
-            // proposal…" card even when the model was about to decline with
-            // a plain clarifying question, falsely implying generation had
-            // started. The proposalSaved/documentSaved/slideSaved branches
-            // below already handle attaching (and creating, if this block
-            // never ran) once an artifact is actually confirmed at `done` —
-            // this just stops the earlier, unconfirmed attach from also
-            // happening.
+            // "planning" fires once the intent gate has classified this turn
+            // as a real generate request (never for edits/questions/declines
+            // that the gate rejects up front — those return before this event
+            // ever fires). Attach the card here so the wait is shown as a
+            // live "generating" capsule instead of the raw ack text sitting
+            // static with a blinking cursor. It's still possible for the
+            // opaque blocking generation call further downstream to decline
+            // anyway (e.g. the MATERIAL CHECK RULE) — the proposalSaved/
+            // documentSaved/slideSaved branches below (and their `else`
+            // counterparts) already strip the card and fall back to whatever
+            // text the model produced once `done` arrives, so a late decline
+            // just replaces the card with a message instead of leaving it
+            // stuck.
             const t = evt.artifactType;
             let gid = t === "slide" ? slideGenId : t === "proposal" ? proposalGenId : documentGenId;
             if (!gid) {
@@ -4049,6 +4047,9 @@ export default function SuperClientPage() {
               else if (t === "proposal") proposalGenId = gid;
               else documentGenId = gid;
             }
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantMsgId ? { ...m, generationId: gid! } : m)),
+            );
           }
           if (evt.type === "progress" && evt.message) {
             // Mirror the microsite mapping: server progress → card step.

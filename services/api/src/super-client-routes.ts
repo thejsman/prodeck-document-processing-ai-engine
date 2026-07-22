@@ -1576,15 +1576,24 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       }
 
       const msgLower = message.toLowerCase();
-      const isEdit = !!(activeProposalId || activeDocumentId);
+      // Whether a proposal/document happens to be open in the artifact viewer.
+      // This must NOT by itself mean "this turn is an edit" — see isEdit below.
+      const artifactOpen = !!(activeProposalId || activeDocumentId);
 
       // ── Intent gate ────────────────────────────────────────────────────────
-      // Fresh (non-edit) requests pass through the intelligent gate: it decides
-      // whether to generate, ask a clarifying question, or decline off-topic —
-      // rather than generating immediately on any keyword match. Edits keep their
-      // existing behavior (the gate would only interfere with a live edit).
-      let decision: IntentDecision | null = null;
-      if (!isEdit) {
+      // Runs on EVERY turn, including when a proposal/document is open. An open
+      // artifact used to force every message down the edit path unconditionally
+      // (isEdit = !!(activeProposalId || activeDocumentId)) — so "write a new
+      // blog post" sent while an old document happened to be open silently
+      // patched that old document instead of creating a new one (no generation
+      // card, no planning/progress events, since the whole intent gate and
+      // generation-turn machinery were skipped). Now the classifier is told an
+      // artifact is open and decides whether this message continues editing it
+      // (-> "answer", isEdit stays true below) or asks for something new (-> a
+      // generate_* intent, isEdit becomes false and this runs as a fresh
+      // generation even though something is open).
+      let decision: IntentDecision;
+      {
         const proposalsList = await readProposals(dir).catch(() => []);
         const docSkills = await listSkills(workdir, { type: 'document' }).catch(() => []);
         decision = await classifyChatIntent({
@@ -1602,6 +1611,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           matchedSkillSlug: matchedDocumentSkill?.slug,
           pendingClarification: priorPendingClarification,
           attachedFileNames: effectiveAttachedFileNames,
+          activeArtifact: artifactOpen ? { type: activeProposalId ? 'proposal' : 'document' } : undefined,
           generateFn: llmGenerateFn,
         });
 
@@ -1738,6 +1748,19 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           }
         }
       }
+
+      // Resolved AFTER classification: an open artifact only makes this an
+      // "edit" turn when the classifier actually read the message as
+      // continuing to work on that open item (intent 'answer') rather than a
+      // fresh request for a new proposal/document/presentation. This drives
+      // the "Currently Open Proposal/Document" prompt injection + editing-tier
+      // rules below, and the save-vs-update branching further down — both used
+      // to key off raw activeProposalId/activeDocumentId presence instead.
+      const isEdit =
+        artifactOpen &&
+        decision.intent !== 'generate_proposal' &&
+        decision.intent !== 'generate_document' &&
+        decision.intent !== 'generate_presentation';
 
       // The document skill is determined deterministically by findBestDocumentSkill
       // on the message (matchedDocumentSkill) — the LLM never gets to pick it, or it
@@ -1912,9 +1935,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             `Do NOT put any explanation or preamble inside the tag — only the markdown proposal body.`,
           ];
 
-      // If the user has a proposal open, load it and inject into the prompt with two-mode editing rule
+      // If the user has a proposal open AND this turn is actually continuing to
+      // edit it (isEdit, resolved above from the classifier's decision — not
+      // just raw activeProposalId presence), load it and inject the editing rule.
       let activeProposalContent: string | undefined;
-      if (activeProposalId) {
+      if (isEdit && activeProposalId) {
         try {
           activeProposalContent = await readFile(path.join(dir, 'proposals', activeProposalId), 'utf-8');
           promptParts.push(
@@ -1948,9 +1973,9 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }
       }
 
-      // If the user has a document open, load it and inject with the same 3-tier editing rule
+      // Same as above, for a document (isEdit, not raw activeDocumentId presence).
       let activeDocumentContent: string | undefined;
-      if (activeDocumentId) {
+      if (isEdit && activeDocumentId) {
         try {
           activeDocumentContent = await getDocumentContent(workdir, name, activeDocumentId);
           promptParts.push(
@@ -2361,7 +2386,8 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // can surface a retry message instead of a fake confirmation.
       let artifactSaveFailed = false;
 
-      const activeEditId = activeProposalId ?? activeDocumentId;
+      // isEdit-gated (not raw activeProposalId/activeDocumentId) — see isEdit above.
+      const activeEditId = isEdit ? (activeProposalId ?? activeDocumentId) : undefined;
       const textReplacements = activeEditId ? extractTextReplacements(fullResponse) : [];
       const sectionUpdates = activeEditId ? extractSectionUpdates(fullResponse) : [];
 
