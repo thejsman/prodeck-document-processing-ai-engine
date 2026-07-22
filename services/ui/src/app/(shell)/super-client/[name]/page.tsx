@@ -813,7 +813,7 @@ export default function SuperClientPage() {
   const canRedo = editHistoryIndex < editHistory.length - 1;
   const hasUnsavedChanges = editHistory.length > 0 && editHistoryIndex !== savedHistoryIndex;
   const [editModeActive, setEditModeActive] = useState(false);
-  const [micrositeStripVisible, setMicrositeStripVisible] = useState(true);
+  const [micrositeStripVisible, setMicrositeStripVisible] = useState(false);
   const [proposalStripVisible, setProposalStripVisible] = useState(true);
   // Both orientations use CSS aspect-ratio — no JS scaling, no letterboxing, no
   // ratio constants in the viewer. Portrait sections use max-width:calc(100vh*9/16)
@@ -1661,9 +1661,10 @@ export default function SuperClientPage() {
     };
   }, [fullscreenMicrosite]);
 
-  // Reset strip visibility when a new microsite/proposal is opened
+  // Reset strip visibility when a new microsite is opened — always start hidden
+  // so the regular chat is shown; strip only appears via the pencil button.
   useEffect(() => {
-    if (viewingMicrosite) setMicrositeStripVisible(true);
+    if (viewingMicrosite) setMicrositeStripVisible(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewingMicrosite?.id]);
 
@@ -1964,14 +1965,17 @@ export default function SuperClientPage() {
 
   async function handleOpenMicrosite(m: SuperClientMicrosite) {
     if (!name) return;
-    // Clear any selection/hover state from the previous microsite so stale
-    // selectedElement doesn't suppress hover rectangles on the newly opened one.
+    // Reset edit mode and selection when switching microsites — edit mode must
+    // only activate via the explicit pencil button, not by carrying over state.
+    setEditModeActive(false);
     clearBridgeSelection();
     try {
       const ast = await getSuperClientMicrosite(apiKey, name, m.id);
       const html = buildHtml(ast);
       const rk = `${m.id}-${Date.now()}`;
-      const srcDoc = computeSrcDoc(html);
+      // Always open in view-only mode — bridge is excluded (forEditMode=false)
+      // regardless of whatever editModeActive was before (state update is async).
+      const srcDoc = computeSrcDoc(html, false);
 
       if (viewingMicrosite) {
         // Panel already open — load into background slot and swap once rendered
@@ -6063,7 +6067,7 @@ export default function SuperClientPage() {
                           : `Describe the edit…`
                         : micrositeEditActive
                           ? editModeActive
-                            ? "Tap an element to select it"
+                            ? "Select an element or describe a global edit…"
                             : "Describe your edit…"
                           : proposalEditActive
                             ? "Ask to edit this proposal…"
@@ -6190,49 +6194,6 @@ export default function SuperClientPage() {
                             border: '1px solid transparent',
                             color: proposalEditActive ? 'var(--primary)' : undefined,
                             transition: 'background 0.15s, color 0.15s, border-color 0.15s',
-                          }}
-                        >
-                          <Pencil size={16} />
-                        </button>
-                      )}
-                      {viewingMicrosite && (
-                        <button
-                          disabled={micrositeEditing}
-                          onClick={() => {
-                            if (micrositeEditing) return;
-                            const next = !editModeActive;
-                            setEditModeActive(next);
-                            if (next) {
-                              setMicrositeStripVisible(true);
-                            } else {
-                              clearBridgeSelection();
-                            }
-                            setViewingMicrosite((prev) => {
-                              if (!prev) return null;
-                              setActiveSrcDoc(computeSrcDoc(buildHtml(prev.ast), next));
-                              return {
-                                ...prev,
-                                renderKey: `${prev.id}-${Date.now()}`,
-                              };
-                            });
-                          }}
-                          title={
-                            micrositeEditing
-                              ? 'Updating microsite…'
-                              : editModeActive
-                                ? 'Exit smart edit mode'
-                                : 'Smart edit — click any element to target it'
-                          }
-                          className="theme-toggle"
-                          style={{
-                            background: editModeActive
-                              ? 'color-mix(in srgb, var(--primary) 12%, transparent)'
-                              : 'transparent',
-                            border: '1px solid transparent',
-                            color: editModeActive ? 'var(--primary)' : undefined,
-                            transition: 'background 0.15s, color 0.15s, border-color 0.15s',
-                            opacity: micrositeEditing ? 0.4 : 1,
-                            cursor: micrositeEditing ? 'not-allowed' : 'pointer',
                           }}
                         >
                           <Pencil size={16} />
@@ -6427,12 +6388,15 @@ export default function SuperClientPage() {
                 className="sc-panel-header"
                 style={{
                   padding: '14px 20px',
-                  borderBottom: '1px solid var(--border)',
+                  borderBottom: editModeActive
+                    ? '2px solid var(--primary)'
+                    : '1px solid var(--border)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   flexShrink: 0,
                   gap: 8,
+                  transition: 'border-color 0.2s',
                 }}
               >
                 <button
@@ -6479,6 +6443,25 @@ export default function SuperClientPage() {
                       v{msVersionMap.get(lastMicrositeRef.current!.id)}
                     </span>
                   )}
+                  {editModeActive && (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        color: 'var(--primary)',
+                        background: 'color-mix(in srgb, var(--primary) 12%, transparent)',
+                        border: '1px solid color-mix(in srgb, var(--primary) 35%, transparent)',
+                        borderRadius: 999,
+                        padding: '2px 7px',
+                        letterSpacing: '0.08em',
+                        flexShrink: 0,
+                        lineHeight: '14px',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Editing
+                    </span>
+                  )}
                 </p>
                 <div
                   style={{
@@ -6490,6 +6473,55 @@ export default function SuperClientPage() {
                 >
                   {/* Undo / Redo / Save — hidden on mobile */}
                   <div className="sc-panel-history-btns">
+                    {/* Smart edit mode toggle */}
+                    <button
+                      disabled={micrositeEditing}
+                      onClick={() => {
+                        if (micrositeEditing) return;
+                        const next = !editModeActive;
+                        setEditModeActive(next);
+                        if (next) {
+                          setMicrositeStripVisible(true);
+                        } else {
+                          setMicrositeStripVisible(false);
+                          clearBridgeSelection();
+                        }
+                        setViewingMicrosite((prev) => {
+                          if (!prev) return null;
+                          setActiveSrcDoc(computeSrcDoc(buildHtml(prev.ast), next));
+                          return { ...prev, renderKey: `${prev.id}-${Date.now()}` };
+                        });
+                      }}
+                      title={
+                        micrositeEditing
+                          ? 'Updating microsite…'
+                          : editModeActive
+                            ? 'Exit smart edit mode'
+                            : 'Smart edit — click any element to target it'
+                      }
+                      style={{
+                        background: editModeActive
+                          ? 'color-mix(in srgb, var(--primary) 12%, transparent)'
+                          : 'none',
+                        border: `1px solid ${editModeActive ? 'var(--primary)' : 'var(--border)'}`,
+                        borderRadius: 6,
+                        padding: '4px 10px',
+                        cursor: micrositeEditing ? 'not-allowed' : 'pointer',
+                        fontSize: 12,
+                        color: editModeActive ? 'var(--primary)' : 'var(--foreground)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        opacity: micrositeEditing ? 0.4 : 1,
+                        fontWeight: editModeActive ? 600 : 400,
+                        transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+                      }}
+                    >
+                      <Pencil size={13} />
+                      Edit
+                    </button>
+                    {/* Divider between mode toggle and history actions */}
+                    <span style={{ width: 1, height: 16, background: 'var(--border)', flexShrink: 0 }} />
                     {/* Unsaved-changes indicator */}
                     {hasUnsavedChanges && (
                       <span
