@@ -54,7 +54,7 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
   const [dragActive, setDragActive] = useState(false);
   const [state, setState] = useState<UploadState>('idle');
   const [error, setError] = useState('');
-  const [classification, setClassification] = useState<DocumentClassification | null>(null);
+  const [classification, setClassification] = useState<DocumentClassification | null>('client_source');
 
   const removeFile = (name: string) => {
     setFiles((prev) => {
@@ -125,7 +125,7 @@ export function ChatUploadDrawer({ namespace, onClose, onUploaded, onUploadStart
         {/* ── Header ── */}
         <div className="generate-proposal-header">
           <div>
-            <h3>Ingest Files</h3>
+            <h3>Add documents</h3>
             <p style={{ fontSize: 12, color: 'var(--color-text-muted)', margin: '2px 0 0', lineHeight: 1.4 }}>
               {namespace || 'default'}
             </p>

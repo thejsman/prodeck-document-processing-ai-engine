@@ -2556,7 +2556,7 @@ export default function ChatPage() {
                   ref={textareaRef}
                   className="chat-v2-input"
                   rows={1}
-                  placeholder={activeQuestion ? 'Type your answer…' : composerConfirmation ? 'Or type a response…' : 'Ask AI to generate proposal, ingest documents, or analyse knowledge…'}
+                  placeholder={activeQuestion ? 'Type your answer…' : composerConfirmation ? 'Or type a response…' : 'Ask AI to generate a proposal or analyse documents… (Enter to send, Shift+Enter for new line)'}
                   value={input}
                   onChange={handleInputChange}
                   onKeyDown={handleKeyDown}

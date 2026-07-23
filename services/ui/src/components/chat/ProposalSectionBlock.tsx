@@ -98,7 +98,7 @@ export function ProposalSectionBlock({
           onClick={() => void applyEdit('Improve clarity, impact, and persuasiveness of this section')}
           disabled={isApplying}
         >
-          Improve
+          Improve with AI
         </button>
         <button
           className="psb-btn"
