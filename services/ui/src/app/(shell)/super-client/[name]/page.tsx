@@ -582,6 +582,14 @@ export default function SuperClientPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
+  // True only while sendMessage's own composer upload loop is in flight —
+  // `docs` state isn't touched until each sync upload's full extraction
+  // resolves (it jumps straight to the final status, never an intermediate
+  // 'processing' entry), and `streaming` itself isn't set until after that
+  // loop finishes, so neither alone catches "this send's own file is still
+  // processing" — without this the Send button stayed clickable for a brand
+  // new, unrelated send during that whole window.
+  const [composerUploading, setComposerUploading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [memoryKey, setMemoryKey] = useState(0);
   const [error, setError] = useState('');
@@ -1112,19 +1120,23 @@ export default function SuperClientPage() {
         setMeta(m);
         // Hydrate store with server-persisted generations before building messages
         generationStore.hydrateFromServer(serverGens.map((g) => ({ ...g, createdAt: g.createdAt ?? '' })));
-        const historyMsgs: Message[] = history.map((h: SuperClientHistoryEntry) => ({
-          id: genId(),
-          role: h.role,
-          content: h.content,
-          createdAt: h.createdAt,
-          ...(h.editContext ? { editContext: h.editContext } : {}),
-          ...(h.pendingClarification ? { isQuestion: true } : {}),
-          // Reload path for the enrichment timeline — render the exact same
-          // dot/connector UI from the persisted steps instead of plain markdown.
-          ...(h.narrationSteps && h.narrationSteps.length > 0
-            ? { isEnrichmentNarration: true, narrationSteps: h.narrationSteps }
-            : {}),
-        }));
+        // Upload entries render as rich cards (below), not plain text bubbles —
+        // exclude them here so they don't appear twice.
+        const historyMsgs: Message[] = history
+          .filter((h: SuperClientHistoryEntry) => !h.upload)
+          .map((h: SuperClientHistoryEntry) => ({
+            id: genId(),
+            role: h.role,
+            content: h.content,
+            createdAt: h.createdAt,
+            ...(h.editContext ? { editContext: h.editContext } : {}),
+            ...(h.pendingClarification ? { isQuestion: true } : {}),
+            // Reload path for the enrichment timeline — render the exact same
+            // dot/connector UI from the persisted steps instead of plain markdown.
+            ...(h.narrationSteps && h.narrationSteps.length > 0
+              ? { isEnrichmentNarration: true, narrationSteps: h.narrationSteps }
+              : {}),
+          }));
         // Fallback: infer editContext from content for messages saved before this field existed.
         // If an assistant message looks like a microsite edit confirmation, tag it and the
         // preceding user message retroactively.
@@ -1151,17 +1163,63 @@ export default function SuperClientPage() {
           generationId: gen.id,
           createdAt: gen.createdAt,
         }));
-        // Re-inject upload cards for any active/recent uploads for this client
-        const activeUploads = uploadStore.forClient(name);
-        const uploadMsgs: Message[] = activeUploads.map((u) => ({
-          id: `upload-msg-${u.id}`,
-          role: 'user' as const,
-          content: '',
-          uploadId: u.id,
-          createdAt: new Date().toISOString(),
-        }));
-        // Merge and sort chronologically so generation/upload cards land in the right position
-        const allMsgs = [...historyMsgs, ...uploadMsgs, ...genMsgs].sort((a, b) => {
+        // Reconstruct upload cards from persisted history — this is what lets
+        // them survive a reload (previously they only ever came from the
+        // in-memory uploadStore, which is empty after a hard refresh).
+        // Deterministic id per stored file so re-hydrating never duplicates a
+        // card, and so it lands in the correct chronological slot below via
+        // its real persisted createdAt.
+        const historyUploadMsgs: Message[] = [];
+        for (const h of history) {
+          if (!h.upload) continue;
+          const uploadId = `hist-upload-${h.upload.fileName}`;
+          uploadStore.start({ id: uploadId, clientSlug: name, fileName: h.upload.originalName ?? h.upload.fileName });
+          if (h.upload.status === 'extracted') uploadStore.done(uploadId, h.upload.fileName);
+          else if (h.upload.status === 'failed') uploadStore.fail(uploadId, h.upload.error);
+          else if (h.upload.status === 'duplicate') {
+            uploadStore.duplicate(uploadId, h.upload.duplicateOfFileName ?? h.upload.fileName);
+          }
+          // else still 'processing' — leave as 'uploading' so the card shows
+          // "Processing…"; it won't auto-flip without a further reload, a
+          // known limitation only reachable via the fire-and-forget
+          // Context-tab upload path.
+          historyUploadMsgs.push({
+            id: `upload-msg-${uploadId}`,
+            role: 'user' as const,
+            content: '',
+            uploadId,
+            createdAt: h.createdAt,
+          });
+        }
+        // Any upload still live in THIS session's in-memory store that isn't
+        // yet reflected in the history we just fetched (fresh genId() ids,
+        // so they never collide with the hist-upload-* ids seeded above).
+        const activeUploads = uploadStore.forClient(name).filter((u) => !u.id.startsWith('hist-upload-'));
+        const uploadMsgs: Message[] = [
+          ...historyUploadMsgs,
+          ...activeUploads.map((u) => ({
+            id: `upload-msg-${u.id}`,
+            role: 'user' as const,
+            content: '',
+            uploadId: u.id,
+            createdAt: new Date().toISOString(),
+          })),
+        ];
+        // Merge and sort chronologically so generation/upload cards land in the right position.
+        // De-dupe by uploadId first — a StrictMode double-mount (or any other
+        // re-entrant hydration) re-seeds uploadStore and rebuilds this same
+        // list from scratch; without this, two Message objects for the same
+        // uploadId could both land in the array and both render, since
+        // React's keyed list rendering doesn't collapse duplicate keys on
+        // its own.
+        const seenUploadIds = new Set<string>();
+        const dedupedUploadMsgs = uploadMsgs.filter((m) => {
+          if (!m.uploadId) return true;
+          if (seenUploadIds.has(m.uploadId)) return false;
+          seenUploadIds.add(m.uploadId);
+          return true;
+        });
+        const allMsgs = [...historyMsgs, ...dedupedUploadMsgs, ...genMsgs].sort((a, b) => {
           if (!a.createdAt && !b.createdAt) return 0;
           if (!a.createdAt) return 1;
           if (!b.createdAt) return -1;
@@ -3779,13 +3837,16 @@ export default function SuperClientPage() {
     // reading as "did this not go through" rather than "in progress".
     setInput('');
 
-    // Post the user's typed message immediately too — with the composer now
+    // Post the user's typed message immediately — with the composer now
     // clearing instantly, waiting until after the upload loop below (which
-    // can take a while for real documents) to show it would make it
-    // invisible everywhere for that whole stretch: not in the box anymore,
-    // not yet in the chat either. Which branch further down actually acts
-    // on the turn is still decided only once uploads finish; the bubble
-    // itself doesn't need to wait for that.
+    // can take a while for real documents: sequential per-window LLM calls)
+    // to show it would leave the message invisible everywhere for that whole
+    // stretch: not in the box anymore, not yet in the chat either. So the
+    // text bubble goes up first, even though the file(s) were technically
+    // attached slightly earlier — persisted history still sorts by the real
+    // createdAt on reload (see the upload route), so this live-session
+    // ordering quirk never survives a refresh; it's purely about not making
+    // the reply look stuck for up to a minute+ while a file indexes.
     let earlyUserMsg: Message | null = null;
     if (text) {
       earlyUserMsg = {
@@ -3820,9 +3881,14 @@ export default function SuperClientPage() {
       // finished, which can take a while for real documents.
       const uploadIds = staged.map((d) => stageComposerUploadCard(d.file));
       scrollToBottom();
-      for (let i = 0; i < staged.length; i++) {
-        const fileName = await handleFileUploadFromComposer(staged[i].file, { sync: true }, uploadIds[i]);
-        if (fileName) attachedFileNames.push(fileName);
+      setComposerUploading(true);
+      try {
+        for (let i = 0; i < staged.length; i++) {
+          const fileName = await handleFileUploadFromComposer(staged[i].file, { sync: true }, uploadIds[i]);
+          if (fileName) attachedFileNames.push(fileName);
+        }
+      } finally {
+        setComposerUploading(false);
       }
     }
     if (!text) return;
@@ -6700,7 +6766,22 @@ export default function SuperClientPage() {
                                 !editingLogoUrl.trim())
                             : slideEditActive
                               ? slideEditing || !slideEditInput.trim()
-                              : streaming || (!input.trim() && composerStagedDocs.length === 0)
+                              : streaming ||
+                                composerUploading ||
+                                (!input.trim() && composerStagedDocs.length === 0) ||
+                                // A real uploaded file is still being extracted/indexed (e.g.
+                                // uploaded via the Context tab, or a prior composer send whose
+                                // response has already come back) — sending now would ask the LLM
+                                // about content it can't see yet, since only 'extracted' files are
+                                // considered available. Wait for it to finish. Excludes virtual
+                                // docs (client-knowledge.md etc.) — those come from the background
+                                // site-facts enrichment job, which can stay 'processing' for
+                                // minutes after client creation and has nothing to do with a file
+                                // the user actually attached. (composerUploading above covers the
+                                // window before that response comes back, which docs state can't:
+                                // a sync composer upload only ever writes docs once, with the
+                                // final status, never an intermediate 'processing' entry.)
+                                docs.some((d) => d.status === 'processing' && !VIRTUAL_DOC_NAMES.has(d.fileName))
                         }
                       >
                         <Icon

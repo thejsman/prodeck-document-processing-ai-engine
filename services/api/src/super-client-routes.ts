@@ -161,6 +161,19 @@ interface HistoryEntry {
   // turn can resolve the deferred intent instead of re-classifying from scratch.
   pendingClarification?: PendingClarification;
   narrationSteps?: NarrationStepRecord[];
+  // Set on a synthetic entry representing a file upload, so it takes its real
+  // chronological place in the timeline (createdAt = raw-file-write time) —
+  // uploads otherwise had no persisted representation at all and vanished on
+  // reload. `content` still carries a plain-text fallback (e.g. "Attached
+  // file: X.pdf") so every existing consumer that just reads role/content
+  // (LLM prompt/history builders) keeps working unchanged.
+  upload?: {
+    fileName: string;
+    originalName?: string;
+    status: ScFile['status'];
+    error?: string;
+    duplicateOfFileName?: string;
+  };
 }
 
 interface ScFile {
@@ -362,6 +375,26 @@ async function updateScFile(dir: string, fileName: string, status: ScFile['statu
   if (idx !== -1) {
     files[idx] = { ...files[idx], status, ...(error ? { error } : {}) };
     await writeScFiles(dir, files);
+  }
+}
+
+async function appendUploadHistoryEntry(dir: string, entry: HistoryEntry): Promise<void> {
+  const history = await readHistory(dir);
+  history.push(entry);
+  await writeFile(path.join(dir, 'history.json'), JSON.stringify(history, null, 2));
+}
+
+async function updateUploadHistoryStatus(
+  dir: string,
+  fileName: string,
+  status: ScFile['status'],
+  error?: string,
+): Promise<void> {
+  const history = await readHistory(dir);
+  const idx = history.findIndex((h) => h.upload?.fileName === fileName);
+  if (idx !== -1) {
+    history[idx] = { ...history[idx], upload: { ...history[idx].upload!, status, ...(error ? { error } : {}) } };
+    await writeFile(path.join(dir, 'history.json'), JSON.stringify(history, null, 2));
   }
 }
 
@@ -2151,7 +2184,11 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
 
       if (isAnswerIntent) {
         promptParts.push(
-          `\nThe user is asking a question or making conversation — respond helpfully and concisely about ${meta.displayName}. Do NOT generate a proposal, document, or slides in this reply; just answer. Keep it to ONE paragraph unless the answer genuinely has multiple distinct points.`,
+          `\nThe user is asking a question or making conversation — respond helpfully and concisely about ${meta.displayName}. Do NOT generate a proposal, document, or slides in this reply; just answer. Keep it to ONE paragraph unless the answer genuinely has multiple distinct points.${
+            effectiveAttachedFileNames.length
+              ? ' A file was just attached — it is already saved to memory automatically, so if the user is asking you to save/remember/add it, confirm that warmly by name (not "I\'m focused on X") and give a one-line gist of what it actually contains, using the content under "Relevant Memory" / "Files Attached With This Message" above.'
+              : ''
+          }`,
         );
       }
 
@@ -2690,13 +2727,27 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       const existingFiles = await readScFiles(dir);
       const duplicate = existingFiles.find((f) => f.contentHash === contentHash);
       if (duplicate) {
+        const duplicateUploadedAt = new Date().toISOString();
         added.push({
           fileName: duplicate.fileName,
           originalName: rawName,
           size: buffer.length,
-          uploadedAt: new Date().toISOString(),
+          uploadedAt: duplicateUploadedAt,
           status: 'duplicate',
           duplicateOfFileName: duplicate.fileName,
+        });
+        // Take its real chronological place in the chat timeline too — see
+        // the `upload` field on HistoryEntry.
+        await appendUploadHistoryEntry(dir, {
+          role: 'user',
+          content: `Attached file: ${rawName}`,
+          createdAt: duplicateUploadedAt,
+          upload: {
+            fileName: duplicate.fileName,
+            originalName: rawName,
+            status: 'duplicate',
+            duplicateOfFileName: duplicate.fileName,
+          },
         });
         continue;
       }
@@ -2728,6 +2779,17 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       await writeScFiles(dir, existing);
       added.push(entry);
 
+      // Take its real chronological place in the chat timeline — createdAt
+      // is this raw-file-write timestamp, which happens before the
+      // composer's accompanying chat request is even sent, so sorting by
+      // createdAt naturally places the upload before that turn's text.
+      await appendUploadHistoryEntry(dir, {
+        role: 'user',
+        content: `Attached file: ${rawName}`,
+        createdAt: entry.uploadedAt,
+        upload: { fileName: safeName, originalName: rawName, status: 'processing' },
+      });
+
       // Converts the raw upload into a relevance-scannable memory note (see
       // services/api/src/memory/document-converter.ts). Fire-and-forget by
       // default, mirroring the site-facts / distillChatTurn background-job
@@ -2749,10 +2811,13 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
             sourceId: safeName,
           });
           await updateScFile(dir, safeName, 'extracted');
+          await updateUploadHistoryStatus(dir, safeName, 'extracted');
           return 'extracted';
         } catch (err) {
           app.log.warn({ err, name, fileName: safeName }, '[SuperClient] upload memory conversion failed');
-          await updateScFile(dir, safeName, 'failed', err instanceof Error ? err.message : String(err));
+          const errMsg = err instanceof Error ? err.message : String(err);
+          await updateScFile(dir, safeName, 'failed', errMsg);
+          await updateUploadHistoryStatus(dir, safeName, 'failed', errMsg);
           return 'failed';
         }
       };

@@ -2312,6 +2312,16 @@ export interface SuperClientHistoryEntry {
   // it as a distinct question card on reload.
   pendingClarification?: { proposedIntent?: string; skillSlug?: string; format?: string };
   narrationSteps?: NarrationStepRecord[];
+  // Present when this entry represents a file upload — its real chronological
+  // position (createdAt = raw-file-write time) lets it be reconstructed as an
+  // upload card on reload instead of vanishing.
+  upload?: {
+    fileName: string;
+    originalName?: string;
+    status: 'processing' | 'extracted' | 'failed' | 'duplicate';
+    error?: string;
+    duplicateOfFileName?: string;
+  };
 }
 
 export interface SuperClientDetail {

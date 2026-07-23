@@ -287,7 +287,7 @@ function buildClassifierPrompt(input: IntentGateInput): string {
     ? `\nCONTEXT — on the previous turn you asked the user a clarifying question. You proposed to: ${pendingClarification.proposedIntent}${pendingClarification.skillSlug ? ` (skill: ${pendingClarification.skillSlug})` : ''}. The user's latest message is their reply. If they confirm or add detail, return that generate intent. If they decline or just want to talk/ask, return "answer". Only return "clarify" again if the reply is genuinely incomprehensible.\n`
     : '';
   const attachedBlock = attachedFileNames?.length
-    ? `\nCONTEXT — the user just attached ${attachedFileNames.length} file(s) directly with this exact message: ${attachedFileNames.join(', ')}. A question about what these files are/contain, or asking to explain/summarize them, IS about "${clientName}" and must NOT be off_topic — classify it "answer" (or a generate_* intent if they're clearly asking to produce an artifact from the file).\n`
+    ? `\nCONTEXT — the user just attached ${attachedFileNames.length} file(s) directly with this exact message: ${attachedFileNames.join(', ')}. Every attached file is already automatically saved to this client's memory the moment it's uploaded, before this message is even classified. Any message referring to these file(s) — a question about what they contain, asking to explain/summarize them, OR a command/instruction about them ("add this to memory", "save this", "remember this", "use this going forward") — IS about "${clientName}" and must NOT be off_topic — classify it "answer" (or a generate_* intent if they're clearly asking to produce an artifact from the file). For a command like "add this to memory", the honest answer is that it's already done — confirm that warmly by name, don't refuse it.\n`
     : '';
   const activeArtifactBlock = activeArtifact
     ? `\nCONTEXT — the user currently has a ${activeArtifact.type} open in the editor. If their message asks to modify, edit, revise, shorten, rewrite, reword, or otherwise change THAT open ${activeArtifact.type}, classify it "answer" — edits to an open item are handled separately, outside this classifier, never as a generate_* intent. Only return a generate_* intent here if the user is clearly asking to create a NEW, separate artifact (a different topic or purpose than what's currently open) — mentioning the open item's subject in passing does not change this.\n`
@@ -328,6 +328,7 @@ EXAMPLES (varied phrasing — generalize from these, do not match them literally
 - "hey" (greeting) -> {"intent":"answer","confidence":0.9}
 - "give me the summary of this file" (file just attached) -> {"intent":"answer","confidence":0.9}
 - "what is this about" / "simply explain this file" (file just attached) -> {"intent":"answer","confidence":0.9}
+- "add this to memory" / "save this" / "remember this" (file just attached) -> {"intent":"answer","confidence":0.9}
 
 Available document skills (slug: name - description):
 ${skillCatalog}
