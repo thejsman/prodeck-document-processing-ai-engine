@@ -127,14 +127,15 @@ export function SectionCard({
               </button>
               <button
                 className="btn btn-sm section-regen-btn"
-                title="Regenerates entire proposal"
+                title="Regenerates the entire proposal (locked sections are preserved)"
                 disabled={locked || isFinalized}
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (!window.confirm('Regenerate the entire proposal? All unlocked sections will be rewritten. Locked sections are preserved.')) return;
                   onRegenerate();
                 }}
               >
-                Regenerate
+                Regenerate Proposal
               </button>
             </>
           )}

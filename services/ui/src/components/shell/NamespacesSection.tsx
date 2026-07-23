@@ -303,6 +303,11 @@ export function NamespacesSection({ onMobileClose, collapsed = false }: Props) {
           />
         </div>
 
+        {expanded && namespaces.length === 0 && (
+          <div style={{ padding: '6px 12px 10px', fontSize: 12, color: 'var(--text-muted, #8a8f98)', lineHeight: 1.5 }}>
+            No clients yet — create one to get started.
+          </div>
+        )}
         {expanded &&
           namespaces.map((ns) => {
             const isActive = ns === activeNamespace && !!pathname?.startsWith('/chat');
