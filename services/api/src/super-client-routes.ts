@@ -2,6 +2,7 @@ import { mkdir, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { createReadStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest, FastifyReply, FastifyBaseLogger } from 'fastify';
 import { llmGenerateFn, withLlmTemperature } from './agent-routes.js';
 import { fetchPexelsImageUrl } from './image-routes.js';
@@ -349,6 +350,50 @@ Return ONLY a JSON array of ids, e.g. ["id1"] or [].`;
     return parsed.filter((id): id is string => typeof id === 'string' && validIds.has(id));
   } catch {
     return [];
+  }
+}
+
+const MaterialCheckSchema = z.object({ note: z.string().nullable() });
+
+/**
+ * Small, fast pre-flight check — separate from (and purely informational
+ * alongside) the MATERIAL_CHECK_RULE baked into the main generation prompt.
+ * Runs BEFORE the ack text / generation card so a heads-up about missing
+ * material (if any) reaches the user first, not buried in the model's own
+ * trailing commentary after the whole generation is already done. Never
+ * blocks generation — a parse/validation failure or any error just means no
+ * note, same as "material looks sufficient".
+ */
+async function assessGenerationMaterial(
+  clientName: string,
+  artifactLabel: string,
+  userMessage: string,
+  memoryCatalog: string,
+  generateFn: (prompt: string) => Promise<string>,
+): Promise<string | null> {
+  const prompt = `You are doing a quick pre-flight check before generating a ${artifactLabel} for "${clientName}". Look at the user's request and the material available below, and judge whether it's enough to produce a complete, specific ${artifactLabel} — or whether real gaps (e.g. no scope of work, no pricing/fee data, no deliverables list, no team/staffing names) will force placeholder sections.
+
+USER'S REQUEST:
+"""${userMessage}"""
+
+AVAILABLE STORED MATERIAL:
+${memoryCatalog || '(none)'}
+
+If the material is sufficient for a complete, specific ${artifactLabel}, respond with exactly: {"note": null}
+
+If there are real gaps that will force placeholder/generic sections, respond with a SHORT (1-2 sentence), specific, friendly heads-up naming what's missing, e.g. {"note": "I don't see the actual scope of work or fee figures here, just an email thread — I'll build a proposal framework with placeholder sections your team can fill in."}
+
+Do not decline or refuse — proceeding with placeholders is expected and fine. Just flag it honestly upfront if that's what will happen.
+
+Respond with ONLY JSON, no prose or markdown fences: {"note": "<string>"} or {"note": null}`;
+
+  try {
+    const raw = await generateFn(prompt);
+    const stripped = raw.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim();
+    const result = MaterialCheckSchema.safeParse(JSON.parse(stripped));
+    return result.success ? result.data.note : null;
+  } catch {
+    return null;
   }
 }
 
@@ -1878,7 +1923,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
       // response falls through to a normal answer) — this only tells the
       // model that choosing it here is correct, not a failure.
       const MATERIAL_CHECK_RULE =
-        `MATERIAL CHECK RULE — apply this before anything else below: Weigh the selected files (Relevant Memory), client memory, and the user's request against each other. If they do not hold up together — the material is about a different, unrelated business or engagement; it is missing what the request actually needs; or it contradicts the request — do NOT force an artifact out of it. Respond in plain conversational text instead (no <proposal>, <document>, or <slides> tag), name the specific problem, and ask how to proceed. This is a correct, encouraged outcome, not a failure — a clear decline beats a confident artifact built on the wrong material. Example: a selected file is a proposal for an unrelated company — flag the mismatch and ask whether to exclude it rather than weaving it into this client's proposal.`;
+        `MATERIAL CHECK RULE — apply this before anything else below: Weigh the selected files (Relevant Memory), client memory, and the user's request against each other. If they do not hold up together — the material is about a different, unrelated business or engagement; it is missing what the request actually needs; or it contradicts the request — do NOT force an artifact out of it. Respond in plain conversational text instead (no <proposal>, <document>, or <slides> tag), name the specific problem, and ask how to proceed. This is a correct, encouraged outcome, not a failure — a clear decline beats a confident artifact built on the wrong material. Example: a selected file is a proposal for an unrelated company — flag the mismatch and ask whether to exclude it rather than weaving it into this client's proposal. If instead you decide TO proceed despite gaps (using placeholders for missing specifics) — the user has already been told upfront by a separate pre-flight check, so do NOT re-explain what's missing in prose outside the tag; mark gaps inline within the artifact itself (e.g. "[Insert fee schedule]") and keep any surrounding text to a short one-line confirmation.`;
 
       // Build combined prompt — llmGenerateFn takes a single string and routes through
       // the Python LLM bridge which respects LLM_PROVIDER / provider-specific model config.
@@ -2322,6 +2367,37 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }
       }
 
+      // ── Pre-flight material check ─────────────────────────────────────────
+      // Separate, small, fast LLM call that runs BEFORE the ack/card so a
+      // heads-up about missing material (if any) reaches the user first —
+      // not buried in the model's own trailing commentary only after the
+      // whole generation is already done. Purely informational: it never
+      // blocks generation, the MATERIAL_CHECK_RULE inside the main prompt
+      // below remains the sole authority on whether to decline outright.
+      let materialNote: string | null = null;
+      if (isGenerationTurn) {
+        const memoryCatalog = relevantMemoryDocs
+          .map((d) => `- ${d.entry.fileName}: ${d.entry.description}`)
+          .join('\n');
+        materialNote = await assessGenerationMaterial(
+          meta.displayName,
+          artifactLabel,
+          effectiveMessage,
+          memoryCatalog,
+          llmGenerateFn,
+        );
+        if (materialNote) {
+          await streamAssistant(materialNote.trim() + '\n\n');
+          // Deliberate pause so the note is actually readable as its own
+          // moment before the card appears — the note+ack text alone only
+          // takes ~500-600ms to stream (a handful of short sentences at the
+          // per-word streaming rate below), which is too fast for a human to
+          // register as "note, then card" rather than "everything at once",
+          // even though the two are already genuinely sequenced on the wire.
+          await new Promise((resolve) => setTimeout(resolve, 1400));
+        }
+      }
+
       // ── Acknowledgment + planning announcement ───────────────────────────
       // Acknowledge in chat BEFORE generating — naming the skill in use — so the
       // turn reads as interactive rather than an abrupt jump into generation.
@@ -2592,7 +2668,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
           await streamAssistant(displayResponse.trim());
         }
         displayResponse = artifactProduced
-          ? [ackText, displayResponse.trim()].filter(Boolean).join('\n\n')
+          ? [materialNote, ackText, displayResponse.trim()].filter(Boolean).join('\n\n')
           : displayResponse.trim();
       }
 

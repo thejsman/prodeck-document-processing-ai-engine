@@ -2878,6 +2878,15 @@ export async function streamSuperClientChat(
           const evt = JSON.parse(line.slice(6)) as SuperClientChatEvent;
           onEvent(evt);
         } catch { /* skip */ }
+        // Yield to the browser's render loop after each event. On a fast/local
+        // connection the underlying stream can deliver many rapidly-written
+        // server events (e.g. a pre-flight note, then the ack, then the
+        // generation-card "planning" event) inside a single read() call —
+        // without this, React 18 batches every onEvent-triggered state update
+        // from this whole loop into one commit, so a deliberately staggered
+        // server-side sequence renders as one instant jump instead of the
+        // intended staggered reveal.
+        await new Promise((resolve) => requestAnimationFrame(resolve));
       }
     }
   } finally {

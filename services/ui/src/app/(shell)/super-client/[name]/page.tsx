@@ -281,10 +281,10 @@ function ArtifactCard({
                 : isMicrosite
                   ? "Microsite"
                   : isDocument
-                    ? (isGenerating ? "Generate Document" : "Document")
+                    ? (isGenerating ? "Creating Document" : "Document")
                     : isSlide
                       ? "Presentation"
-                      : (isGenerating ? "Generate Proposal" : "Proposal")}
+                      : (isGenerating ? "Creating Proposal" : "Proposal")}
             </span>
             {isDocument && isComplete && gen.result?.preferredFormat && gen.result.preferredFormat !== "md" && (
               <span
