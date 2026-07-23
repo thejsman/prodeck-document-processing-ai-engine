@@ -29,6 +29,7 @@
     "@ai-engine/tool-save-asset": "workspace:*",
     "@ai-engine/tool-search-documents": "workspace:*",
     "@fastify/multipart": "^9.4.0",
+    "csv-parse": "^5.6.0",
     "docx": "^9.7.1",
     "fastify": "^5.2.1",
     "js-yaml": "^4.1.0",

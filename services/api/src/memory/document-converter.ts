@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { splitIntoWindows } from '../ingestion/document-preprocessor.js';
+import { convertCsvToMemoryDoc } from './csv-query.js';
 
 export type LLMGenerateFn = (prompt: string) => Promise<string>;
 
@@ -71,6 +72,13 @@ export async function convertUploadToMemoryDoc(
   filePath: string,
   generateFn: LLMGenerateFn,
 ): Promise<ConvertedMemoryDoc> {
+  // CSVs are never LLM-rewritten — a paraphrase can silently distort tabular
+  // data (drop/reorder rows, misstate numbers). Deterministic schema+sample
+  // instead; precise retrieval over the full data happens via maybeQueryCsvs.
+  if (path.extname(fileName).toLowerCase() === '.csv') {
+    return convertCsvToMemoryDoc(fileName, filePath);
+  }
+
   let content: string;
   try {
     content = await extractRawText(filePath);

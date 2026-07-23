@@ -26,6 +26,7 @@ import {
   Download,
   Presentation,
   HelpCircle,
+  Paperclip,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/system/ThemeToggle";
 import { HelpTip } from "@/components/help/HelpTip";
@@ -277,7 +278,13 @@ function ArtifactCard({
             >
               {isDocument && isComplete && gen.result?.documentType
                 ? gen.result.documentType.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
-                : isMicrosite ? "Microsite" : isDocument ? "Document" : isSlide ? "Presentation" : "Proposal"}
+                : isMicrosite
+                  ? "Microsite"
+                  : isDocument
+                    ? (isGenerating ? "Generate Document" : "Document")
+                    : isSlide
+                      ? "Presentation"
+                      : (isGenerating ? "Generate Proposal" : "Proposal")}
             </span>
             {isDocument && isComplete && gen.result?.preferredFormat && gen.result.preferredFormat !== "md" && (
               <span
@@ -322,6 +329,26 @@ function ArtifactCard({
           >
             {gen.clientSlug} · {isMicrosite ? "Microsite" : isDocument ? "Document" : isSlide ? "Presentation" : "Proposal"}
           </div>
+          {isGenerating && !!gen.attachedFileNames?.length && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                fontSize: 11,
+                color: 'var(--muted)',
+                marginTop: 2,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <Paperclip size={11} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {gen.attachedFileNames.join(', ')}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -3870,6 +3897,10 @@ export default function SuperClientPage() {
     // files.json / memory index.json (unsynchronized read-modify-write) —
     // sequential keeps zero added concurrency instead of a lock.
     const attachedFileNames: string[] = [];
+    // Original browser filenames, parallel to attachedFileNames (which holds the
+    // server-assigned, timestamp-suffixed stored filename) — for display only,
+    // e.g. on the generation card, where the raw stored name would look ugly.
+    const attachedFileDisplayNames: string[] = [];
     if (composerStagedDocs.length > 0) {
       const staged = composerStagedDocs;
       setComposerStagedDocs([]);
@@ -3885,7 +3916,10 @@ export default function SuperClientPage() {
       try {
         for (let i = 0; i < staged.length; i++) {
           const fileName = await handleFileUploadFromComposer(staged[i].file, { sync: true }, uploadIds[i]);
-          if (fileName) attachedFileNames.push(fileName);
+          if (fileName) {
+            attachedFileNames.push(fileName);
+            attachedFileDisplayNames.push(staged[i].file.name);
+          }
         }
       } finally {
         setComposerUploading(false);
@@ -4018,6 +4052,7 @@ export default function SuperClientPage() {
         type: "slide",
         title: "Presentation",
         abort: () => abortRef.current?.abort(),
+        attachedFileNames: attachedFileDisplayNames,
       });
       generationStore.addStep(slideGenId, "Reading client context…");
       localGenIdsRef.current.add(slideGenId);
@@ -4030,6 +4065,7 @@ export default function SuperClientPage() {
         type: 'proposal',
         title: 'Proposal',
         abort: () => abortRef.current?.abort(),
+        attachedFileNames: attachedFileDisplayNames,
       });
       localGenIdsRef.current.add(proposalGenId);
     } else if (DOCUMENT_INTENT_RE.test(text)) {
@@ -4043,6 +4079,7 @@ export default function SuperClientPage() {
         type: "document",
         title: "Document",
         abort: () => abortRef.current?.abort(),
+        attachedFileNames: attachedFileDisplayNames,
       });
       generationStore.addStep(documentGenId, "Reading client context…");
       localGenIdsRef.current.add(documentGenId);
@@ -4107,6 +4144,7 @@ export default function SuperClientPage() {
                 type: t,
                 title: evt.genTitle ?? evt.skillName ?? (t === "slide" ? "Presentation" : t === "proposal" ? "Proposal" : "Document"),
                 abort: () => abortRef.current?.abort(),
+                attachedFileNames: attachedFileDisplayNames,
               });
               localGenIdsRef.current.add(gid);
               if (t === "slide") slideGenId = gid;
@@ -4203,6 +4241,7 @@ export default function SuperClientPage() {
                   type: 'proposal',
                   title: evt.proposalSaved.title,
                   abort: () => {},
+                  attachedFileNames: attachedFileDisplayNames,
                 });
                 localGenIdsRef.current.add(effectiveGenId);
               }
@@ -4300,6 +4339,7 @@ export default function SuperClientPage() {
                   type: "document",
                   title: evt.documentSaved.title,
                   abort: () => {},
+                  attachedFileNames: attachedFileDisplayNames,
                 });
                 localGenIdsRef.current.add(effectiveDocGenId);
               }
@@ -4358,6 +4398,7 @@ export default function SuperClientPage() {
                   type: "slide",
                   title: evt.slideSaved.title,
                   abort: () => {},
+                  attachedFileNames: attachedFileDisplayNames,
                 });
                 localGenIdsRef.current.add(effectiveSlideGenId);
               }
@@ -6803,7 +6844,7 @@ export default function SuperClientPage() {
                     <input
                       ref={composerFileInputRef}
                       type="file"
-                      accept=".pdf,.txt,.md"
+                      accept=".pdf,.txt,.md,.csv"
                       multiple
                       style={{ display: 'none' }}
                       onChange={(e) => {
@@ -8556,7 +8597,7 @@ export default function SuperClientPage() {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept=".pdf,.txt,.md"
+                      accept=".pdf,.txt,.md,.csv"
                       style={{ display: 'none' }}
                       onChange={(e) => {
                         const f = e.target.files?.[0];
@@ -8575,7 +8616,7 @@ export default function SuperClientPage() {
                           opacity: 0.5,
                         }}
                       >
-                        Upload .pdf, .txt, or .md files.
+                        Upload .pdf, .txt, .md, or .csv files.
                       </div>
                     ) : (
                       docs.map((doc) => {

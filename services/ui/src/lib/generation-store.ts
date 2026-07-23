@@ -14,6 +14,10 @@ export interface Generation {
   createdAt: string;
   charCount?: number; // HTML chars written so far — updated live during microsite generation
   error?: string;
+  // Server-assigned filename(s) attached alongside the message that triggered
+  // this generation, if any — shown on the card so it's clear which upload(s)
+  // this proposal/document is being drafted from while it's still generating.
+  attachedFileNames?: string[];
   result?: {
     fileName?: string;       // proposal
     micrositeId?: string;    // microsite
@@ -63,6 +67,7 @@ export const generationStore = {
     type: GenerationType;
     title: string;
     abort: () => void;
+    attachedFileNames?: string[];
   }): void {
     store.set(params.id, {
       id: params.id,
@@ -73,6 +78,7 @@ export const generationStore = {
       steps: [],
       createdAt: new Date().toISOString(),
       abort: params.abort,
+      ...(params.attachedFileNames?.length ? { attachedFileNames: params.attachedFileNames } : {}),
     });
     broadcast();
   },

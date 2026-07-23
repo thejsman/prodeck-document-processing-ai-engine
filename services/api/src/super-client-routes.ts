@@ -9,6 +9,7 @@ import { ClientMemoryService } from './memory/client-memory.service.js';
 import type { ClientKnowledgeEntry } from './memory/client-memory.types.js';
 import { DocumentMemoryService } from './memory/document-memory.service.js';
 import { convertUploadToMemoryDoc } from './memory/document-converter.js';
+import { maybeQueryCsvs } from './memory/csv-query.js';
 import { syncChatMemory } from './memory/chat-memory-sync.js';
 import { syncClientKnowledge } from './memory/client-knowledge-sync.js';
 import { selectRelevantMemory, getMemoryDocsByIds, type RelevanceDecision } from './memory/memory-relevance.js';
@@ -2137,6 +2138,24 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
         }
       }
 
+      // CSV data is never dumped into the prompt in bulk (see convertCsvToMemoryDoc —
+      // its memory doc is just a schema + small sample) — instead, when a CSV is
+      // relevant to this turn, a small purpose-built LLM call decides whether the
+      // message needs precise data from it and, if so, emits a filter/aggregate spec
+      // that's executed deterministically against the real rows. Runs for both chat
+      // answers and generation turns, since both share this same prompt build.
+      const csvDocs = relevantMemoryDocs.filter(
+        (d) => d.entry.type === 'upload' && d.entry.sourceId && path.extname(d.entry.fileName).toLowerCase() === '.csv',
+      );
+      if (csvDocs.length > 0) {
+        const queryBlock = await maybeQueryCsvs(
+          effectiveMessage,
+          csvDocs.map((d) => ({ fileName: d.entry.fileName, filePath: path.join(dir, 'uploads', d.entry.sourceId!) })),
+          llmGenerateFn,
+        );
+        if (queryBlock) promptParts.push(queryBlock);
+      }
+
       // For non-presentation document requests, inject the matched skill's persona
       if (matchedDocumentSkill && !isPresentationRequest && matchedSkillInstructionsMd) {
         promptParts.push(`\n## Document Generation Expertise\n${matchedSkillInstructionsMd.trim()}`);
@@ -2695,7 +2714,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     const uploadsDir = path.join(dir, 'uploads');
     await mkdir(uploadsDir, { recursive: true });
 
-    const ALLOWED = ['.pdf', '.txt', '.md'];
+    const ALLOWED = ['.pdf', '.txt', '.md', '.csv'];
     const MAX_SIZE = 50 * 1024 * 1024;
 
     const parts = req.parts();
@@ -2826,7 +2845,7 @@ export function registerSuperClientRoutes(app: FastifyInstance, workdir: string)
     }
 
     if (added.length === 0) {
-      return reply.code(400).send({ error: 'No valid files provided. Allowed: .pdf, .txt, .md' });
+      return reply.code(400).send({ error: 'No valid files provided. Allowed: .pdf, .txt, .md, .csv' });
     }
 
     return reply.code(201).send({ files: added });
